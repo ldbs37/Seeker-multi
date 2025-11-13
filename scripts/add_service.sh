@@ -33,10 +33,22 @@ if [ $# -lt 1 ]; then
     echo "Usage: $0 <service_name>"
     echo ""
     echo "Services disponibles:"
+    echo ""
+    echo "Streaming:"
     echo "  - plex          : Serveur de streaming média"
-    echo "  - jellyfin      : Serveur de streaming média (alternative open-source à Plex)"
-    echo "  - scrutiny      : Monitoring des disques durs"
+    echo "  - jellyfin      : Alternative open-source à Plex"
+    echo ""
+    echo "Monitoring & Dashboards:"
+    echo "  - scrutiny      : Monitoring des disques durs (S.M.A.R.T.)"
     echo "  - uptime-kuma   : Monitoring de disponibilité"
+    echo "  - dashdot       : Dashboard de monitoring système élégant"
+    echo "  - tautulli      : Statistiques détaillées pour Plex"
+    echo ""
+    echo "Gestion:"
+    echo "  - portainer     : Interface web pour gérer Docker"
+    echo "  - organizr      : Dashboard all-in-one pour tous vos services"
+    echo ""
+    echo "Maintenance:"
     echo "  - watchtower    : Mises à jour automatiques des conteneurs"
     echo "  - duplicati     : Système de backup"
     exit 1
@@ -207,6 +219,102 @@ EOF
 EOF
         info "Jellyfin sera accessible sur le port 8096"
         info "Interface web: http://votre-serveur:8096"
+        ;;
+
+    dashdot)
+        log "Installation de Dashdot (monitoring système)..."
+        mkdir -p "$INSTALL_DIR/dashdot"
+
+        cat >> "$DOCKER_COMPOSE_FILE" << EOF
+
+  dashdot:
+    image: mauricenino/dashdot:latest
+    container_name: dashdot
+    privileged: true
+    ports:
+      - "3002:3001"
+    volumes:
+      - $INSTALL_DIR/dashdot:/data
+      - /:/mnt/host:ro
+    environment:
+      - TZ=$TZ
+      - DASHDOT_ENABLE_CPU_TEMPS=true
+    restart: unless-stopped
+EOF
+        info "Dashdot sera accessible sur le port 3002"
+        info "Interface web: http://votre-serveur:3002"
+        ;;
+
+    portainer)
+        log "Installation de Portainer (gestion Docker)..."
+        mkdir -p "$INSTALL_DIR/portainer"
+
+        cat >> "$DOCKER_COMPOSE_FILE" << EOF
+
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: portainer
+    ports:
+      - "9000:9000"
+      - "8000:8000"
+    volumes:
+      - $INSTALL_DIR/portainer:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - TZ=$TZ
+    restart: unless-stopped
+EOF
+        info "Portainer sera accessible sur le port 9000"
+        info "Interface web: http://votre-serveur:9000"
+        warn "Premier accès : créez un compte admin dans les 5 minutes"
+        ;;
+
+    tautulli)
+        log "Installation de Tautulli (stats Plex)..."
+        mkdir -p "$INSTALL_DIR/tautulli"
+
+        cat >> "$DOCKER_COMPOSE_FILE" << EOF
+
+  tautulli:
+    image: linuxserver/tautulli:latest
+    container_name: tautulli
+    environment:
+      - PUID=$ADMIN_UID
+      - PGID=$ADMIN_GID
+      - TZ=$TZ
+    volumes:
+      - $INSTALL_DIR/tautulli:/config
+    ports:
+      - "8181:8181"
+    restart: unless-stopped
+EOF
+        info "Tautulli sera accessible sur le port 8181"
+        info "Interface web: http://votre-serveur:8181"
+        info "Connectez Tautulli à Plex pour voir les statistiques"
+        ;;
+
+    organizr)
+        log "Installation d'Organizr (dashboard all-in-one)..."
+        mkdir -p "$INSTALL_DIR/organizr"
+
+        cat >> "$DOCKER_COMPOSE_FILE" << EOF
+
+  organizr:
+    image: organizr/organizr:latest
+    container_name: organizr
+    environment:
+      - PUID=$ADMIN_UID
+      - PGID=$ADMIN_GID
+      - TZ=$TZ
+    volumes:
+      - $INSTALL_DIR/organizr:/config
+    ports:
+      - "9983:80"
+    restart: unless-stopped
+EOF
+        info "Organizr sera accessible sur le port 9983"
+        info "Interface web: http://votre-serveur:9983"
+        info "Premier accès : configurez l'admin et ajoutez vos services"
         ;;
 
     *)

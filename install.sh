@@ -49,6 +49,10 @@ INSTALL_PLEX=false
 INSTALL_JELLYFIN=false
 INSTALL_SCRUTINY=false
 INSTALL_UPTIME_KUMA=false
+INSTALL_DASHDOT=false
+INSTALL_TAUTULLI=false
+INSTALL_PORTAINER=false
+INSTALL_ORGANIZR=false
 INSTALL_WATCHTOWER=false
 INSTALL_DUPLICATI=false
 
@@ -479,6 +483,83 @@ EOF
         mkdir -p "$INSTALL_DIR/jellyfin/cache"
     fi
 
+    if [ "$INSTALL_DASHDOT" = true ]; then
+        cat >> "$compose_file" << 'EOF'
+
+  dashdot:
+    image: mauricenino/dashdot:latest
+    container_name: dashdot
+    privileged: true
+    ports:
+      - "3002:3001"
+    volumes:
+      - ./dashdot:/data
+      - /:/mnt/host:ro
+    environment:
+      - TZ=${TZ}
+      - DASHDOT_ENABLE_CPU_TEMPS=true
+    restart: unless-stopped
+EOF
+        mkdir -p "$INSTALL_DIR/dashdot"
+    fi
+
+    if [ "$INSTALL_TAUTULLI" = true ]; then
+        cat >> "$compose_file" << 'EOF'
+
+  tautulli:
+    image: linuxserver/tautulli:latest
+    container_name: tautulli
+    environment:
+      - PUID=${ADMIN_UID}
+      - PGID=${ADMIN_GID}
+      - TZ=${TZ}
+    volumes:
+      - ./tautulli:/config
+    ports:
+      - "8181:8181"
+    restart: unless-stopped
+EOF
+        mkdir -p "$INSTALL_DIR/tautulli"
+    fi
+
+    if [ "$INSTALL_PORTAINER" = true ]; then
+        cat >> "$compose_file" << 'EOF'
+
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: portainer
+    ports:
+      - "9000:9000"
+      - "8000:8000"
+    volumes:
+      - ./portainer:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - TZ=${TZ}
+    restart: unless-stopped
+EOF
+        mkdir -p "$INSTALL_DIR/portainer"
+    fi
+
+    if [ "$INSTALL_ORGANIZR" = true ]; then
+        cat >> "$compose_file" << 'EOF'
+
+  organizr:
+    image: organizr/organizr:latest
+    container_name: organizr
+    environment:
+      - PUID=${ADMIN_UID}
+      - PGID=${ADMIN_GID}
+      - TZ=${TZ}
+    volumes:
+      - ./organizr:/config
+    ports:
+      - "9983:80"
+    restart: unless-stopped
+EOF
+        mkdir -p "$INSTALL_DIR/organizr"
+    fi
+
     # Créer le fichier .env
     cat > "$INSTALL_DIR/.env" << EOF
 TZ=$TZ
@@ -549,13 +630,27 @@ configure_installation() {
     read -p "Installer Jellyfin (alternative open-source à Plex) ? (o/N): " input
     [[ $input =~ ^[oO]$ ]] && INSTALL_JELLYFIN=true
 
-    echo -e "\n${BLUE}=== Services de monitoring et maintenance ===${NC}"
-    read -p "Installer Scrutiny (monitoring disques) ? (o/N): " input
+    echo -e "\n${BLUE}=== Dashboards & Monitoring ===${NC}"
+    read -p "Installer Dashdot (monitoring système élégant) ? (o/N): " input
+    [[ $input =~ ^[oO]$ ]] && INSTALL_DASHDOT=true
+
+    read -p "Installer Scrutiny (monitoring disques S.M.A.R.T.) ? (o/N): " input
     [[ $input =~ ^[oO]$ ]] && INSTALL_SCRUTINY=true
 
     read -p "Installer Uptime Kuma (monitoring uptime) ? (o/N): " input
     [[ $input =~ ^[oO]$ ]] && INSTALL_UPTIME_KUMA=true
 
+    read -p "Installer Tautulli (statistiques Plex) ? (o/N): " input
+    [[ $input =~ ^[oO]$ ]] && INSTALL_TAUTULLI=true
+
+    echo -e "\n${BLUE}=== Gestion & Organisation ===${NC}"
+    read -p "Installer Portainer (gestion Docker web) ? (o/N): " input
+    [[ $input =~ ^[oO]$ ]] && INSTALL_PORTAINER=true
+
+    read -p "Installer Organizr (dashboard all-in-one) ? (o/N): " input
+    [[ $input =~ ^[oO]$ ]] && INSTALL_ORGANIZR=true
+
+    echo -e "\n${BLUE}=== Maintenance ===${NC}"
     read -p "Installer Watchtower (mises à jour auto) ? (o/N): " input
     [[ $input =~ ^[oO]$ ]] && INSTALL_WATCHTOWER=true
 
@@ -604,8 +699,12 @@ configure_installation() {
     echo "Services optionnels:"
     [ "$INSTALL_PLEX" = true ] && echo "  ✓ Plex"
     [ "$INSTALL_JELLYFIN" = true ] && echo "  ✓ Jellyfin"
+    [ "$INSTALL_DASHDOT" = true ] && echo "  ✓ Dashdot"
     [ "$INSTALL_SCRUTINY" = true ] && echo "  ✓ Scrutiny"
     [ "$INSTALL_UPTIME_KUMA" = true ] && echo "  ✓ Uptime Kuma"
+    [ "$INSTALL_TAUTULLI" = true ] && echo "  ✓ Tautulli"
+    [ "$INSTALL_PORTAINER" = true ] && echo "  ✓ Portainer"
+    [ "$INSTALL_ORGANIZR" = true ] && echo "  ✓ Organizr"
     [ "$INSTALL_WATCHTOWER" = true ] && echo "  ✓ Watchtower"
     [ "$INSTALL_DUPLICATI" = true ] && echo "  ✓ Duplicati"
     echo "Utilisateurs: ${#INITIAL_USERS[@]}"
@@ -721,8 +820,12 @@ main() {
     echo "  - Authelia (auth): http://votre-serveur:9091"
     [ "$INSTALL_PLEX" = true ] && echo "  - Plex: http://votre-serveur:32400/web"
     [ "$INSTALL_JELLYFIN" = true ] && echo "  - Jellyfin: http://votre-serveur:8096"
+    [ "$INSTALL_DASHDOT" = true ] && echo "  - Dashdot: http://votre-serveur:3002"
     [ "$INSTALL_SCRUTINY" = true ] && echo "  - Scrutiny: http://votre-serveur:8080"
     [ "$INSTALL_UPTIME_KUMA" = true ] && echo "  - Uptime Kuma: http://votre-serveur:3001"
+    [ "$INSTALL_TAUTULLI" = true ] && echo "  - Tautulli: http://votre-serveur:8181"
+    [ "$INSTALL_PORTAINER" = true ] && echo "  - Portainer: http://votre-serveur:9000"
+    [ "$INSTALL_ORGANIZR" = true ] && echo "  - Organizr: http://votre-serveur:9983"
     [ "$INSTALL_DUPLICATI" = true ] && echo "  - Duplicati: http://votre-serveur:8200"
 
     echo -e "\n${YELLOW}Prochaines étapes:${NC}"
