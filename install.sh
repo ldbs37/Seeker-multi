@@ -56,6 +56,10 @@ INSTALL_ORGANIZR=false
 INSTALL_WATCHTOWER=false
 INSTALL_DUPLICATI=false
 
+# Identifiants Portainer
+PORTAINER_USER=""
+PORTAINER_PASSWORD=""
+
 #######################
 # Fonctions utilitaires
 #######################
@@ -645,7 +649,30 @@ configure_installation() {
 
     echo -e "\n${BLUE}=== Gestion & Organisation ===${NC}"
     read -p "Installer Portainer (gestion Docker web) ? (o/N): " input
-    [[ $input =~ ^[oO]$ ]] && INSTALL_PORTAINER=true
+    if [[ $input =~ ^[oO]$ ]]; then
+        INSTALL_PORTAINER=true
+
+        # Configurer les identifiants Portainer
+        echo -e "\n${BLUE}Configuration Portainer:${NC}"
+        read -p "Nom d'utilisateur admin [admin]: " PORTAINER_USER
+        PORTAINER_USER=${PORTAINER_USER:-"admin"}
+
+        while true; do
+            read -s -p "Mot de passe admin (min 12 caractères): " PORTAINER_PASSWORD
+            echo
+            if [ ${#PORTAINER_PASSWORD} -ge 12 ]; then
+                read -s -p "Confirmez le mot de passe: " PORTAINER_PASSWORD_CONFIRM
+                echo
+                if [ "$PORTAINER_PASSWORD" = "$PORTAINER_PASSWORD_CONFIRM" ]; then
+                    break
+                else
+                    warn "Les mots de passe ne correspondent pas"
+                fi
+            else
+                warn "Le mot de passe doit contenir au moins 12 caractères"
+            fi
+        done
+    fi
 
     read -p "Installer Organizr (dashboard all-in-one) ? (o/N): " input
     [[ $input =~ ^[oO]$ ]] && INSTALL_ORGANIZR=true
@@ -759,6 +786,38 @@ deploy_services() {
     # Attendre le démarrage
     sleep 10
 
+    # Configuration automatique de Portainer si installé
+    if [ "$INSTALL_PORTAINER" = true ] && [ -n "$PORTAINER_USER" ] && [ -n "$PORTAINER_PASSWORD" ]; then
+        log "Configuration automatique de Portainer..."
+
+        # Attendre que Portainer soit prêt (max 60 secondes)
+        RETRY_COUNT=0
+        MAX_RETRIES=30
+        while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            if curl -s http://localhost:9000/api/status >/dev/null 2>&1; then
+                break
+            fi
+            sleep 2
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+        done
+
+        if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+            warn "Portainer n'est pas encore prêt, la configuration sera à faire manuellement"
+        else
+            # Créer le compte admin via l'API
+            RESPONSE=$(curl -s -X POST http://localhost:9000/api/users/admin/init \
+                -H "Content-Type: application/json" \
+                -d "{\"Username\":\"$PORTAINER_USER\",\"Password\":\"$PORTAINER_PASSWORD\"}")
+
+            if echo "$RESPONSE" | grep -q "Id"; then
+                log "${GREEN}✓${NC} Compte administrateur Portainer créé automatiquement"
+            else
+                warn "Impossible de créer le compte admin Portainer automatiquement"
+                info "Créez-le manuellement sur http://votre-serveur:9000"
+            fi
+        fi
+    fi
+
     log "✓ Services démarrés"
 }
 
@@ -824,7 +883,10 @@ main() {
     [ "$INSTALL_SCRUTINY" = true ] && echo "  - Scrutiny: http://votre-serveur:8080"
     [ "$INSTALL_UPTIME_KUMA" = true ] && echo "  - Uptime Kuma: http://votre-serveur:3001"
     [ "$INSTALL_TAUTULLI" = true ] && echo "  - Tautulli: http://votre-serveur:8181"
-    [ "$INSTALL_PORTAINER" = true ] && echo "  - Portainer: http://votre-serveur:9000"
+    if [ "$INSTALL_PORTAINER" = true ]; then
+        echo "  - Portainer: http://votre-serveur:9000"
+        [ -n "$PORTAINER_USER" ] && echo "    Utilisateur: $PORTAINER_USER"
+    fi
     [ "$INSTALL_ORGANIZR" = true ] && echo "  - Organizr: http://votre-serveur:9983"
     [ "$INSTALL_DUPLICATI" = true ] && echo "  - Duplicati: http://votre-serveur:8200"
 

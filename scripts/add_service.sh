@@ -264,9 +264,73 @@ EOF
       - TZ=$TZ
     restart: unless-stopped
 EOF
-        info "Portainer sera accessible sur le port 9000"
-        info "Interface web: http://votre-serveur:9000"
-        warn "Premier accès : créez un compte admin dans les 5 minutes"
+
+        # Démarrer Portainer
+        cd "$INSTALL_DIR"
+        docker-compose up -d portainer
+
+        # Configuration du compte admin
+        log "Configuration du compte administrateur Portainer..."
+        echo ""
+        read -p "Nom d'utilisateur admin [admin]: " PORTAINER_USER
+        PORTAINER_USER=${PORTAINER_USER:-"admin"}
+
+        while true; do
+            read -s -p "Mot de passe admin (min 12 caractères): " PORTAINER_PASSWORD
+            echo
+            if [ ${#PORTAINER_PASSWORD} -ge 12 ]; then
+                read -s -p "Confirmez le mot de passe: " PORTAINER_PASSWORD_CONFIRM
+                echo
+                if [ "$PORTAINER_PASSWORD" = "$PORTAINER_PASSWORD_CONFIRM" ]; then
+                    break
+                else
+                    warn "Les mots de passe ne correspondent pas"
+                fi
+            else
+                warn "Le mot de passe doit contenir au moins 12 caractères"
+            fi
+        done
+
+        # Attendre que Portainer soit prêt (max 60 secondes)
+        log "Attente du démarrage de Portainer..."
+        RETRY_COUNT=0
+        MAX_RETRIES=30
+        while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            if curl -s http://localhost:9000/api/status >/dev/null 2>&1; then
+                break
+            fi
+            sleep 2
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+        done
+
+        if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+            warn "Portainer a mis trop de temps à démarrer"
+            warn "Créez manuellement le compte admin sur http://votre-serveur:9000"
+            info "Utilisateur: $PORTAINER_USER"
+            return
+        fi
+
+        # Créer le compte admin via l'API
+        log "Création du compte administrateur..."
+        RESPONSE=$(curl -s -X POST http://localhost:9000/api/users/admin/init \
+            -H "Content-Type: application/json" \
+            -d "{\"Username\":\"$PORTAINER_USER\",\"Password\":\"$PORTAINER_PASSWORD\"}")
+
+        if echo "$RESPONSE" | grep -q "Id"; then
+            log "${GREEN}✓${NC} Compte administrateur créé avec succès !"
+            info "Portainer est accessible sur le port 9000"
+            info "Interface web: http://votre-serveur:9000"
+            info "Utilisateur: $PORTAINER_USER"
+            echo ""
+            info "Vous pouvez maintenant vous connecter avec vos identifiants"
+        else
+            warn "Impossible de créer le compte admin automatiquement"
+            warn "Créez-le manuellement sur http://votre-serveur:9000 dans les 5 minutes"
+            info "Utilisateur suggéré: $PORTAINER_USER"
+        fi
+
+        # Ne pas exécuter la section de démarrage normale
+        return
         ;;
 
     tautulli)
