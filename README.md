@@ -351,6 +351,27 @@ sudo ./install.sh
 # Configurez les quotas appropriés
 ```
 
+## 📚 Documentation
+
+Pour plus d'informations, consultez la documentation dans `/docs` :
+
+- **[AUTO_CONFIGURATION.md](docs/AUTO_CONFIGURATION.md)** - Guide complet sur l'auto-configuration des services (Portainer, Jellyfin) et les services nécessitant une configuration manuelle
+- **[INSTALLATION.md](docs/INSTALLATION.md)** - Guide d'installation détaillé
+- **[scripts/README.md](scripts/README.md)** - Documentation des scripts de gestion
+
+### Services avec Auto-Configuration
+
+Les services suivants créent automatiquement le compte administrateur :
+- ✓ **Portainer** - Le script collecte les identifiants et crée le compte admin via l'API
+- ✓ **Jellyfin** - Auto-configuration via l'API de démarrage Jellyfin
+
+### Services Nécessitant Configuration Manuelle
+
+Ces services requièrent une configuration via l'interface web au premier accès :
+- ⚠️ **Uptime Kuma**, **Organizr**, **Tautulli**, **Duplicati**
+
+Voir [AUTO_CONFIGURATION.md](docs/AUTO_CONFIGURATION.md) pour les détails complets.
+
 ## 📜 Licence
 
 Ce projet est sous licence MIT. Voir le fichier `LICENSE` pour plus de détails.
@@ -371,5 +392,5 @@ Pour toute question ou problème :
 
 ---
 
-**Version:** 2.0 (Simplifiée)
-**Dernière mise à jour:** 2025
+**Version:** 2.2 (Auto-configuration Jellyfin)
+**Dernière mise à jour:** 2025-01-13

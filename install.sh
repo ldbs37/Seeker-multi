@@ -60,6 +60,10 @@ INSTALL_DUPLICATI=false
 PORTAINER_USER=""
 PORTAINER_PASSWORD=""
 
+# Identifiants Jellyfin
+JELLYFIN_USER=""
+JELLYFIN_PASSWORD=""
+
 #######################
 # Fonctions utilitaires
 #######################
@@ -632,7 +636,30 @@ configure_installation() {
     [[ $input =~ ^[oO]$ ]] && INSTALL_PLEX=true
 
     read -p "Installer Jellyfin (alternative open-source à Plex) ? (o/N): " input
-    [[ $input =~ ^[oO]$ ]] && INSTALL_JELLYFIN=true
+    if [[ $input =~ ^[oO]$ ]]; then
+        INSTALL_JELLYFIN=true
+
+        # Configurer les identifiants Jellyfin
+        echo -e "\n${BLUE}Configuration Jellyfin:${NC}"
+        read -p "Nom d'utilisateur admin [admin]: " JELLYFIN_USER
+        JELLYFIN_USER=${JELLYFIN_USER:-"admin"}
+
+        while true; do
+            read -s -p "Mot de passe admin (min 8 caractères): " JELLYFIN_PASSWORD
+            echo
+            if [ ${#JELLYFIN_PASSWORD} -ge 8 ]; then
+                read -s -p "Confirmez le mot de passe: " JELLYFIN_PASSWORD_CONFIRM
+                echo
+                if [ "$JELLYFIN_PASSWORD" = "$JELLYFIN_PASSWORD_CONFIRM" ]; then
+                    break
+                else
+                    warn "Les mots de passe ne correspondent pas"
+                fi
+            else
+                warn "Le mot de passe doit contenir au moins 8 caractères"
+            fi
+        done
+    fi
 
     echo -e "\n${BLUE}=== Dashboards & Monitoring ===${NC}"
     read -p "Installer Dashdot (monitoring système élégant) ? (o/N): " input
@@ -814,6 +841,41 @@ deploy_services() {
             else
                 warn "Impossible de créer le compte admin Portainer automatiquement"
                 info "Créez-le manuellement sur http://votre-serveur:9000"
+            fi
+        fi
+    fi
+
+    # Configuration automatique de Jellyfin si installé
+    if [ "$INSTALL_JELLYFIN" = true ] && [ -n "$JELLYFIN_USER" ] && [ -n "$JELLYFIN_PASSWORD" ]; then
+        log "Configuration automatique de Jellyfin..."
+
+        # Attendre que Jellyfin soit prêt (max 60 secondes)
+        RETRY_COUNT=0
+        MAX_RETRIES=30
+        while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            if curl -s http://localhost:8096/health >/dev/null 2>&1; then
+                break
+            fi
+            sleep 2
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+        done
+
+        if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+            warn "Jellyfin n'est pas encore prêt, la configuration sera à faire manuellement"
+        else
+            # Créer le compte admin via l'API
+            RESPONSE=$(curl -s -X POST http://localhost:8096/Startup/User \
+                -H "Content-Type: application/json" \
+                -d "{\"Name\":\"$JELLYFIN_USER\",\"Password\":\"$JELLYFIN_PASSWORD\"}")
+
+            # Compléter le wizard de démarrage
+            curl -s -X POST http://localhost:8096/Startup/Complete >/dev/null 2>&1
+
+            if [ $? -eq 0 ]; then
+                log "${GREEN}✓${NC} Compte administrateur Jellyfin créé automatiquement"
+            else
+                warn "Impossible de créer le compte admin Jellyfin automatiquement"
+                info "Créez-le manuellement sur http://votre-serveur:8096"
             fi
         fi
     fi

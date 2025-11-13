@@ -217,8 +217,76 @@ EOF
       - "1900:1900/udp"
     restart: unless-stopped
 EOF
-        info "Jellyfin sera accessible sur le port 8096"
-        info "Interface web: http://votre-serveur:8096"
+
+        # Démarrer Jellyfin
+        cd "$INSTALL_DIR"
+        docker-compose up -d jellyfin
+
+        # Configuration du compte admin
+        log "Configuration du compte administrateur Jellyfin..."
+        echo ""
+        read -p "Nom d'utilisateur admin [admin]: " JELLYFIN_USER
+        JELLYFIN_USER=${JELLYFIN_USER:-"admin"}
+
+        while true; do
+            read -s -p "Mot de passe admin (min 8 caractères): " JELLYFIN_PASSWORD
+            echo
+            if [ ${#JELLYFIN_PASSWORD} -ge 8 ]; then
+                read -s -p "Confirmez le mot de passe: " JELLYFIN_PASSWORD_CONFIRM
+                echo
+                if [ "$JELLYFIN_PASSWORD" = "$JELLYFIN_PASSWORD_CONFIRM" ]; then
+                    break
+                else
+                    warn "Les mots de passe ne correspondent pas"
+                fi
+            else
+                warn "Le mot de passe doit contenir au moins 8 caractères"
+            fi
+        done
+
+        # Attendre que Jellyfin soit prêt (max 60 secondes)
+        log "Attente du démarrage de Jellyfin..."
+        RETRY_COUNT=0
+        MAX_RETRIES=30
+        while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            if curl -s http://localhost:8096/health >/dev/null 2>&1; then
+                break
+            fi
+            sleep 2
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+        done
+
+        if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+            warn "Jellyfin a mis trop de temps à démarrer"
+            warn "Créez manuellement le compte admin sur http://votre-serveur:8096"
+            info "Utilisateur: $JELLYFIN_USER"
+            return
+        fi
+
+        # Créer le compte admin via l'API
+        log "Création du compte administrateur..."
+        RESPONSE=$(curl -s -X POST http://localhost:8096/Startup/User \
+            -H "Content-Type: application/json" \
+            -d "{\"Name\":\"$JELLYFIN_USER\",\"Password\":\"$JELLYFIN_PASSWORD\"}")
+
+        # Compléter le wizard de démarrage
+        curl -s -X POST http://localhost:8096/Startup/Complete >/dev/null 2>&1
+
+        if [ $? -eq 0 ]; then
+            log "${GREEN}✓${NC} Compte administrateur créé avec succès !"
+            info "Jellyfin est accessible sur le port 8096"
+            info "Interface web: http://votre-serveur:8096"
+            info "Utilisateur: $JELLYFIN_USER"
+            echo ""
+            info "Vous pouvez maintenant vous connecter avec vos identifiants"
+        else
+            warn "Impossible de créer le compte admin automatiquement"
+            warn "Créez-le manuellement sur http://votre-serveur:8096"
+            info "Utilisateur suggéré: $JELLYFIN_USER"
+        fi
+
+        # Ne pas exécuter la section de démarrage normale
+        return
         ;;
 
     dashdot)
