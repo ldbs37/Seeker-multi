@@ -2,7 +2,7 @@
 
 #######################
 # Script d'ajout d'utilisateur
-# Usage: ./add_user.sh <username> <password> <email> [quota_gb]
+# Usage: ./add_user.sh <username> <password> <email> [quota_gb] [--with-services]
 #######################
 
 set -e
@@ -26,16 +26,22 @@ DOCKER_COMPOSE_FILE="$INSTALL_DIR/docker-compose.yml"
 AUTHELIA_CONFIG_DIR="$INSTALL_DIR/authelia"
 TZ="Europe/Paris"
 DEFAULT_QUOTA="500"
+INTERACTIVE_SERVICES=false
 
 # Vérification des arguments
 if [ $# -lt 3 ]; then
-    error "Usage: $0 <username> <password> <email> [quota_gb]"
+    error "Usage: $0 <username> <password> <email> [quota_gb] [--with-services]"
 fi
 
 USERNAME=$1
 PASSWORD=$2
 EMAIL=$3
 QUOTA=${4:-$DEFAULT_QUOTA}
+
+# Vérifier si le flag --with-services est présent
+if [[ "$*" == *"--with-services"* ]]; then
+    INTERACTIVE_SERVICES=true
+fi
 
 # Vérification root
 if [[ $EUID -ne 0 ]]; then
@@ -120,21 +126,14 @@ for dir in "${MEDIA_DIRS[@]}"; do
     chmod 755 "$BASE_DIR/$dir"
 done
 
-# Dossiers de configuration des services
-declare -a SERVICE_DIRS=(
+# Dossiers de configuration des services de base
+declare -a BASE_SERVICE_DIRS=(
     "qbittorrent"
-    "sonarr"
-    "radarr"
-    "readarr"
-    "bazarr"
-    "prowlarr"
-    "overseerr"
     "homarr"
-    "calibre"
     "filebrowser"
 )
 
-for service in "${SERVICE_DIRS[@]}"; do
+for service in "${BASE_SERVICE_DIRS[@]}"; do
     mkdir -p "$INSTALL_DIR/$service/$USERNAME"
     chown -R "$USER_ID:$USER_ID" "$INSTALL_DIR/$service/$USERNAME"
     chmod 755 "$INSTALL_DIR/$service/$USERNAME"
@@ -167,8 +166,8 @@ if command -v setquota &>/dev/null; then
     setquota -u "$USERNAME" 0 "$QUOTA_KB" 0 0 / 2>/dev/null || warn "Impossible de configurer les quotas"
 fi
 
-# Ajouter les services au docker-compose.yml
-log "Ajout des services Docker..."
+# Ajouter les services de base au docker-compose.yml
+log "Ajout des services de base..."
 
 # Sauvegarder le docker-compose.yml
 cp "$DOCKER_COMPOSE_FILE" "${DOCKER_COMPOSE_FILE}.bak"
@@ -176,17 +175,10 @@ cp "$DOCKER_COMPOSE_FILE" "${DOCKER_COMPOSE_FILE}.bak"
 # Port de base pour cet utilisateur (calculé à partir de l'UID)
 BASE_PORT=$((USER_ID - 1000))
 QBIT_PORT=$((8080 + BASE_PORT * 10))
-SONARR_PORT=$((8989 + BASE_PORT))
-RADARR_PORT=$((7878 + BASE_PORT))
-READARR_PORT=$((8787 + BASE_PORT))
-BAZARR_PORT=$((6767 + BASE_PORT))
-PROWLARR_PORT=$((9696 + BASE_PORT))
-OVERSEERR_PORT=$((5055 + BASE_PORT))
 HOMARR_PORT=$((7575 + BASE_PORT))
-CALIBRE_PORT=$((8083 + BASE_PORT))
 FILEBROWSER_PORT=$((8081 + BASE_PORT))
 
-# Générer la configuration des services
+# Générer la configuration des services de base
 cat >> "$DOCKER_COMPOSE_FILE" << EOF
 
   # Services pour l'utilisateur: $USERNAME
@@ -207,92 +199,6 @@ cat >> "$DOCKER_COMPOSE_FILE" << EOF
       - "$((6881 + BASE_PORT)):6881/udp"
     restart: unless-stopped
 
-  sonarr-$USERNAME:
-    image: linuxserver/sonarr:latest
-    container_name: sonarr-$USERNAME
-    environment:
-      - PUID=$USER_ID
-      - PGID=$USER_ID
-      - TZ=$TZ
-    volumes:
-      - $INSTALL_DIR/sonarr/$USERNAME:/config
-      - $BASE_DIR/tv:/tv
-      - $BASE_DIR/downloads:/downloads
-    ports:
-      - "$SONARR_PORT:8989"
-    restart: unless-stopped
-
-  radarr-$USERNAME:
-    image: linuxserver/radarr:latest
-    container_name: radarr-$USERNAME
-    environment:
-      - PUID=$USER_ID
-      - PGID=$USER_ID
-      - TZ=$TZ
-    volumes:
-      - $INSTALL_DIR/radarr/$USERNAME:/config
-      - $BASE_DIR/movies:/movies
-      - $BASE_DIR/downloads:/downloads
-    ports:
-      - "$RADARR_PORT:7878"
-    restart: unless-stopped
-
-  readarr-$USERNAME:
-    image: lscr.io/linuxserver/readarr:develop
-    container_name: readarr-$USERNAME
-    environment:
-      - PUID=$USER_ID
-      - PGID=$USER_ID
-      - TZ=$TZ
-    volumes:
-      - $INSTALL_DIR/readarr/$USERNAME:/config
-      - $BASE_DIR/books:/books
-      - $BASE_DIR/downloads:/downloads
-    ports:
-      - "$READARR_PORT:8787"
-    restart: unless-stopped
-
-  bazarr-$USERNAME:
-    image: linuxserver/bazarr:latest
-    container_name: bazarr-$USERNAME
-    environment:
-      - PUID=$USER_ID
-      - PGID=$USER_ID
-      - TZ=$TZ
-    volumes:
-      - $INSTALL_DIR/bazarr/$USERNAME:/config
-      - $BASE_DIR/movies:/movies
-      - $BASE_DIR/tv:/tv
-    ports:
-      - "$BAZARR_PORT:6767"
-    restart: unless-stopped
-
-  prowlarr-$USERNAME:
-    image: linuxserver/prowlarr:latest
-    container_name: prowlarr-$USERNAME
-    environment:
-      - PUID=$USER_ID
-      - PGID=$USER_ID
-      - TZ=$TZ
-    volumes:
-      - $INSTALL_DIR/prowlarr/$USERNAME:/config
-    ports:
-      - "$PROWLARR_PORT:9696"
-    restart: unless-stopped
-
-  overseerr-$USERNAME:
-    image: sctx/overseerr:latest
-    container_name: overseerr-$USERNAME
-    environment:
-      - PUID=$USER_ID
-      - PGID=$USER_ID
-      - TZ=$TZ
-    volumes:
-      - $INSTALL_DIR/overseerr/$USERNAME:/app/config
-    ports:
-      - "$OVERSEERR_PORT:5055"
-    restart: unless-stopped
-
   homarr-$USERNAME:
     image: ghcr.io/ajnart/homarr:latest
     container_name: homarr-$USERNAME
@@ -305,20 +211,6 @@ cat >> "$DOCKER_COMPOSE_FILE" << EOF
       - /var/run/docker.sock:/var/run/docker.sock:ro
     ports:
       - "$HOMARR_PORT:7575"
-    restart: unless-stopped
-
-  calibre-$USERNAME:
-    image: linuxserver/calibre-web:latest
-    container_name: calibre-$USERNAME
-    environment:
-      - PUID=$USER_ID
-      - PGID=$USER_ID
-      - TZ=$TZ
-    volumes:
-      - $INSTALL_DIR/calibre/$USERNAME:/config
-      - $BASE_DIR/books:/books
-    ports:
-      - "$CALIBRE_PORT:8083"
     restart: unless-stopped
 
   filebrowser-$USERNAME:
@@ -348,14 +240,40 @@ echo "  - Password: (celui que vous avez défini)"
 echo "  - Email: $EMAIL"
 echo "  - Quota: ${QUOTA}GB"
 echo ""
-info "Services disponibles :"
+info "Services de base installés :"
 echo "  - qBittorrent: http://votre-serveur:$QBIT_PORT"
-echo "  - Sonarr: http://votre-serveur:$SONARR_PORT"
-echo "  - Radarr: http://votre-serveur:$RADARR_PORT"
-echo "  - Readarr: http://votre-serveur:$READARR_PORT"
-echo "  - Bazarr: http://votre-serveur:$BAZARR_PORT"
-echo "  - Prowlarr: http://votre-serveur:$PROWLARR_PORT"
-echo "  - Overseerr: http://votre-serveur:$OVERSEERR_PORT"
-echo "  - Homarr: http://votre-serveur:$HOMARR_PORT"
-echo "  - Calibre: http://votre-serveur:$CALIBRE_PORT"
+echo "  - Homarr (Dashboard): http://votre-serveur:$HOMARR_PORT"
 echo "  - Filebrowser: http://votre-serveur:$FILEBROWSER_PORT"
+echo ""
+
+# Si mode interactif, proposer d'ajouter des services
+if [ "$INTERACTIVE_SERVICES" = true ]; then
+    echo -e "${BLUE}Services optionnels disponibles:${NC}"
+    echo "  - sonarr      : Gestion de séries TV"
+    echo "  - radarr      : Gestion de films"
+    echo "  - readarr     : Gestion de livres"
+    echo "  - bazarr      : Gestion de sous-titres"
+    echo "  - prowlarr    : Gestion d'indexeurs"
+    echo "  - overseerr   : Système de requêtes"
+    echo "  - calibre     : Bibliothèque ebooks"
+    echo ""
+
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+    for service in sonarr radarr readarr bazarr prowlarr overseerr calibre; do
+        read -p "Installer $service ? (o/N): " install_service
+        if [[ $install_service =~ ^[oO]$ ]]; then
+            log "Installation de $service..."
+            "$SCRIPT_DIR/add_user_service.sh" "$USERNAME" "$service"
+        fi
+    done
+else
+    info "Pour ajouter des services supplémentaires:"
+    echo "  cd $INSTALL_DIR/scripts"
+    echo "  sudo ./add_user_service.sh $USERNAME <service>"
+    echo ""
+    echo "Services disponibles: sonarr, radarr, readarr, bazarr, prowlarr, overseerr, calibre"
+    echo ""
+    echo "Ou lancez avec --with-services pour une installation interactive:"
+    echo "  sudo ./add_user.sh $USERNAME <password> <email> $QUOTA --with-services"
+fi

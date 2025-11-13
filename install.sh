@@ -45,6 +45,8 @@ info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 declare -a INITIAL_USERS
 
 # Services optionnels
+INSTALL_PLEX=false
+INSTALL_JELLYFIN=false
 INSTALL_SCRUTINY=false
 INSTALL_UPTIME_KUMA=false
 INSTALL_WATCHTOWER=false
@@ -338,6 +340,11 @@ services:
     ports:
       - "9091:9091"
     restart: unless-stopped
+EOF
+
+    # Plex optionnel
+    if [ "$INSTALL_PLEX" = true ]; then
+        cat >> "$compose_file" << 'EOF'
 
   plex:
     image: linuxserver/plex:latest
@@ -352,6 +359,11 @@ services:
       - ./plex:/config
       - ./data:/data
     restart: unless-stopped
+EOF
+        mkdir -p "$INSTALL_DIR/plex"
+    fi
+
+    cat >> "$compose_file" << 'EOF'
 
   flaresolverr:
     image: ghcr.io/flaresolverr/flaresolverr:latest
@@ -442,6 +454,31 @@ EOF
         mkdir -p "$INSTALL_DIR/duplicati/config"
     fi
 
+    if [ "$INSTALL_JELLYFIN" = true ]; then
+        cat >> "$compose_file" << 'EOF'
+
+  jellyfin:
+    image: jellyfin/jellyfin:latest
+    container_name: jellyfin
+    environment:
+      - PUID=${ADMIN_UID}
+      - PGID=${ADMIN_GID}
+      - TZ=${TZ}
+    volumes:
+      - ./jellyfin/config:/config
+      - ./jellyfin/cache:/cache
+      - ./data:/media:ro
+    ports:
+      - "8096:8096"
+      - "8920:8920"
+      - "7359:7359/udp"
+      - "1900:1900/udp"
+    restart: unless-stopped
+EOF
+        mkdir -p "$INSTALL_DIR/jellyfin/config"
+        mkdir -p "$INSTALL_DIR/jellyfin/cache"
+    fi
+
     # Créer le fichier .env
     cat > "$INSTALL_DIR/.env" << EOF
 TZ=$TZ
@@ -505,7 +542,14 @@ configure_installation() {
     done
 
     # Services optionnels
-    echo -e "\n${BLUE}=== Services optionnels ===${NC}"
+    echo -e "\n${BLUE}=== Services de streaming ===${NC}"
+    read -p "Installer Plex (serveur de streaming) ? (o/N): " input
+    [[ $input =~ ^[oO]$ ]] && INSTALL_PLEX=true
+
+    read -p "Installer Jellyfin (alternative open-source à Plex) ? (o/N): " input
+    [[ $input =~ ^[oO]$ ]] && INSTALL_JELLYFIN=true
+
+    echo -e "\n${BLUE}=== Services de monitoring et maintenance ===${NC}"
     read -p "Installer Scrutiny (monitoring disques) ? (o/N): " input
     [[ $input =~ ^[oO]$ ]] && INSTALL_SCRUTINY=true
 
@@ -558,6 +602,8 @@ configure_installation() {
     echo "Email: $EMAIL"
     echo "Admin: $ADMIN_USER"
     echo "Services optionnels:"
+    [ "$INSTALL_PLEX" = true ] && echo "  ✓ Plex"
+    [ "$INSTALL_JELLYFIN" = true ] && echo "  ✓ Jellyfin"
     [ "$INSTALL_SCRUTINY" = true ] && echo "  ✓ Scrutiny"
     [ "$INSTALL_UPTIME_KUMA" = true ] && echo "  ✓ Uptime Kuma"
     [ "$INSTALL_WATCHTOWER" = true ] && echo "  ✓ Watchtower"
@@ -673,7 +719,8 @@ main() {
 
     info "Services disponibles:"
     echo "  - Authelia (auth): http://votre-serveur:9091"
-    echo "  - Plex: http://votre-serveur:32400/web"
+    [ "$INSTALL_PLEX" = true ] && echo "  - Plex: http://votre-serveur:32400/web"
+    [ "$INSTALL_JELLYFIN" = true ] && echo "  - Jellyfin: http://votre-serveur:8096"
     [ "$INSTALL_SCRUTINY" = true ] && echo "  - Scrutiny: http://votre-serveur:8080"
     [ "$INSTALL_UPTIME_KUMA" = true ] && echo "  - Uptime Kuma: http://votre-serveur:3001"
     [ "$INSTALL_DUPLICATI" = true ] && echo "  - Duplicati: http://votre-serveur:8200"

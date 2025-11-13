@@ -33,6 +33,8 @@ if [ $# -lt 1 ]; then
     echo "Usage: $0 <service_name>"
     echo ""
     echo "Services disponibles:"
+    echo "  - plex          : Serveur de streaming média"
+    echo "  - jellyfin      : Serveur de streaming média (alternative open-source à Plex)"
     echo "  - scrutiny      : Monitoring des disques durs"
     echo "  - uptime-kuma   : Monitoring de disponibilité"
     echo "  - watchtower    : Mises à jour automatiques des conteneurs"
@@ -57,6 +59,30 @@ fi
 cp "$DOCKER_COMPOSE_FILE" "${DOCKER_COMPOSE_FILE}.bak"
 
 case $SERVICE in
+    plex)
+        log "Installation de Plex (serveur de streaming)..."
+        mkdir -p "$INSTALL_DIR/plex"
+
+        cat >> "$DOCKER_COMPOSE_FILE" << EOF
+
+  plex:
+    image: linuxserver/plex:latest
+    container_name: plex
+    network_mode: host
+    environment:
+      - PUID=$ADMIN_UID
+      - PGID=$ADMIN_GID
+      - TZ=$TZ
+      - VERSION=docker
+    volumes:
+      - $INSTALL_DIR/plex:/config
+      - $INSTALL_DIR/data:/data
+    restart: unless-stopped
+EOF
+        info "Plex sera accessible sur le port 32400"
+        info "Interface web: http://votre-serveur:32400/web"
+        ;;
+
     scrutiny)
         log "Installation de Scrutiny (monitoring disques)..."
         mkdir -p "$INSTALL_DIR/scrutiny/config"
@@ -152,6 +178,35 @@ EOF
     restart: unless-stopped
 EOF
         info "Duplicati sera accessible sur le port 8200"
+        ;;
+
+    jellyfin)
+        log "Installation de Jellyfin (serveur de streaming)..."
+        mkdir -p "$INSTALL_DIR/jellyfin/config"
+        mkdir -p "$INSTALL_DIR/jellyfin/cache"
+
+        cat >> "$DOCKER_COMPOSE_FILE" << EOF
+
+  jellyfin:
+    image: jellyfin/jellyfin:latest
+    container_name: jellyfin
+    environment:
+      - PUID=$ADMIN_UID
+      - PGID=$ADMIN_GID
+      - TZ=$TZ
+    volumes:
+      - $INSTALL_DIR/jellyfin/config:/config
+      - $INSTALL_DIR/jellyfin/cache:/cache
+      - $INSTALL_DIR/data:/media:ro
+    ports:
+      - "8096:8096"
+      - "8920:8920"
+      - "7359:7359/udp"
+      - "1900:1900/udp"
+    restart: unless-stopped
+EOF
+        info "Jellyfin sera accessible sur le port 8096"
+        info "Interface web: http://votre-serveur:8096"
         ;;
 
     *)
