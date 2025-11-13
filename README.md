@@ -1,95 +1,150 @@
-# Seedbox Multi-Utilisateurs
+# Seedbox Multi-Utilisateurs - Version Simplifiée
 
-Une solution complète de seedbox multi-utilisateurs avec isolation des espaces et services pour chaque utilisateur.
+Une solution **simple et efficace** de seedbox multi-utilisateurs avec authentification centralisée et gestion facile des utilisateurs.
 
-## 🚀 Caractéristiques
+## 🎯 Caractéristiques
+
+### ✨ Architecture Simplifiée
+- **Sans Traefik** - Architecture réseau simple avec ports directs
+- **Authentification centralisée** - Authelia pour la gestion des utilisateurs
+- **Services optionnels** - Installez uniquement ce dont vous avez besoin
+- **Gestion facilitée** - Scripts dédiés pour toutes les opérations
 
 ### 📋 Services Par Utilisateur
-- 🖥️ Homarr (Dashboard personnel)
-- 📥 qBittorrent + VueTorrent (Client torrent)
-- 📺 Sonarr (Séries TV)
-- 🎬 Radarr (Films)
-- 📚 Readarr (Livres)
-- 💬 Bazarr (Sous-titres)
-- 🔍 Prowlarr (Indexeurs)
-- 📝 Overseerr (Requêtes)
-- 📖 Calibre-web (Bibliothèque ebooks)
-- 📂 Filebrowser (Accès fichiers)
+- 🖥️ **Homarr** - Dashboard personnel
+- 📥 **qBittorrent + VueTorrent** - Client torrent
+- 📺 **Sonarr** - Séries TV
+- 🎬 **Radarr** - Films
+- 📚 **Readarr** - Livres
+- 💬 **Bazarr** - Sous-titres
+- 🔍 **Prowlarr** - Indexeurs
+- 📝 **Overseerr** - Requêtes
+- 📖 **Calibre-web** - Bibliothèque ebooks
+- 📂 **Filebrowser** - Gestionnaire de fichiers
 
-### 🛡️ Services Administrateur
-- 🔐 Traefik (Reverse proxy)
-- 🎥 Plex (Streaming)
-- 📊 Uptime Kuma (Monitoring)
-- 💽 Scrutiny (Surveillance disques)
-- 🔄 Watchtower (Mises à jour)
-- 💾 Duplicati (Backup)
-- 🚦 FlareSolverr (By-pass Cloudflare)
+### 🛡️ Services Système
+- 🔐 **Authelia** - Authentification centralisée
+- 🎥 **Plex** - Serveur de streaming média
+- 🚦 **FlareSolverr** - Bypass Cloudflare
+
+### 🔧 Services Optionnels
+- 💽 **Scrutiny** - Monitoring des disques (S.M.A.R.T.)
+- 📊 **Uptime Kuma** - Surveillance de disponibilité
+- 🔄 **Watchtower** - Mises à jour automatiques
+- 💾 **Duplicati** - Système de backup
 
 ### 🔒 Sécurité
 - Authentification centralisée (Authelia)
-- SSL/TLS automatique (Let's Encrypt)
 - Protection fail2ban
 - Espaces utilisateurs isolés
 - Quotas par utilisateur
+- Pare-feu UFW configuré
 
 ## 🔧 Prérequis
 
 ### Matériel Recommandé
-- CPU : 4 cœurs minimum
-- RAM : 8 GB minimum
-- Stockage : 20 GB minimum pour le système
-- Connexion : 100 Mbps minimum
+- **CPU:** 4 cœurs minimum
+- **RAM:** 8 GB minimum
+- **Stockage:** 20 GB minimum pour le système
+- **Connexion:** 100 Mbps minimum
 
 ### Système
-- Ubuntu 22.04 LTS
-- Un nom de domaine pointant vers votre serveur
-- Ports 80/443 ouverts
+- Ubuntu 22.04 LTS ou Debian 12
+- Un nom de domaine (optionnel)
+- Accès root
 
 ## 📥 Installation
 
-1. Cloner le repository :
-```bash
-git clone https://github.com/votre-repo/seedbox.git
-cd seedbox
-```
+### Installation Rapide
 
-2. Rendre le script exécutable :
 ```bash
+# 1. Cloner le repository
+git clone https://github.com/votre-repo/Seeker-multi.git
+cd Seeker-multi
+
+# 2. Rendre le script exécutable
 chmod +x install.sh
-```
 
-3. Lancer l'installation :
-```bash
+# 3. Lancer l'installation
 sudo ./install.sh
 ```
 
-4. Suivre la configuration interactive.
+### Installation Interactive
 
-## ⚙️ Configuration
+Le script vous guidera à travers la configuration :
 
-L'installation vous demandera de configurer :
-- Domaine et email
-- Stockage et quotas
-- Paramètres de sécurité
-- Configuration des backups
-- Utilisateurs initiaux
+1. **Configuration du domaine**
+   - Nom de domaine
+   - Email administrateur
+
+2. **Utilisateur administrateur**
+   - Nom d'utilisateur
+   - Mot de passe sécurisé
+
+3. **Services optionnels**
+   - Scrutiny (monitoring disques)
+   - Uptime Kuma (monitoring uptime)
+   - Watchtower (mises à jour auto)
+   - Duplicati (backups)
+
+4. **Utilisateurs initiaux**
+   - Ajoutez vos premiers utilisateurs
+   - Définissez les quotas
 
 ## 👥 Gestion des Utilisateurs
 
 ### Ajouter un utilisateur
+
 ```bash
-./scripts/add_user.sh username password email
+cd /opt/seedbox/scripts
+sudo ./add_user.sh <username> <password> <email> [quota_gb]
+```
+
+**Exemple:**
+```bash
+sudo ./add_user.sh john MySecurePass123 john@example.com 500
+```
+
+Chaque utilisateur obtient **automatiquement** tous ses services configurés !
+
+### Supprimer un utilisateur
+
+```bash
+# Suppression complète (avec données)
+sudo ./remove_user.sh <username>
+
+# Suppression en gardant les données
+sudo ./remove_user.sh <username> --keep-data
 ```
 
 ### Modifier un quota
+
 ```bash
-./scripts/update_quota.sh username 500 # 500GB
+sudo ./update_quota.sh <username> <quota_gb>
 ```
 
-### Supprimer un utilisateur
+**Exemple:**
 ```bash
-./scripts/remove_user.sh username
+sudo ./update_quota.sh john 1000  # 1TB
 ```
+
+## 🔧 Services Optionnels
+
+### Installer un service après l'installation
+
+```bash
+cd /opt/seedbox/scripts
+sudo ./add_service.sh <service_name>
+```
+
+**Services disponibles:**
+
+| Service | Commande | Description | Port |
+|---------|----------|-------------|------|
+| Scrutiny | `sudo ./add_service.sh scrutiny` | Monitoring S.M.A.R.T. des disques | 8080 |
+| Uptime Kuma | `sudo ./add_service.sh uptime-kuma` | Surveillance de disponibilité | 3001 |
+| Watchtower | `sudo ./add_service.sh watchtower` | Mises à jour automatiques | - |
+| Duplicati | `sudo ./add_service.sh duplicati` | Système de backup | 8200 |
 
 ## 📁 Structure des Dossiers
 
@@ -104,59 +159,217 @@ L'installation vous demandera de configurer :
 │       │   └── books/
 │       └── user2/
 │           └── ...
-├── config/
-│   ├── traefik/
-│   ├── authelia/
-│   └── ...
-└── scripts/
+├── scripts/
+│   ├── add_user.sh
+│   ├── remove_user.sh
+│   ├── update_quota.sh
+│   └── add_service.sh
+├── authelia/
+├── docker-compose.yml
+└── .env
 ```
 
-## 🌐 Accès
+## 🌐 Accès aux Services
 
-- Dashboard : `https://home.votredomaine.com`
-- Administration : `https://traefik.votredomaine.com`
-- Services : `https://{service}.votredomaine.com`
+### Services Système
+- **Authelia:** `http://votre-serveur:9091`
+- **Plex:** `http://votre-serveur:32400/web`
+- **FlareSolverr:** `http://votre-serveur:8191`
+
+### Services Optionnels
+- **Scrutiny:** `http://votre-serveur:8080`
+- **Uptime Kuma:** `http://votre-serveur:3001`
+- **Duplicati:** `http://votre-serveur:8200`
+
+### Services Utilisateur
+
+Chaque utilisateur obtient des ports uniques calculés automatiquement :
+
+| Service | Formule de port | Exemple (User 1) |
+|---------|-----------------|------------------|
+| qBittorrent | 8080 + (UID-1000)*10 | 8090 |
+| Sonarr | 8989 + (UID-1000) | 8990 |
+| Radarr | 7878 + (UID-1000) | 7879 |
+| Readarr | 8787 + (UID-1000) | 8788 |
+| Bazarr | 6767 + (UID-1000) | 6768 |
+| Prowlarr | 9696 + (UID-1000) | 9697 |
+| Overseerr | 5055 + (UID-1000) | 5056 |
+| Homarr | 7575 + (UID-1000) | 7576 |
+| Calibre | 8083 + (UID-1000) | 8084 |
+| Filebrowser | 8081 + (UID-1000) | 8082 |
 
 ## 🔧 Maintenance
 
-### Backups
-- Configuration automatique via Duplicati
-- Sauvegarde des configurations
-- Sauvegarde des données utilisateurs
+### Mettre à jour tous les conteneurs
+```bash
+cd /opt/seedbox
+docker-compose pull
+docker-compose up -d
+```
 
-### Mises à jour
-- Mises à jour automatiques via Watchtower
-- Planification configurable
-- Logs de mise à jour
+### Vérifier les logs d'un service
+```bash
+docker logs <service-username>
+# Exemple:
+docker logs qbittorrent-john
+```
 
-### Monitoring
-- Surveillance via Uptime Kuma
-- Monitoring des disques via Scrutiny
-- Alertes configurables
+### Vérifier l'utilisation du quota
+```bash
+sudo quota -v -u <username>
+```
+
+### Redémarrer un service
+```bash
+docker restart <service-username>
+```
+
+## 📊 Avantages de Cette Version
+
+### ✅ Par rapport à la version complexe
+
+| Caractéristique | Avant (Traefik) | Maintenant |
+|-----------------|-----------------|------------|
+| Complexité | Élevée | Simple |
+| Configuration réseau | Reverse proxy complexe | Ports directs |
+| Certificats SSL | Let's Encrypt auto | Manuel (optionnel) |
+| Temps d'installation | Long | Rapide |
+| Debugging | Difficile | Facile |
+| Ajout d'utilisateur | Complexe | 1 commande |
+| Services optionnels | Tous installés | À la carte |
+
+### 🎯 Architecture Simplifiée
+
+```
+┌─────────────────────────────────┐
+│   Serveur                       │
+│                                 │
+│  ┌─────────────┐  ┌──────────┐ │
+│  │  Authelia   │  │  Plex    │ │
+│  │  Port 9091  │  │  32400   │ │
+│  └─────────────┘  └──────────┘ │
+│                                 │
+│  ┌─────────────────────────────┐│
+│  │   Services User 1           ││
+│  │   Ports: 8090, 8990...      ││
+│  └─────────────────────────────┘│
+│                                 │
+│  ┌─────────────────────────────┐│
+│  │   Services User 2           ││
+│  │   Ports: 8100, 8991...      ││
+│  └─────────────────────────────┘│
+└─────────────────────────────────┘
+```
+
+## 🛠️ Dépannage
+
+### Problèmes courants
+
+#### Les services ne démarrent pas
+```bash
+# Vérifier les logs
+docker-compose logs
+
+# Redémarrer tous les services
+cd /opt/seedbox
+docker-compose down
+docker-compose up -d
+```
+
+#### Port déjà utilisé
+```bash
+# Identifier le processus utilisant le port
+sudo lsof -i :<port>
+
+# Ou
+sudo netstat -tulpn | grep <port>
+```
+
+#### Problèmes de quotas
+```bash
+# Vérifier si les quotas sont activés
+sudo quotaon -ap
+
+# Réactiver les quotas
+sudo quotaon -av
+```
+
+## 🔄 Migration depuis l'ancienne version
+
+Si vous aviez l'ancienne version avec Traefik :
+
+1. **Sauvegarder vos données**
+```bash
+sudo cp -r /opt/seedbox /opt/seedbox.backup
+```
+
+2. **Arrêter les anciens services**
+```bash
+cd /opt/seedbox
+docker-compose down
+```
+
+3. **Installer la nouvelle version**
+```bash
+cd Seeker-multi
+sudo ./install.sh
+```
+
+4. **Restaurer les données utilisateurs si nécessaire**
 
 ## 📝 Notes
 
-- Chaque utilisateur a son espace isolé
-- Les quotas sont appliqués par utilisateur
-- La maintenance est automatisée
-- Les backups sont configurables
-- Le monitoring est centralisé
+- Chaque utilisateur a son espace totalement isolé
+- Les quotas sont appliqués au niveau système
+- L'authentification est centralisée via Authelia
+- Les services optionnels peuvent être ajoutés à tout moment
+- La configuration est simple et maintenable
 
-## ⚠️ Support
+## 💡 Cas d'usage
 
-Pour toute question ou problème :
-- Ouvrez une issue sur GitHub
-- Consultez la documentation dans `/docs`
-- Vérifiez les logs dans `/logs`
-
-## 🔄 Mises à jour
-
-Le script peut être mis à jour via :
+### Pour un usage personnel
 ```bash
-git pull
-./scripts/update.sh
+# Installation minimale
+sudo ./install.sh
+# Ne sélectionnez aucun service optionnel
+# Ajoutez juste votre utilisateur personnel
 ```
 
-## 📜 License
+### Pour un serveur partagé
+```bash
+# Installation complète avec monitoring
+sudo ./install.sh
+# Activez Scrutiny et Uptime Kuma
+# Ajoutez plusieurs utilisateurs avec des quotas
+```
+
+### Pour production
+```bash
+# Installation avec backups et mises à jour auto
+sudo ./install.sh
+# Activez Duplicati et Watchtower
+# Configurez les quotas appropriés
+```
+
+## 📜 Licence
 
 Ce projet est sous licence MIT. Voir le fichier `LICENSE` pour plus de détails.
+
+## 🤝 Contribution
+
+Les contributions sont les bienvenues ! N'hésitez pas à :
+- Ouvrir une issue pour signaler un bug
+- Proposer des améliorations
+- Soumettre des pull requests
+
+## 📞 Support
+
+Pour toute question ou problème :
+- Consultez la documentation dans `/docs`
+- Vérifiez les logs : `docker-compose logs`
+- Ouvrez une issue sur GitHub
+
+---
+
+**Version:** 2.0 (Simplifiée)
+**Dernière mise à jour:** 2025
