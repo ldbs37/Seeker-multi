@@ -699,6 +699,194 @@ menu_maintenance() {
     done
 }
 
+menu_traefik() {
+    while true; do
+        show_header
+        echo -e "${BOLD}${MAGENTA}🌐 TRAEFIK & SSO${NC}\n"
+
+        # Vérifier si Traefik est installé
+        if docker ps --format '{{.Names}}' | grep -q "^traefik$"; then
+            echo -e "${GREEN}● Traefik est installé${NC}"
+            if [ -f "$INSTALL_DIR/.env" ] && grep -q "^DOMAIN=" "$INSTALL_DIR/.env"; then
+                DOMAIN=$(grep "^DOMAIN=" "$INSTALL_DIR/.env" | cut -d'=' -f2)
+                echo -e "${CYAN}   Domaine configuré : $DOMAIN${NC}"
+            fi
+            echo ""
+        else
+            echo -e "${YELLOW}○ Traefik n'est pas installé${NC}"
+            echo ""
+        fi
+
+        echo "1. Installer Traefik (nouvelle installation)"
+        echo "2. Migrer vers Traefik (installation existante)"
+        echo "3. Générer les labels Docker pour services existants"
+        echo "4. Voir l'état de Traefik"
+        echo "5. Voir les certificats SSL"
+        echo "6. Redémarrer Traefik"
+        echo ""
+        echo "0. Retour au menu principal"
+        echo ""
+
+        read -p "Choix: " choice
+
+        case $choice in
+            1) setup_traefik_menu ;;
+            2) migrate_traefik_menu ;;
+            3) generate_labels_menu ;;
+            4) traefik_status_menu ;;
+            5) traefik_certs_menu ;;
+            6) restart_traefik_menu ;;
+            0) break ;;
+            *) warn "Choix invalide" ; pause ;;
+        esac
+    done
+}
+
+setup_traefik_menu() {
+    show_header
+    echo -e "${BOLD}${BLUE}🌐 Installation Traefik${NC}\n"
+
+    read -p "Nom de domaine (ex: example.com): " domain
+    read -p "Email pour Let's Encrypt: " email
+
+    if [ -z "$domain" ] || [ -z "$email" ]; then
+        warn "Domaine et email requis"
+        pause
+        return
+    fi
+
+    echo ""
+    warn "⚠️  Prérequis :"
+    warn "   - DNS wildcard *.${domain} doit pointer vers ce serveur"
+    warn "   - Ports 80/443 doivent être ouverts"
+    echo ""
+
+    read -p "Les prérequis sont-ils remplis ? (o/N): " confirm
+
+    if [[ $confirm =~ ^[oO]$ ]]; then
+        "$SCRIPTS_DIR/setup_traefik.sh" "$domain" "$email"
+    else
+        info "Installation annulée"
+    fi
+
+    pause
+}
+
+migrate_traefik_menu() {
+    show_header
+    echo -e "${BOLD}${BLUE}🔄 Migration vers Traefik${NC}\n"
+
+    warn "⚠️  ATTENTION : Cette migration est irréversible !"
+    warn "   - Les services ne seront plus accessibles par port direct"
+    warn "   - Nécessite un nom de domaine avec DNS configuré"
+    echo ""
+
+    read -p "Nom de domaine (ex: example.com): " domain
+    read -p "Email pour Let's Encrypt: " email
+
+    if [ -z "$domain" ] || [ -z "$email" ]; then
+        warn "Domaine et email requis"
+        pause
+        return
+    fi
+
+    echo ""
+    "$SCRIPTS_DIR/migrate_to_traefik.sh" "$domain" "$email"
+
+    pause
+}
+
+generate_labels_menu() {
+    show_header
+    echo -e "${BOLD}${BLUE}🏷️  Génération Labels Docker${NC}\n"
+
+    if ! docker ps --format '{{.Names}}' | grep -q "^traefik$"; then
+        warn "Traefik n'est pas installé. Installez-le d'abord."
+        pause
+        return
+    fi
+
+    echo ""
+    "$SCRIPTS_DIR/generate_traefik_labels.sh"
+
+    pause
+}
+
+traefik_status_menu() {
+    show_header
+    echo -e "${BOLD}${BLUE}📊 État de Traefik${NC}\n"
+
+    if docker ps --format '{{.Names}}' | grep -q "^traefik$"; then
+        echo -e "${GREEN}● Traefik est en cours d'exécution${NC}\n"
+
+        echo -e "${CYAN}Conteneur :${NC}"
+        docker ps --filter "name=traefik" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+
+        echo ""
+        echo -e "${CYAN}Logs récents :${NC}"
+        docker logs traefik --tail 20
+
+        if [ -f "$INSTALL_DIR/.env" ] && grep -q "^DOMAIN=" "$INSTALL_DIR/.env"; then
+            DOMAIN=$(grep "^DOMAIN=" "$INSTALL_DIR/.env" | cut -d'=' -f2)
+            echo ""
+            echo -e "${CYAN}Accès :${NC}"
+            echo "  Dashboard : https://traefik.$DOMAIN"
+            echo "  Authelia  : https://auth.$DOMAIN"
+        fi
+    else
+        echo -e "${RED}○ Traefik n'est pas en cours d'exécution${NC}"
+    fi
+
+    echo ""
+    pause
+}
+
+traefik_certs_menu() {
+    show_header
+    echo -e "${BOLD}${BLUE}🔒 Certificats SSL${NC}\n"
+
+    ACME_FILE="$INSTALL_DIR/traefik/letsencrypt/acme.json"
+
+    if [ -f "$ACME_FILE" ]; then
+        echo -e "${CYAN}Certificats dans : $ACME_FILE${NC}\n"
+
+        # Afficher les domaines avec certificats
+        if command -v jq &>/dev/null; then
+            echo -e "${CYAN}Domaines avec certificats :${NC}"
+            jq -r '.letsencrypt.Certificates[].domain.main' "$ACME_FILE" 2>/dev/null || echo "Aucun certificat trouvé"
+        else
+            echo "Installer jq pour voir les détails : apt install jq"
+        fi
+    else
+        warn "Fichier de certificats non trouvé"
+    fi
+
+    echo ""
+    pause
+}
+
+restart_traefik_menu() {
+    show_header
+    echo -e "${BOLD}${BLUE}🔄 Redémarrage Traefik${NC}\n"
+
+    if docker ps --format '{{.Names}}' | grep -q "^traefik$"; then
+        log "Redémarrage de Traefik..."
+        docker restart traefik
+        sleep 3
+
+        if docker ps --format '{{.Names}}' | grep -q "^traefik$"; then
+            log "✓ Traefik redémarré avec succès"
+        else
+            error "Échec du redémarrage"
+        fi
+    else
+        warn "Traefik n'est pas en cours d'exécution"
+    fi
+
+    echo ""
+    pause
+}
+
 menu_main() {
     while true; do
         show_header
@@ -709,6 +897,7 @@ menu_main() {
         echo -e "${CYAN}2.${NC} 🔧  Gestion des services système"
         echo -e "${CYAN}3.${NC} 📊  Monitoring"
         echo -e "${CYAN}4.${NC} 🛠️   Maintenance"
+        echo -e "${CYAN}5.${NC} 🌐  Traefik & SSO"
         echo ""
         echo -e "${CYAN}0.${NC} ❌  Quitter"
         echo ""
@@ -720,6 +909,7 @@ menu_main() {
             2) menu_services ;;
             3) menu_monitoring ;;
             4) menu_maintenance ;;
+            5) menu_traefik ;;
             0)
                 echo ""
                 info "Au revoir !"
