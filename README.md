@@ -209,11 +209,15 @@ sudo ./update_password.sh <username> [nouveau_mot_de_passe]
 - ✅ **Mot de passe système Linux** (SSH, console)
 - ✅ **Mot de passe Authelia** (authentification centralisée)
 - ✅ **Mot de passe Jellyfin** (si configuré avec clé API)
+- ✅ **Mot de passe qBittorrent** (hash PBKDF2 dans fichier config)
+- ✅ **Mot de passe Filebrowser** (via CLI dans le conteneur)
 
-**Services à mettre à jour manuellement :**
-- ⚠️ qBittorrent (Options → Web UI → Authentification)
-- ⚠️ Filebrowser (Settings → User Management)
-- ⚠️ Sonarr, Radarr, etc. (Settings → General → Security)
+**Services *arr (Sonarr, Radarr, Prowlarr, etc.) :**
+- 💡 **Recommandé** : Désactiver l'authentification et s'appuyer sur Authelia
+  ```bash
+  sudo ./disable_arr_auth.sh <username> <service>
+  ```
+- ⚠️ **Alternative** : Mettre à jour manuellement (Settings → General → Security)
 
 **Exemple:**
 ```bash

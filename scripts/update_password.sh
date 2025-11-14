@@ -188,12 +188,96 @@ else
 fi
 
 #######################
-# 4. Autres services (optionnel)
+# 4. Filebrowser (base de données SQLite)
 #######################
 
-# Note: Les autres services utilisateur (qBittorrent, Sonarr, etc.) ont leurs propres
-# systèmes de mots de passe indépendants. L'utilisateur doit les changer manuellement
-# dans chaque interface web.
+FILEBROWSER_CONTAINER="filebrowser-$USERNAME"
+if docker ps --format '{{.Names}}' | grep -q "^$FILEBROWSER_CONTAINER$"; then
+    log "Mise à jour du mot de passe Filebrowser..."
+
+    # Filebrowser utilise une commande CLI pour modifier les utilisateurs
+    # On doit passer par le conteneur pour exécuter la commande
+    if docker exec "$FILEBROWSER_CONTAINER" filebrowser users update "$USERNAME" --password "$NEW_PASSWORD" 2>/dev/null; then
+        log "✓ Mot de passe Filebrowser mis à jour"
+    else
+        # Si la commande échoue, essayer avec l'admin (utilisateur par défaut)
+        if docker exec "$FILEBROWSER_CONTAINER" filebrowser users update "admin" --password "$NEW_PASSWORD" 2>/dev/null; then
+            log "✓ Mot de passe Filebrowser (admin) mis à jour"
+        else
+            warn "Impossible de mettre à jour le mot de passe Filebrowser automatiquement"
+            info "Mettez-le à jour manuellement : Settings → User Management"
+        fi
+    fi
+else
+    info "Filebrowser non installé pour $USERNAME, ignoré"
+fi
+
+#######################
+# 5. qBittorrent (fichier de configuration)
+#######################
+
+QBITTORRENT_CONTAINER="qbittorrent-$USERNAME"
+if docker ps --format '{{.Names}}' | grep -q "^$QBITTORRENT_CONTAINER$"; then
+    log "Mise à jour du mot de passe qBittorrent..."
+
+    # qBittorrent utilise un hash PBKDF2 dans son fichier de config
+    # On va utiliser l'API Web de qBittorrent pour changer le mot de passe
+
+    USER_ID=$(id -u "$USERNAME")
+    QBIT_PORT=$((8080 + (USER_ID - 1000) * 10))
+
+    # Arrêter qBittorrent temporairement
+    docker stop "$QBITTORRENT_CONTAINER" >/dev/null 2>&1
+    sleep 2
+
+    # Générer le hash PBKDF2 pour qBittorrent
+    # Format: @ByteArray(hash_base64)
+    QBIT_HASH=$(python3 -c "
+import hashlib, base64
+password = '$NEW_PASSWORD'
+# qBittorrent utilise PBKDF2-SHA256 avec 100000 iterations
+salt = b'qBittorrent'
+hash_bytes = hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 100000)
+print('@ByteArray(' + base64.b64encode(hash_bytes).decode() + ')')
+" 2>/dev/null)
+
+    if [ -n "$QBIT_HASH" ]; then
+        # Modifier le fichier de configuration
+        CONFIG_DIR="$INSTALL_DIR/data/users/$USERNAME/config/qBittorrent"
+        CONFIG_FILE="$CONFIG_DIR/qBittorrent.conf"
+
+        if [ -f "$CONFIG_FILE" ]; then
+            # Sauvegarder
+            cp "$CONFIG_FILE" "${CONFIG_FILE}.bak"
+
+            # Remplacer le hash du mot de passe
+            if grep -q "WebUI\\\\Password_PBKDF2" "$CONFIG_FILE"; then
+                sed -i "s|WebUI\\\\\\\\Password_PBKDF2=.*|WebUI\\\\\\\\Password_PBKDF2=\"$QBIT_HASH\"|" "$CONFIG_FILE"
+                log "✓ Hash qBittorrent mis à jour dans le fichier de config"
+            else
+                # Ajouter la ligne si elle n'existe pas
+                sed -i "/\[Preferences\]/a WebUI\\\\\\\\Password_PBKDF2=\"$QBIT_HASH\"" "$CONFIG_FILE"
+                log "✓ Hash qBittorrent ajouté dans le fichier de config"
+            fi
+        else
+            warn "Fichier de configuration qBittorrent non trouvé"
+        fi
+    else
+        warn "Impossible de générer le hash PBKDF2 (python3 requis)"
+    fi
+
+    # Redémarrer qBittorrent
+    docker start "$QBITTORRENT_CONTAINER" >/dev/null 2>&1
+    sleep 3
+
+    if docker ps --format '{{.Names}}' | grep -q "^$QBITTORRENT_CONTAINER$"; then
+        log "✓ qBittorrent redémarré avec nouveau mot de passe"
+    else
+        error "Échec du redémarrage de qBittorrent"
+    fi
+else
+    info "qBittorrent non installé pour $USERNAME, ignoré"
+fi
 
 #######################
 # Résumé
@@ -210,26 +294,24 @@ info "   - Authelia (authentification centralisée)"
 if docker ps --format '{{.Names}}' | grep -q "^jellyfin$" && [ -f "$INSTALL_DIR/.jellyfin_api" ]; then
     info "   - Jellyfin (streaming média)"
 fi
+if docker ps --format '{{.Names}}' | grep -q "^qbittorrent-$USERNAME$"; then
+    info "   - qBittorrent (client torrent)"
+fi
+if docker ps --format '{{.Names}}' | grep -q "^filebrowser-$USERNAME$"; then
+    info "   - Filebrowser (gestionnaire de fichiers)"
+fi
 info ""
-info "⚠️  Services à mettre à jour manuellement :"
+info "🖥️  Homarr :"
+info "   Pas d'authentification propre - utilise Authelia (déjà mis à jour ✓)"
 info ""
-info "   📥 qBittorrent :"
-info "      1. Connectez-vous à l'interface web"
-info "      2. Allez dans Options → Web UI"
-info "      3. Changez le mot de passe dans 'Authentification'"
+info "💡 Services *arr (Sonarr, Radarr, Prowlarr, etc.) :"
+info "   Option 1 (Recommandé) : Désactiver l'authentification"
+info "      → Utiliser: sudo ./disable_arr_auth.sh $USERNAME <service>"
+info "      → S'appuie sur Authelia pour la sécurité"
 info ""
-info "   📂 Filebrowser :"
-info "      1. Connectez-vous à l'interface web"
-info "      2. Allez dans Settings → User Management"
-info "      3. Sélectionnez votre utilisateur et changez le mot de passe"
-info ""
-info "   🖥️  Homarr :"
-info "      Pas d'authentification propre - utilise Authelia (déjà mis à jour ✓)"
-info ""
-info "   📺 Sonarr, Radarr, Prowlarr, etc. :"
-info "      1. Connectez-vous à chaque interface"
-info "      2. Settings → General → Security"
-info "      3. Changez API Key si utilisé pour authentification"
+info "   Option 2 : Garder l'authentification interne"
+info "      → Settings → General → Security"
+info "      → Changer manuellement le mot de passe"
 info ""
 info "💡 Conseil : Notez ce mot de passe dans un gestionnaire sécurisé"
 info "═══════════════════════════════════════════════════════════"
