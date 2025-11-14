@@ -861,6 +861,204 @@ restart_traefik_menu() {
     pause
 }
 
+#######################
+# Fonctions DNS
+#######################
+
+menu_dns() {
+    while true; do
+        show_header
+        echo -e "${BOLD}${MAGENTA}🌍 GESTION DNS${NC}\n"
+
+        # Vérifier si un domaine est configuré
+        if [ -f "$INSTALL_DIR/.env" ] && grep -q "^DOMAIN=" "$INSTALL_DIR/.env"; then
+            DOMAIN=$(grep "^DOMAIN=" "$INSTALL_DIR/.env" | cut -d'=' -f2)
+            echo -e "${GREEN}● Domaine configuré : $DOMAIN${NC}"
+            echo ""
+        else
+            echo -e "${YELLOW}○ Aucun domaine configuré${NC}"
+            echo ""
+        fi
+
+        echo "1. Vérifier la configuration DNS actuelle"
+        echo "2. Configurer Cloudflare (automatique via API)"
+        echo "3. Configurer DuckDNS (gratuit, automatique)"
+        echo "4. Configurer OVH (automatique via API)"
+        echo "5. Afficher le guide DNS complet"
+        echo ""
+        echo "0. Retour au menu principal"
+        echo ""
+
+        read -p "Choix: " choice
+
+        case $choice in
+            1) check_dns_menu ;;
+            2) setup_cloudflare_menu ;;
+            3) setup_duckdns_menu ;;
+            4) setup_ovh_menu ;;
+            5) show_dns_guide_menu ;;
+            0) break ;;
+            *) warn "Choix invalide" ; pause ;;
+        esac
+    done
+}
+
+check_dns_menu() {
+    show_header
+    echo -e "${BOLD}${BLUE}🔍 Vérification DNS${NC}\n"
+
+    read -p "Nom de domaine à vérifier: " domain
+
+    if [ -z "$domain" ]; then
+        # Utiliser le domaine du .env si disponible
+        if [ -f "$INSTALL_DIR/.env" ] && grep -q "^DOMAIN=" "$INSTALL_DIR/.env"; then
+            domain=$(grep "^DOMAIN=" "$INSTALL_DIR/.env" | cut -d'=' -f2)
+            info "Utilisation du domaine configuré: $domain"
+        else
+            warn "Nom de domaine requis"
+            pause
+            return
+        fi
+    fi
+
+    echo ""
+    if [ -x "$SCRIPTS_DIR/check_dns.sh" ]; then
+        "$SCRIPTS_DIR/check_dns.sh" "$domain"
+    else
+        error "Script check_dns.sh non trouvé"
+    fi
+
+    pause
+}
+
+setup_cloudflare_menu() {
+    show_header
+    echo -e "${BOLD}${BLUE}☁️  Configuration Cloudflare${NC}\n"
+
+    info "Ce script va configurer automatiquement vos enregistrements DNS via l'API Cloudflare"
+    echo ""
+    info "Prérequis:"
+    echo "  • Un compte Cloudflare (gratuit)"
+    echo "  • Votre domaine géré par Cloudflare"
+    echo "  • Un token API avec permissions 'Edit zone DNS'"
+    echo ""
+    info "Le script va créer:"
+    echo "  • domain.com → IP de ce serveur"
+    echo "  • *.domain.com → IP de ce serveur (wildcard)"
+    echo ""
+
+    read -p "Continuer ? (o/N): " confirm
+
+    if [[ $confirm =~ ^[oO]$ ]]; then
+        echo ""
+        if [ -x "$SCRIPTS_DIR/setup_cloudflare.sh" ]; then
+            "$SCRIPTS_DIR/setup_cloudflare.sh"
+        else
+            error "Script setup_cloudflare.sh non trouvé"
+        fi
+    else
+        info "Configuration annulée"
+    fi
+
+    pause
+}
+
+setup_duckdns_menu() {
+    show_header
+    echo -e "${BOLD}${BLUE}🦆 Configuration DuckDNS${NC}\n"
+
+    info "DuckDNS est un service DNS 100% GRATUIT avec:"
+    echo "  ✓ Wildcard DNS automatique"
+    echo "  ✓ Pas besoin d'acheter un domaine"
+    echo "  ✓ Mise à jour automatique de l'IP (IP dynamique)"
+    echo "  ✓ Compatible Let's Encrypt SSL"
+    echo ""
+    info "Vous aurez un domaine comme: monseedbox.duckdns.org"
+    echo ""
+
+    read -p "Continuer ? (o/N): " confirm
+
+    if [[ $confirm =~ ^[oO]$ ]]; then
+        echo ""
+        if [ -x "$SCRIPTS_DIR/setup_duckdns.sh" ]; then
+            "$SCRIPTS_DIR/setup_duckdns.sh"
+        else
+            error "Script setup_duckdns.sh non trouvé"
+        fi
+    else
+        info "Configuration annulée"
+    fi
+
+    pause
+}
+
+setup_ovh_menu() {
+    show_header
+    echo -e "${BOLD}${BLUE}🇫🇷 Configuration OVH${NC}\n"
+
+    info "Ce script va configurer automatiquement vos enregistrements DNS via l'API OVH"
+    echo ""
+    info "Prérequis:"
+    echo "  • Un compte OVH avec un domaine"
+    echo "  • Des clés API OVH (Application Key, Application Secret, Consumer Key)"
+    echo "  • Guide pour créer les clés: https://api.ovh.com/createToken/"
+    echo ""
+    info "Le script va créer:"
+    echo "  • domain.com → IP de ce serveur"
+    echo "  • *.domain.com → IP de ce serveur (wildcard)"
+    echo ""
+
+    read -p "Continuer ? (o/N): " confirm
+
+    if [[ $confirm =~ ^[oO]$ ]]; then
+        echo ""
+        if [ -x "$SCRIPTS_DIR/setup_ovh.sh" ]; then
+            "$SCRIPTS_DIR/setup_ovh.sh"
+        else
+            error "Script setup_ovh.sh non trouvé"
+        fi
+    else
+        info "Configuration annulée"
+    fi
+
+    pause
+}
+
+show_dns_guide_menu() {
+    show_header
+    echo -e "${BOLD}${BLUE}📚 Guide DNS Complet${NC}\n"
+
+    DNS_GUIDE="$INSTALL_DIR/../docs/DNS_SETUP.md"
+
+    if [ -f "$DNS_GUIDE" ]; then
+        info "Guide disponible dans: $DNS_GUIDE"
+        echo ""
+        echo -e "${CYAN}Table des matières:${NC}"
+        echo "  • Configuration automatique (Cloudflare, DuckDNS, OVH)"
+        echo "  • Configuration manuelle (tous providers)"
+        echo "  • Vérification DNS"
+        echo "  • Dépannage complet"
+        echo "  • FAQ"
+        echo ""
+        read -p "Afficher le guide ? (o/N): " show
+
+        if [[ $show =~ ^[oO]$ ]]; then
+            echo ""
+            if command -v less &>/dev/null; then
+                less "$DNS_GUIDE"
+            elif command -v more &>/dev/null; then
+                more "$DNS_GUIDE"
+            else
+                cat "$DNS_GUIDE"
+            fi
+        fi
+    else
+        error "Guide DNS non trouvé: $DNS_GUIDE"
+    fi
+
+    pause
+}
+
 menu_main() {
     while true; do
         show_header
@@ -872,6 +1070,7 @@ menu_main() {
         echo -e "${CYAN}3.${NC} 📊  Monitoring"
         echo -e "${CYAN}4.${NC} 🛠️   Maintenance"
         echo -e "${CYAN}5.${NC} 🌐  Traefik & SSO"
+        echo -e "${CYAN}6.${NC} 🌍  Gestion DNS"
         echo ""
         echo -e "${CYAN}0.${NC} ❌  Quitter"
         echo ""
@@ -884,6 +1083,7 @@ menu_main() {
             3) menu_monitoring ;;
             4) menu_maintenance ;;
             5) menu_traefik ;;
+            6) menu_dns ;;
             0)
                 echo ""
                 info "Au revoir !"

@@ -140,6 +140,69 @@ Le script vous guidera à travers la configuration :
    - Choisissez les services optionnels à installer pour chaque utilisateur
    - Services obligatoires : qBittorrent + Homarr + Filebrowser
 
+## 🌐 Configuration DNS Automatique
+
+### Pour le Mode Traefik + SSL
+
+Le projet inclut des **scripts d'automatisation DNS** pour simplifier la configuration :
+
+#### Option 1 : Vous avez un domaine
+
+**Cloudflare (Automatique via API)** ⭐ Recommandé
+```bash
+sudo ./scripts/setup_cloudflare.sh
+```
+Ce script va :
+- ✅ Créer automatiquement `domain.com` → IP serveur
+- ✅ Créer automatiquement `*.domain.com` → IP serveur (wildcard)
+- ✅ Vérifier la configuration DNS
+- ✅ Compatible avec Let's Encrypt SSL
+
+**Autres providers (Configuration manuelle)**
+- Consultez le guide complet : [docs/DNS_SETUP.md](docs/DNS_SETUP.md)
+- Guides détaillés pour : OVH, Gandi, Namecheap, etc.
+
+#### Option 2 : Vous n'avez pas de domaine
+
+**DuckDNS (100% Gratuit)** 🎁
+```bash
+sudo ./scripts/setup_duckdns.sh
+```
+Ce script va :
+- ✅ Créer un sous-domaine gratuit (ex: `monseedbox.duckdns.org`)
+- ✅ Configurer le wildcard automatiquement
+- ✅ Installer un cron job pour IP dynamique
+- ✅ Pas besoin d'acheter un domaine !
+
+### Scripts de Gestion DNS
+
+```bash
+# Vérifier votre configuration DNS actuelle
+./scripts/check_dns.sh votre-domaine.com
+
+# Configurer Cloudflare (si vous avez un domaine)
+sudo ./scripts/setup_cloudflare.sh
+
+# Configurer DuckDNS (gratuit, pas de domaine requis)
+sudo ./scripts/setup_duckdns.sh
+
+# Configurer OVH (si vous avez un domaine OVH)
+sudo ./scripts/setup_ovh.sh
+```
+
+### Comparaison des Solutions DNS
+
+| Provider | Coût | Configuration | Wildcard | IP Dynamique | Recommandé pour |
+|----------|------|---------------|----------|--------------|-----------------|
+| **DuckDNS** | 🟢 Gratuit | 🟢 Auto (script) | ✅ Auto | ✅ Oui (cron) | Pas de budget |
+| **Cloudflare** | 🟢 DNS gratuit* | 🟢 Auto (API) | ✅ Oui | ⚠️ Manuel | Performance |
+| **OVH** | 🟡 Payant | 🟢 Auto (API) | ✅ Oui | ⚠️ Manuel | Europe/FR |
+| **Autre** | Variable | 🟡 Manuel | ✅ Oui | ⚠️ Manuel | Autre provider |
+
+*Cloudflare : DNS gratuit, mais domaine à acheter (~10-15€/an)
+
+📚 **Documentation complète DNS** : [docs/DNS_SETUP.md](docs/DNS_SETUP.md)
+
 ## 🎮 Menu Interactif de Gestion
 
 Pour une gestion simplifiée, utilisez le menu interactif :
@@ -155,6 +218,7 @@ Le menu vous permet de :
 - 📊 **Monitoring** - État système, services, quotas, logs
 - 🛠️ **Maintenance** - Redémarrages, mises à jour, sauvegardes
 - 🌐 **Traefik & SSO** 🆕 - Installer Traefik, gérer SSL, voir certificats
+- 🌍 **Gestion DNS** 🆕 - Vérifier, configurer Cloudflare, DuckDNS, OVH
 
 ### Interface du Menu
 
@@ -172,6 +236,7 @@ MENU PRINCIPAL
 3. 📊  Monitoring
 4. 🛠️   Maintenance
 5. 🌐  Traefik & SSO
+6. 🌍  Gestion DNS
 
 0. ❌  Quitter
 ```
@@ -614,6 +679,7 @@ Pour plus d'informations, consultez la documentation dans `/docs` :
 - **[AUTO_CONFIGURATION.md](docs/AUTO_CONFIGURATION.md)** - Guide sur l'auto-configuration des services (Portainer, Jellyfin)
 - **[INSTALLATION.md](docs/INSTALLATION.md)** - Guide d'installation détaillé
 - **[AUTHELIA_SSO.md](docs/AUTHELIA_SSO.md)** 🆕 - Guide complet Traefik + Authelia SSO
+- **[DNS_SETUP.md](docs/DNS_SETUP.md)** 🆕 - Guide complet configuration DNS (Cloudflare, DuckDNS, OVH, etc.)
 - **[scripts/README.md](scripts/README.md)** - Documentation des scripts de gestion
 
 ### Services avec Auto-Configuration
@@ -658,6 +724,7 @@ Pour toute question ou problème :
 - ✅ **Détection automatique** : Scripts s'adaptent au mode actif (lecture `.env`)
 - ✅ **Single Sign-On** : Un seul login pour tous les services (mode Traefik)
 - ✅ **SSL automatique** : Let's Encrypt avec renouvellement auto (mode Traefik)
+- ✅ **Configuration DNS automatique** : Scripts pour Cloudflare, DuckDNS, OVH
 - ✅ **Gestion mot de passe** : Mise à jour automatique sur tous les services
-- ✅ **Menu Traefik** : Nouvelle section dédiée dans le menu interactif
+- ✅ **Menu Traefik & DNS** : Nouvelles sections dédiées dans le menu interactif
 - ✅ **Génération labels** : Automatique lors création utilisateur/service

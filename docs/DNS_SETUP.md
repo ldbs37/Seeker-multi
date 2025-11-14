@@ -40,7 +40,7 @@ user2.domain.com     → IP_SERVEUR (via wildcard)
 |----------|------|----------|-----|----------------|-----------------|
 | **DuckDNS** | 🟢 Gratuit | ✅ Auto | ✅ Oui | ✅ Script fourni | Pas de budget / IP dynamique |
 | **Cloudflare** | 🟢 Gratuit* | ✅ Oui | ✅ Oui | ✅ Script fourni | Production / Performance |
-| **OVH** | 🟡 Payant | ✅ Oui | ✅ Oui | ⚠️ Manuel | Europe / Support FR |
+| **OVH** | 🟡 Payant | ✅ Oui | ✅ Oui | ✅ Script fourni | Europe / Support FR |
 | **Gandi** | 🟡 Payant | ✅ Oui | ✅ Oui | ⚠️ Manuel | Privacy / Éthique |
 | **Namecheap** | 🟡 Payant | ✅ Oui | ✅ Oui | ⚠️ Manuel | Budget / Simplicité |
 
@@ -176,6 +176,77 @@ Enregistrements créés:
 ```bash
 sudo ./scripts/setup_traefik.sh monseedbox.com
 ```
+
+---
+
+### Option C : OVH (Recommandé pour public francophone)
+
+#### 1. Prérequis
+
+- Avoir un domaine géré par OVH
+- Créer des clés API OVH
+- Votre domaine doit être dans votre compte OVH
+
+**Créer les clés API OVH :**
+
+1. Allez sur **https://api.ovh.com/createToken/**
+2. Connectez-vous avec votre compte OVH
+3. Remplissez le formulaire :
+   - **Application name** : Seedbox DNS
+   - **Application description** : Gestion DNS automatique
+   - **Validity** : Unlimited (ou la durée souhaitée)
+4. **Droits requis** (IMPORTANT) :
+   ```
+   GET    /domain/zone/*
+   POST   /domain/zone/*
+   PUT    /domain/zone/*
+   DELETE /domain/zone/*
+   ```
+5. Cliquez sur **"Create keys"**
+6. **Notez les 3 clés générées** :
+   - **Application Key** (AK)
+   - **Application Secret** (AS)
+   - **Consumer Key** (CK)
+
+#### 2. Lancer le script automatique
+
+```bash
+sudo ./scripts/setup_ovh.sh
+```
+
+Le script va vous demander :
+- Votre Application Key
+- Votre Application Secret
+- Votre Consumer Key
+- Votre nom de domaine
+- Votre endpoint OVH (ovh-eu par défaut)
+
+Puis il va automatiquement :
+- ✅ Valider les clés API
+- ✅ Vérifier la zone DNS
+- ✅ Créer l'enregistrement A pour `domain.com`
+- ✅ Créer l'enregistrement A pour `*.domain.com`
+- ✅ Rafraîchir la zone DNS
+- ✅ Vérifier la configuration DNS
+
+**Résultat :**
+```
+Enregistrements créés:
+  domain.com → IP_SERVEUR
+  *.domain.com → IP_SERVEUR
+```
+
+#### 3. Installer Traefik
+
+```bash
+sudo ./scripts/setup_traefik.sh monseedbox.com
+```
+
+**Notes OVH :**
+- Propagation DNS : 5-30 minutes en général
+- Endpoints disponibles : ovh-eu (Europe), ovh-ca (Canada), ovh-us (USA)
+- Les clés API peuvent être révoquées depuis votre compte OVH
+- TTL par défaut : 300 secondes (5 minutes)
 
 ---
 
@@ -463,6 +534,49 @@ ping user1.monseedbox.com
    curl "https://www.duckdns.org/update?domains=SUBDOMAIN&token=TOKEN&ip="
    ```
 
+### Problème 6 : OVH API ne fonctionne pas
+
+**Symptôme :** Erreur lors de l'exécution de `setup_ovh.sh`
+
+**Solutions :**
+
+1. **Vérifiez les clés API**
+   - Les clés doivent avoir les bonnes permissions
+   - Droits requis : GET, POST, PUT, DELETE sur `/domain/zone/*`
+   - Vérifiez que les clés ne sont pas expirées
+
+2. **Testez manuellement l'API**
+   ```bash
+   # Timestamp actuel
+   TIMESTAMP=$(date +%s)
+
+   # Test de connexion
+   curl -X GET "https://eu.api.ovh.com/1.0/me" \
+     -H "X-Ovh-Application: VOTRE_APP_KEY" \
+     -H "X-Ovh-Consumer: VOTRE_CONSUMER_KEY" \
+     -H "X-Ovh-Timestamp: $TIMESTAMP" \
+     -H "X-Ovh-Signature: SIGNATURE"
+   ```
+
+3. **Vérifiez la zone DNS**
+   - Le domaine doit être dans votre compte OVH
+   - La zone DNS doit être active
+   - Vérifiez depuis l'interface web OVH
+
+4. **Endpoint correct**
+   - Europe : `ovh-eu` (par défaut)
+   - Canada : `ovh-ca`
+   - USA : `ovh-us`
+
+5. **Erreurs courantes**
+   - **"This credential is not valid"** : Consumer Key invalide ou expiré
+   - **"Invalid signature"** : Problème de calcul de signature (vérifiez l'heure du serveur)
+   - **"Zone does not exist"** : Domaine pas dans votre compte OVH
+
+6. **Recréer les clés API**
+   - Si les erreurs persistent, recréez de nouvelles clés sur https://api.ovh.com/createToken/
+   - Assurez-vous d'accorder TOUS les droits nécessaires
+
 ---
 
 ## FAQ
@@ -538,6 +652,7 @@ Oui ! Vous pouvez utiliser un sous-domaine :
 - **Let's Encrypt** : https://letsencrypt.org/docs/
 - **Cloudflare** : https://developers.cloudflare.com/dns/
 - **DuckDNS** : https://www.duckdns.org/spec.jsp
+- **OVH API** : https://api.ovh.com/
 
 ### Scripts fournis
 
@@ -550,6 +665,9 @@ sudo ./scripts/setup_cloudflare.sh
 
 # Configuration DuckDNS automatique
 sudo ./scripts/setup_duckdns.sh
+
+# Configuration OVH automatique
+sudo ./scripts/setup_ovh.sh
 
 # Installation Traefik
 sudo ./scripts/setup_traefik.sh <domain>
@@ -580,7 +698,7 @@ Vous avez maintenant toutes les informations pour configurer votre DNS correctem
 
 **Récapitulatif :**
 
-1. ✅ Choisissez votre provider (DuckDNS ou Cloudflare recommandés)
+1. ✅ Choisissez votre provider (DuckDNS, Cloudflare ou OVH recommandés)
 2. ✅ Utilisez les scripts automatiques fournis
 3. ✅ Vérifiez avec `check_dns.sh`
 4. ✅ Installez Traefik avec `setup_traefik.sh`
