@@ -157,6 +157,18 @@ check_system() {
         error "RAM insuffisante : ${available_ram}G disponible, 4G requis"
     fi
 
+    # Vérification du système de fichiers
+    local fs_type
+    fs_type=$(df -T / | tail -1 | awk '{print $2}')
+    if [[ ! "$fs_type" =~ ^(ext[234]|xfs)$ ]]; then
+        warn "Système de fichiers '$fs_type' détecté"
+        warn "Les quotas fonctionnent mieux sur ext4 ou xfs"
+        warn "Des problèmes peuvent survenir avec btrfs ou zfs"
+        echo ""
+        read -p "Continuer malgré tout ? (o/N): " confirm
+        [[ ! $confirm =~ ^[oO]$ ]] && error "Installation annulée"
+    fi
+
     log "✓ Vérifications système OK"
 }
 
@@ -202,7 +214,8 @@ install_docker() {
     rm get-docker.sh
 
     # Installation de Docker Compose
-    curl -L "https://github.com/docker/compose/releases/download/v2.24.1/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+    DOCKER_COMPOSE_VERSION="v2.29.7"
+    curl -L "https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
     chmod +x /usr/local/bin/docker-compose
     ln -sf /usr/local/bin/docker-compose /usr/bin/docker-compose
 
@@ -665,6 +678,24 @@ configure_installation() {
                 warn "Le mot de passe doit contenir au moins 8 caractères"
             fi
         done
+    fi
+
+    # Vérification conflit Plex/Jellyfin
+    if [ "$INSTALL_PLEX" = true ] && [ "$INSTALL_JELLYFIN" = true ]; then
+        echo ""
+        warn "⚠️  ATTENTION: Conflit potentiel détecté !"
+        warn "    Plex et Jellyfin utilisent tous deux le port UDP 1900 (UPnP/DLNA)"
+        warn "    Il est fortement recommandé de n'installer qu'un seul service de streaming"
+        echo ""
+        read -p "Voulez-vous annuler l'installation de Jellyfin ? (O/n): " confirm
+        if [[ ! $confirm =~ ^[nN]$ ]]; then
+            INSTALL_JELLYFIN=false
+            JELLYFIN_USER=""
+            JELLYFIN_PASSWORD=""
+            info "Installation de Jellyfin annulée"
+        else
+            warn "Les deux services seront installés - des conflits peuvent survenir"
+        fi
     fi
 
     echo -e "\n${BLUE}=== Dashboards & Monitoring ===${NC}"

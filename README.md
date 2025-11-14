@@ -49,9 +49,10 @@ Une solution **simple et efficace** de seedbox multi-utilisateurs avec authentif
 - **Connexion:** 100 Mbps minimum
 
 ### Système
-- Ubuntu 22.04 LTS ou Debian 12
-- Un nom de domaine (optionnel)
-- Accès root
+- **OS:** Ubuntu 22.04/24.04 LTS ou Debian 12
+- **Système de fichiers:** ext4 ou xfs recommandé (pour les quotas)
+- **Nom de domaine:** Optionnel
+- **Accès:** root (sudo)
 
 ## 📥 Installation
 
@@ -398,6 +399,7 @@ sudo ./install.sh
 
 Pour plus d'informations, consultez la documentation dans `/docs` :
 
+- **[AUDIT.md](docs/AUDIT.md)** - 🔍 Rapport d'audit complet et matrice de compatibilité
 - **[MENU.md](docs/MENU.md)** - Guide complet du menu interactif de gestion
 - **[AUTO_CONFIGURATION.md](docs/AUTO_CONFIGURATION.md)** - Guide sur l'auto-configuration des services (Portainer, Jellyfin)
 - **[INSTALLATION.md](docs/INSTALLATION.md)** - Guide d'installation détaillé
@@ -436,5 +438,6 @@ Pour toute question ou problème :
 
 ---
 
-**Version:** 2.3 (Menu Interactif de Gestion)
+**Version:** 2.4 (Audit Complet + Améliorations Compatibilité)
 **Dernière mise à jour:** 2025-01-13
+**Compatibilité vérifiée:** ✅ Debian 12, Ubuntu 22.04/24.04 LTS
