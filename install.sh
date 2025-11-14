@@ -270,6 +270,12 @@ prepare_directories() {
         chmod +x "$INSTALL_DIR/scripts/"*.sh
     fi
 
+    # Copier le menu interactif
+    if [ -f "$(dirname "$0")/menu.sh" ]; then
+        cp "$(dirname "$0")/menu.sh" "$INSTALL_DIR/menu.sh"
+        chmod +x "$INSTALL_DIR/menu.sh"
+    fi
+
     log "✓ Dossiers créés"
 }
 
@@ -953,6 +959,13 @@ main() {
     [ "$INSTALL_DUPLICATI" = true ] && echo "  - Duplicati: http://votre-serveur:8200"
 
     echo -e "\n${YELLOW}Prochaines étapes:${NC}"
+    echo ""
+    echo -e "${CYAN}🎮 Utiliser le menu interactif (recommandé):${NC}"
+    echo "   cd $INSTALL_DIR"
+    echo "   sudo ./menu.sh"
+    echo ""
+    echo -e "${CYAN}Ou utiliser les scripts directement:${NC}"
+    echo ""
     echo "1. Ajouter des utilisateurs:"
     echo "   cd $INSTALL_DIR/scripts"
     echo "   sudo ./add_user.sh <username> <password> <email> [quota]"
@@ -962,6 +975,8 @@ main() {
     echo ""
     echo "3. Gérer les quotas:"
     echo "   sudo ./update_quota.sh <username> <quota_gb>"
+    echo ""
+    echo -e "${BLUE}📚 Documentation complète: $INSTALL_DIR/../docs/${NC}"
 
     log "Installation terminée !"
 }

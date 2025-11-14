@@ -91,7 +91,50 @@ Le script vous guidera à travers la configuration :
    - Ajoutez vos premiers utilisateurs
    - Définissez les quotas
 
+## 🎮 Menu Interactif de Gestion
+
+Pour une gestion simplifiée, utilisez le menu interactif :
+
+```bash
+cd /opt/seedbox
+sudo ./menu.sh
+```
+
+Le menu vous permet de :
+- 👥 **Gérer les utilisateurs** - Ajouter, supprimer, modifier quotas
+- 🔧 **Gérer les services** - Installer, supprimer des services système
+- 📊 **Monitoring** - État système, services, quotas, logs
+- 🛠️ **Maintenance** - Redémarrages, mises à jour, sauvegardes
+
+### Interface du Menu
+
+```
+╔════════════════════════════════════════════════════════════╗
+║                                                            ║
+║        🎬 SEEDBOX MULTI-UTILISATEURS - MENU GESTION       ║
+║                                                            ║
+╚════════════════════════════════════════════════════════════╝
+
+MENU PRINCIPAL
+
+1. 👥  Gestion des utilisateurs
+2. 🔧  Gestion des services système
+3. 📊  Monitoring
+4. 🛠️   Maintenance
+
+0. ❌  Quitter
+```
+
 ## 👥 Gestion des Utilisateurs
+
+### Via le Menu Interactif (Recommandé)
+
+```bash
+sudo ./menu.sh
+# Puis sélectionnez: 1. Gestion des utilisateurs
+```
+
+### Via les Scripts Directs
 
 ### Ajouter un utilisateur
 
@@ -355,7 +398,8 @@ sudo ./install.sh
 
 Pour plus d'informations, consultez la documentation dans `/docs` :
 
-- **[AUTO_CONFIGURATION.md](docs/AUTO_CONFIGURATION.md)** - Guide complet sur l'auto-configuration des services (Portainer, Jellyfin) et les services nécessitant une configuration manuelle
+- **[MENU.md](docs/MENU.md)** - Guide complet du menu interactif de gestion
+- **[AUTO_CONFIGURATION.md](docs/AUTO_CONFIGURATION.md)** - Guide sur l'auto-configuration des services (Portainer, Jellyfin)
 - **[INSTALLATION.md](docs/INSTALLATION.md)** - Guide d'installation détaillé
 - **[scripts/README.md](scripts/README.md)** - Documentation des scripts de gestion
 
@@ -392,5 +436,5 @@ Pour toute question ou problème :
 
 ---
 
-**Version:** 2.2 (Auto-configuration Jellyfin)
+**Version:** 2.3 (Menu Interactif de Gestion)
 **Dernière mise à jour:** 2025-01-13
