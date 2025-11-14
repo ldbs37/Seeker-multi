@@ -55,6 +55,9 @@ INSTALL_PORTAINER=false
 INSTALL_WATCHTOWER=false
 INSTALL_DUPLICATI=false
 
+# Traefik (reverse proxy avec SSL automatique)
+USE_TRAEFIK=false
+
 # Identifiants Portainer
 PORTAINER_USER=""
 PORTAINER_PASSWORD=""
@@ -366,6 +369,38 @@ EOF
 }
 
 #######################
+# Configuration Traefik (si activé)
+#######################
+
+setup_traefik_if_enabled() {
+    if [ "$USE_TRAEFIK" = "true" ]; then
+        log "Configuration de Traefik..."
+
+        # Créer le fichier .env avec le domaine
+        cat > "$INSTALL_DIR/.env" << EOF
+DOMAIN=$DOMAIN
+TZ=$TZ
+ADMIN_UID=$ADMIN_UID
+ADMIN_GID=$ADMIN_GID
+EOF
+
+        log "✓ Fichier .env créé avec DOMAIN=$DOMAIN"
+
+        # Appeler le script setup_traefik.sh
+        if [ -f "$INSTALL_DIR/scripts/setup_traefik.sh" ]; then
+            log "Installation de Traefik..."
+            "$INSTALL_DIR/scripts/setup_traefik.sh" "$DOMAIN" "$EMAIL"
+        else
+            warn "Script setup_traefik.sh non trouvé, Traefik ne sera pas installé automatiquement"
+            info "Vous pouvez l'installer manuellement après l'installation avec:"
+            info "  sudo $INSTALL_DIR/scripts/setup_traefik.sh $DOMAIN $EMAIL"
+        fi
+    else
+        log "Mode port direct - Traefik non installé"
+    fi
+}
+
+#######################
 # Génération du docker-compose.yml
 #######################
 
@@ -625,6 +660,30 @@ configure_installation() {
             warn "Email invalide"
         fi
     done
+
+    # Configuration Traefik (reverse proxy + SSL)
+    echo -e "\n${BLUE}=== Configuration d'accès ===${NC}"
+    echo "Mode d'accès aux services:"
+    echo "  - Port direct : Services accessibles via http://IP:PORT (simple, pas de SSL)"
+    echo "  - Traefik + SSL : Services accessibles via https://user.${DOMAIN}/service (sécurisé, nécessite DNS)"
+    echo ""
+    read -p "Utiliser Traefik avec SSL automatique ? (o/N): " input
+    if [[ $input =~ ^[oO]$ ]]; then
+        USE_TRAEFIK=true
+        info "Mode Traefik activé"
+        warn "⚠️  Prérequis Traefik:"
+        warn "   - DNS wildcard : *.${DOMAIN} doit pointer vers ce serveur"
+        warn "   - Ports 80/443 ouverts dans le firewall"
+        echo ""
+        read -p "DNS est configuré et ports ouverts ? (o/N): " dns_confirm
+        if [[ ! $dns_confirm =~ ^[oO]$ ]]; then
+            warn "Traefik désactivé. Configurez d'abord le DNS puis exécutez:"
+            warn "  sudo $INSTALL_DIR/scripts/setup_traefik.sh $DOMAIN $EMAIL"
+            USE_TRAEFIK=false
+        fi
+    else
+        info "Mode port direct sélectionné"
+    fi
 
     # Le premier utilisateur sera créé comme administrateur plus tard
 
@@ -912,6 +971,9 @@ main() {
     configure_authelia
     show_progress 7 10 "Installation"
 
+    # Configurer Traefik si activé (avant création des utilisateurs pour que .env existe)
+    setup_traefik_if_enabled
+
     # Créer les utilisateurs avec add_user.sh
     if [ ${#INITIAL_USERS[@]} -gt 0 ]; then
         log "Création des utilisateurs..."
@@ -944,19 +1006,49 @@ main() {
     echo -e "${GREEN}║     Installation terminée avec succès !   ║${NC}"
     echo -e "${GREEN}╚════════════════════════════════════════════╝${NC}\n"
 
-    info "Services disponibles:"
-    echo "  - Authelia (auth): http://votre-serveur:9091"
-    [ "$INSTALL_PLEX" = true ] && echo "  - Plex: http://votre-serveur:32400/web"
-    [ "$INSTALL_JELLYFIN" = true ] && echo "  - Jellyfin: http://votre-serveur:8096"
-    [ "$INSTALL_DASHDOT" = true ] && echo "  - Dashdot: http://votre-serveur:3002"
-    [ "$INSTALL_SCRUTINY" = true ] && echo "  - Scrutiny: http://votre-serveur:8080"
-    [ "$INSTALL_UPTIME_KUMA" = true ] && echo "  - Uptime Kuma: http://votre-serveur:3001"
-    [ "$INSTALL_TAUTULLI" = true ] && echo "  - Tautulli: http://votre-serveur:8181"
-    if [ "$INSTALL_PORTAINER" = true ]; then
-        echo "  - Portainer: http://votre-serveur:9000"
-        [ -n "$PORTAINER_USER" ] && echo "    Utilisateur: $PORTAINER_USER"
+    if [ "$USE_TRAEFIK" = "true" ]; then
+        info "🌐 Services accessibles (HTTPS avec SSL automatique):"
+        echo "  - Authelia (SSO): https://auth.$DOMAIN"
+        echo "  - Traefik Dashboard: https://traefik.$DOMAIN"
+        [ "$INSTALL_PLEX" = true ] && echo "  - Plex: https://plex.$DOMAIN"
+        [ "$INSTALL_JELLYFIN" = true ] && echo "  - Jellyfin: https://jellyfin.$DOMAIN"
+        [ "$INSTALL_DASHDOT" = true ] && echo "  - Dashdot: https://dashdot.$DOMAIN"
+        [ "$INSTALL_SCRUTINY" = true ] && echo "  - Scrutiny: https://scrutiny.$DOMAIN"
+        [ "$INSTALL_UPTIME_KUMA" = true ] && echo "  - Uptime Kuma: https://uptime.$DOMAIN"
+        [ "$INSTALL_TAUTULLI" = true ] && echo "  - Tautulli: https://tautulli.$DOMAIN"
+        if [ "$INSTALL_PORTAINER" = true ]; then
+            echo "  - Portainer: https://portainer.$DOMAIN"
+            [ -n "$PORTAINER_USER" ] && echo "    Utilisateur: $PORTAINER_USER"
+        fi
+        [ "$INSTALL_DUPLICATI" = true ] && echo "  - Duplicati: https://duplicati.$DOMAIN"
+
+        echo ""
+        info "👥 Services utilisateurs (exemple pour 'user1'):"
+        echo "  - qBittorrent: https://user1.$DOMAIN/qbittorrent"
+        echo "  - Homarr: https://user1.$DOMAIN"
+        echo "  - Filebrowser: https://user1.$DOMAIN/files"
+        echo "  - Sonarr: https://user1.$DOMAIN/sonarr"
+        echo "  - Radarr: https://user1.$DOMAIN/radarr"
+
+        echo ""
+        info "🔐 Connexion:"
+        echo "  1. Connectez-vous sur https://auth.$DOMAIN"
+        echo "  2. Accédez à tous les services sans re-login (SSO)"
+    else
+        info "Services disponibles:"
+        echo "  - Authelia (auth): http://votre-serveur:9091"
+        [ "$INSTALL_PLEX" = true ] && echo "  - Plex: http://votre-serveur:32400/web"
+        [ "$INSTALL_JELLYFIN" = true ] && echo "  - Jellyfin: http://votre-serveur:8096"
+        [ "$INSTALL_DASHDOT" = true ] && echo "  - Dashdot: http://votre-serveur:3002"
+        [ "$INSTALL_SCRUTINY" = true ] && echo "  - Scrutiny: http://votre-serveur:8080"
+        [ "$INSTALL_UPTIME_KUMA" = true ] && echo "  - Uptime Kuma: http://votre-serveur:3001"
+        [ "$INSTALL_TAUTULLI" = true ] && echo "  - Tautulli: http://votre-serveur:8181"
+        if [ "$INSTALL_PORTAINER" = true ]; then
+            echo "  - Portainer: http://votre-serveur:9000"
+            [ -n "$PORTAINER_USER" ] && echo "    Utilisateur: $PORTAINER_USER"
+        fi
+        [ "$INSTALL_DUPLICATI" = true ] && echo "  - Duplicati: http://votre-serveur:8200"
     fi
-    [ "$INSTALL_DUPLICATI" = true ] && echo "  - Duplicati: http://votre-serveur:8200"
 
     echo -e "\n${YELLOW}Prochaines étapes:${NC}"
     echo ""

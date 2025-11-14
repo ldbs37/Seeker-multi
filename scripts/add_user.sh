@@ -25,9 +25,12 @@ info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 INSTALL_DIR="/opt/seedbox"
 DOCKER_COMPOSE_FILE="$INSTALL_DIR/docker-compose.yml"
 AUTHELIA_CONFIG_DIR="$INSTALL_DIR/authelia"
+ENV_FILE="$INSTALL_DIR/.env"
 TZ="Europe/Paris"
 DEFAULT_QUOTA="500"
 IS_ADMIN=false
+USE_TRAEFIK=false
+DOMAIN=""
 
 # Vérification des arguments
 if [ $# -lt 3 ]; then
@@ -70,6 +73,50 @@ validate_password() {
     local password=$1
     if [ ${#password} -lt 8 ]; then
         error "Le mot de passe doit contenir au moins 8 caractères"
+    fi
+}
+
+# Détecter si Traefik est actif
+detect_traefik() {
+    # Vérifier si le domaine est configuré dans .env
+    if [ -f "$ENV_FILE" ] && grep -q "^DOMAIN=" "$ENV_FILE"; then
+        DOMAIN=$(grep "^DOMAIN=" "$ENV_FILE" | cut -d'=' -f2)
+        if [ -n "$DOMAIN" ]; then
+            USE_TRAEFIK=true
+            info "Mode Traefik détecté avec domaine: $DOMAIN"
+        fi
+    fi
+}
+
+# Générer les labels Traefik pour un service
+generate_traefik_labels() {
+    local service_name=$1
+    local username=$2
+    local port=$3
+    local path=$4
+    local protect_with_authelia=${5:-true}
+
+    if [ "$USE_TRAEFIK" != "true" ]; then
+        return
+    fi
+
+    local subdomain="${username}.${DOMAIN}"
+
+    echo "    networks:"
+    echo "      - traefik_proxy"
+    echo "    labels:"
+    echo "      - \"traefik.enable=true\""
+    echo -n "      - \"traefik.http.routers.${service_name}.rule=Host(\\\`${subdomain}\\\`)"
+    if [ -n "$path" ]; then
+        echo -n " && PathPrefix(\\\`${path}\\\`)"
+    fi
+    echo "\""
+    echo "      - \"traefik.http.routers.${service_name}.entrypoints=websecure\""
+    echo "      - \"traefik.http.routers.${service_name}.tls.certresolver=letsencrypt\""
+    echo "      - \"traefik.http.services.${service_name}.loadbalancer.server.port=${port}\""
+
+    if [ "$protect_with_authelia" = "true" ]; then
+        echo "      - \"traefik.http.routers.${service_name}.middlewares=authelia@docker\""
     fi
 }
 
@@ -145,6 +192,9 @@ log "Validation des données..."
 validate_username "$USERNAME"
 validate_password "$PASSWORD"
 validate_email "$EMAIL"
+
+# Détecter le mode Traefik
+detect_traefik
 
 # Vérifier si l'utilisateur existe déjà
 if id "$USERNAME" &>/dev/null; then
@@ -251,7 +301,28 @@ fi
 # Ajouter qBittorrent (obligatoire)
 log "Ajout de qBittorrent au docker-compose..."
 
-cat >> "$DOCKER_COMPOSE_FILE" << EOF
+if [ "$USE_TRAEFIK" = "true" ]; then
+    # Mode Traefik : pas de ports exposés, avec labels
+    cat >> "$DOCKER_COMPOSE_FILE" << EOF
+
+  qbittorrent-$USERNAME:
+    image: linuxserver/qbittorrent:latest
+    container_name: qbittorrent-$USERNAME
+    environment:
+      - PUID=$USER_ID
+      - PGID=$USER_ID
+      - TZ=$TZ
+      - WEBUI_PORT=8080
+    volumes:
+      - $USER_DIR/config/qbittorrent:/config
+      - $USER_DIR/downloads:/downloads
+$(generate_traefik_labels "qbit-$USERNAME" "$USERNAME" "8080" "/qbittorrent" "true")
+    restart: unless-stopped
+EOF
+    info "✓ qBittorrent configuré (https://$USERNAME.$DOMAIN/qbittorrent)"
+else
+    # Mode port direct
+    cat >> "$DOCKER_COMPOSE_FILE" << EOF
 
   qbittorrent-$USERNAME:
     image: linuxserver/qbittorrent:latest
@@ -268,8 +339,8 @@ cat >> "$DOCKER_COMPOSE_FILE" << EOF
       - "$QBIT_PORT:$QBIT_PORT"
     restart: unless-stopped
 EOF
-
-info "✓ qBittorrent configuré (port $QBIT_PORT)"
+    info "✓ qBittorrent configuré (port $QBIT_PORT)"
+fi
 
 # Ajouter les services sélectionnés
 for service in "${SERVICES_TO_INSTALL[@]}"; do
@@ -277,7 +348,25 @@ for service in "${SERVICES_TO_INSTALL[@]}"; do
 
     case $service in
         homarr)
-            cat >> "$DOCKER_COMPOSE_FILE" << EOF
+            if [ "$USE_TRAEFIK" = "true" ]; then
+                cat >> "$DOCKER_COMPOSE_FILE" << EOF
+
+  homarr-$USERNAME:
+    image: ghcr.io/ajnart/homarr:latest
+    container_name: homarr-$USERNAME
+    environment:
+      - PUID=$USER_ID
+      - PGID=$USER_ID
+      - TZ=$TZ
+    volumes:
+      - $USER_DIR/config/homarr:/app/data/configs
+      - $USER_DIR/config/homarr-icons:/app/public/icons
+$(generate_traefik_labels "homarr-$USERNAME" "$USERNAME" "7575" "" "true")
+    restart: unless-stopped
+EOF
+                info "✓ Homarr configuré (https://$USERNAME.$DOMAIN)"
+            else
+                cat >> "$DOCKER_COMPOSE_FILE" << EOF
 
   homarr-$USERNAME:
     image: ghcr.io/ajnart/homarr:latest
@@ -293,11 +382,30 @@ for service in "${SERVICES_TO_INSTALL[@]}"; do
       - "$HOMARR_PORT:7575"
     restart: unless-stopped
 EOF
-            info "✓ Homarr configuré (port $HOMARR_PORT)"
+                info "✓ Homarr configuré (port $HOMARR_PORT)"
+            fi
             ;;
 
         filebrowser)
-            cat >> "$DOCKER_COMPOSE_FILE" << EOF
+            if [ "$USE_TRAEFIK" = "true" ]; then
+                cat >> "$DOCKER_COMPOSE_FILE" << EOF
+
+  filebrowser-$USERNAME:
+    image: filebrowser/filebrowser:latest
+    container_name: filebrowser-$USERNAME
+    environment:
+      - PUID=$USER_ID
+      - PGID=$USER_ID
+      - TZ=$TZ
+    volumes:
+      - $USER_DIR:/srv
+      - $USER_DIR/config/filebrowser/filebrowser.db:/database.db
+$(generate_traefik_labels "fb-$USERNAME" "$USERNAME" "80" "/files" "true")
+    restart: unless-stopped
+EOF
+                info "✓ Filebrowser configuré (https://$USERNAME.$DOMAIN/files)"
+            else
+                cat >> "$DOCKER_COMPOSE_FILE" << EOF
 
   filebrowser-$USERNAME:
     image: filebrowser/filebrowser:latest
@@ -313,7 +421,8 @@ EOF
       - "$FILEBROWSER_PORT:80"
     restart: unless-stopped
 EOF
-            info "✓ Filebrowser configuré (port $FILEBROWSER_PORT)"
+                info "✓ Filebrowser configuré (port $FILEBROWSER_PORT)"
+            fi
             ;;
 
         sonarr|radarr|readarr|bazarr|prowlarr|overseerr|calibre)
@@ -343,15 +452,35 @@ info "📧 Email: $EMAIL"
 info "🆔 UID: $USER_ID"
 info "💾 Quota: ${QUOTA}GB"
 echo ""
-info "🌐 Services accessibles:"
-echo "   • qBittorrent: http://votre-serveur:$QBIT_PORT"
 
-if [[ " ${SERVICES_TO_INSTALL[@]} " =~ " homarr " ]]; then
-    echo "   • Homarr: http://votre-serveur:$HOMARR_PORT"
-fi
+if [ "$USE_TRAEFIK" = "true" ]; then
+    info "🌐 Services accessibles (HTTPS avec Authelia SSO):"
+    echo "   • Authelia: https://auth.$DOMAIN"
+    echo "   • qBittorrent: https://$USERNAME.$DOMAIN/qbittorrent"
 
-if [[ " ${SERVICES_TO_INSTALL[@]} " =~ " filebrowser " ]]; then
-    echo "   • Filebrowser: http://votre-serveur:$FILEBROWSER_PORT"
+    if [[ " ${SERVICES_TO_INSTALL[@]} " =~ " homarr " ]]; then
+        echo "   • Homarr: https://$USERNAME.$DOMAIN"
+    fi
+
+    if [[ " ${SERVICES_TO_INSTALL[@]} " =~ " filebrowser " ]]; then
+        echo "   • Filebrowser: https://$USERNAME.$DOMAIN/files"
+    fi
+
+    echo ""
+    info "💡 Connexion:"
+    echo "   1. Connectez-vous sur https://auth.$DOMAIN"
+    echo "   2. Accédez à tous les services sans re-login"
+else
+    info "🌐 Services accessibles:"
+    echo "   • qBittorrent: http://votre-serveur:$QBIT_PORT"
+
+    if [[ " ${SERVICES_TO_INSTALL[@]} " =~ " homarr " ]]; then
+        echo "   • Homarr: http://votre-serveur:$HOMARR_PORT"
+    fi
+
+    if [[ " ${SERVICES_TO_INSTALL[@]} " =~ " filebrowser " ]]; then
+        echo "   • Filebrowser: http://votre-serveur:$FILEBROWSER_PORT"
+    fi
 fi
 
 echo ""

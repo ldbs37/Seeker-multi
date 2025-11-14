@@ -717,12 +717,11 @@ menu_traefik() {
             echo ""
         fi
 
-        echo "1. Installer Traefik (nouvelle installation)"
-        echo "2. Migrer vers Traefik (installation existante)"
-        echo "3. Générer les labels Docker pour services existants"
-        echo "4. Voir l'état de Traefik"
-        echo "5. Voir les certificats SSL"
-        echo "6. Redémarrer Traefik"
+        echo "1. Installer Traefik"
+        echo "2. Générer les labels Docker pour services existants"
+        echo "3. Voir l'état de Traefik"
+        echo "4. Voir les certificats SSL"
+        echo "5. Redémarrer Traefik"
         echo ""
         echo "0. Retour au menu principal"
         echo ""
@@ -731,11 +730,10 @@ menu_traefik() {
 
         case $choice in
             1) setup_traefik_menu ;;
-            2) migrate_traefik_menu ;;
-            3) generate_labels_menu ;;
-            4) traefik_status_menu ;;
-            5) traefik_certs_menu ;;
-            6) restart_traefik_menu ;;
+            2) generate_labels_menu ;;
+            3) traefik_status_menu ;;
+            4) traefik_certs_menu ;;
+            5) restart_traefik_menu ;;
             0) break ;;
             *) warn "Choix invalide" ; pause ;;
         esac
@@ -768,30 +766,6 @@ setup_traefik_menu() {
     else
         info "Installation annulée"
     fi
-
-    pause
-}
-
-migrate_traefik_menu() {
-    show_header
-    echo -e "${BOLD}${BLUE}🔄 Migration vers Traefik${NC}\n"
-
-    warn "⚠️  ATTENTION : Cette migration est irréversible !"
-    warn "   - Les services ne seront plus accessibles par port direct"
-    warn "   - Nécessite un nom de domaine avec DNS configuré"
-    echo ""
-
-    read -p "Nom de domaine (ex: example.com): " domain
-    read -p "Email pour Let's Encrypt: " email
-
-    if [ -z "$domain" ] || [ -z "$email" ]; then
-        warn "Domaine et email requis"
-        pause
-        return
-    fi
-
-    echo ""
-    "$SCRIPTS_DIR/migrate_to_traefik.sh" "$domain" "$email"
 
     pause
 }
