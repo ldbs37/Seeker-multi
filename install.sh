@@ -671,15 +671,132 @@ configure_installation() {
     if [[ $input =~ ^[oO]$ ]]; then
         USE_TRAEFIK=true
         info "Mode Traefik activé"
-        warn "⚠️  Prérequis Traefik:"
-        warn "   - DNS wildcard : *.${DOMAIN} doit pointer vers ce serveur"
-        warn "   - Ports 80/443 ouverts dans le firewall"
+
         echo ""
-        read -p "DNS est configuré et ports ouverts ? (o/N): " dns_confirm
-        if [[ ! $dns_confirm =~ ^[oO]$ ]]; then
-            warn "Traefik désactivé. Configurez d'abord le DNS puis exécutez:"
-            warn "  sudo $INSTALL_DIR/scripts/setup_traefik.sh $DOMAIN $EMAIL"
-            USE_TRAEFIK=false
+        echo -e "${BLUE}=== Configuration DNS ===${NC}"
+        echo "Traefik nécessite un DNS wildcard pointant vers ce serveur."
+        echo ""
+        read -p "Avez-vous déjà un nom de domaine (ex: monseedbox.com) ? (o/N): " has_domain
+
+        if [[ $has_domain =~ ^[oO]$ ]]; then
+            # L'utilisateur a un domaine
+            info "Configuration DNS avec votre domaine existant"
+            echo ""
+            echo "Options de configuration DNS:"
+            echo "  1. Cloudflare (automatique via API)"
+            echo "  2. Autre provider (configuration manuelle)"
+            echo "  3. Je l'ai déjà configuré"
+            echo ""
+            read -p "Votre choix [1/2/3]: " dns_choice
+
+            case $dns_choice in
+                1)
+                    info "Configuration Cloudflare automatique"
+                    if [ -f "$INSTALL_DIR/scripts/setup_cloudflare.sh" ]; then
+                        "$INSTALL_DIR/scripts/setup_cloudflare.sh"
+                        if [ $? -eq 0 ]; then
+                            info "✓ DNS Cloudflare configuré avec succès"
+                        else
+                            warn "La configuration Cloudflare a échoué"
+                            warn "Vous pouvez réessayer plus tard avec:"
+                            warn "  sudo $INSTALL_DIR/scripts/setup_cloudflare.sh"
+                            USE_TRAEFIK=false
+                        fi
+                    else
+                        warn "Script setup_cloudflare.sh non trouvé"
+                        USE_TRAEFIK=false
+                    fi
+                    ;;
+                2)
+                    info "Configuration manuelle requise"
+                    echo ""
+                    warn "Configurez ces enregistrements DNS:"
+                    warn "  - Type A : $DOMAIN → IP de ce serveur"
+                    warn "  - Type A : *.$DOMAIN → IP de ce serveur"
+                    echo ""
+                    info "Documentation complète: $INSTALL_DIR/docs/DNS_SETUP.md"
+                    echo ""
+                    read -p "DNS configuré et prêt ? (o/N): " dns_ready
+                    if [[ ! $dns_ready =~ ^[oO]$ ]]; then
+                        warn "Traefik désactivé. Configurez le DNS puis exécutez:"
+                        warn "  sudo $INSTALL_DIR/scripts/check_dns.sh $DOMAIN"
+                        warn "  sudo $INSTALL_DIR/scripts/setup_traefik.sh $DOMAIN $EMAIL"
+                        USE_TRAEFIK=false
+                    fi
+                    ;;
+                3)
+                    info "Vérification DNS..."
+                    if [ -f "$INSTALL_DIR/scripts/check_dns.sh" ]; then
+                        if "$INSTALL_DIR/scripts/check_dns.sh" "$DOMAIN"; then
+                            info "✓ DNS vérifié et opérationnel"
+                        else
+                            warn "La vérification DNS a échoué"
+                            warn "Vérifiez votre configuration DNS puis réessayez"
+                            USE_TRAEFIK=false
+                        fi
+                    else
+                        warn "Impossible de vérifier le DNS automatiquement"
+                        read -p "Continuer quand même ? (o/N): " force_continue
+                        if [[ ! $force_continue =~ ^[oO]$ ]]; then
+                            USE_TRAEFIK=false
+                        fi
+                    fi
+                    ;;
+                *)
+                    warn "Choix invalide, Traefik désactivé"
+                    USE_TRAEFIK=false
+                    ;;
+            esac
+        else
+            # L'utilisateur n'a pas de domaine - proposer DuckDNS
+            info "Configuration DNS avec DuckDNS (gratuit)"
+            echo ""
+            info "DuckDNS est un service DNS 100% gratuit avec:"
+            echo "  ✓ Wildcard DNS automatique"
+            echo "  ✓ Pas besoin d'acheter un domaine"
+            echo "  ✓ Mise à jour automatique de l'IP"
+            echo "  ✓ Compatible Let's Encrypt SSL"
+            echo ""
+            read -p "Configurer DuckDNS automatiquement ? (o/N): " setup_duckdns
+
+            if [[ $setup_duckdns =~ ^[oO]$ ]]; then
+                if [ -f "$INSTALL_DIR/scripts/setup_duckdns.sh" ]; then
+                    "$INSTALL_DIR/scripts/setup_duckdns.sh"
+                    if [ $? -eq 0 ]; then
+                        # Lire le domaine depuis .env
+                        if [ -f "$INSTALL_DIR/.env" ] && grep -q "^DOMAIN=" "$INSTALL_DIR/.env"; then
+                            DOMAIN=$(grep "^DOMAIN=" "$INSTALL_DIR/.env" | cut -d'=' -f2)
+                            info "✓ DuckDNS configuré: $DOMAIN"
+                        else
+                            warn "Impossible de lire le domaine DuckDNS depuis .env"
+                            USE_TRAEFIK=false
+                        fi
+                    else
+                        warn "La configuration DuckDNS a échoué"
+                        warn "Vous pouvez réessayer plus tard avec:"
+                        warn "  sudo $INSTALL_DIR/scripts/setup_duckdns.sh"
+                        USE_TRAEFIK=false
+                    fi
+                else
+                    warn "Script setup_duckdns.sh non trouvé"
+                    USE_TRAEFIK=false
+                fi
+            else
+                info "Installation en mode port direct"
+                USE_TRAEFIK=false
+            fi
+        fi
+
+        # Vérification finale des ports
+        if [ "$USE_TRAEFIK" = "true" ]; then
+            echo ""
+            warn "⚠️  Vérifiez que les ports 80 et 443 sont ouverts dans votre firewall"
+            read -p "Ports 80/443 ouverts ? (o/N): " ports_open
+            if [[ ! $ports_open =~ ^[oO]$ ]]; then
+                warn "Ouvrez les ports puis réinstallez Traefik avec:"
+                warn "  sudo $INSTALL_DIR/scripts/setup_traefik.sh $DOMAIN $EMAIL"
+                USE_TRAEFIK=false
+            fi
         fi
     else
         info "Mode port direct sélectionné"
