@@ -117,7 +117,6 @@ Installe un nouveau service système optionnel.
 
 **Gestion & Organisation:**
 - `portainer` - Interface web de gestion Docker (avec auto-configuration)
-- `organizr` - Dashboard tout-en-un
 
 **Maintenance:**
 - `watchtower` - Mises à jour automatiques des conteneurs

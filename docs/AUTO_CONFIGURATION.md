@@ -37,16 +37,6 @@ Ces services nécessitent une configuration manuelle lors du premier accès via 
 - **Configuration:** Accédez à `http://votre-serveur:3001` et créez le compte admin via l'interface web
 - **Note:** Feature requests ouverts (#1185, #4277) pour ajouter cette fonctionnalité
 
-### Organizr (Dashboard All-in-One)
-- **Port:** 9983
-- **Auto-configuration:** ✗ Non supporté
-- **Raison:** Configuration uniquement via l'interface web lors du premier accès
-- **Configuration:** Accédez à `http://votre-serveur:9983` et suivez le wizard d'installation :
-  1. Install Type : Personal
-  2. Admin Info : Entrez vos identifiants
-  3. Security : Hash Key et Registration password
-  4. Database : Configuration de la base de données
-
 ### Tautulli (Statistiques Plex)
 - **Port:** 8181
 - **Auto-configuration:** ✗ Non supporté nativement
@@ -144,11 +134,6 @@ Le projet [Swizzin](https://github.com/swizzin/swizzin) a été analysé pour id
 - Pas de support de variables d'environnement pour l'utilisateur initial
 - Workaround possible : Manipulation de la base SQLite (non recommandé)
 
-**Organizr :**
-- Configuration uniquement via interface web
-- Pas d'API pour la création initiale d'utilisateur
-- Nécessite interaction manuelle obligatoire
-
 **Tautulli :**
 - Issue GitHub #2309 : Demande de support des variables d'environnement
 - Configuration stockée dans `config.ini`
@@ -179,7 +164,6 @@ Le projet [Swizzin](https://github.com/swizzin/swizzin) a été analysé pour id
 | **Portainer** | ✓ | 9000 | Automatique via API |
 | **Jellyfin** | ✓ | 8096 | Automatique via API |
 | **Uptime Kuma** | ✗ | 3001 | Manuelle (web UI) |
-| **Organizr** | ✗ | 9983 | Manuelle (web UI) |
 | **Tautulli** | ✗ | 8181 | Manuelle (web UI) |
 | **Dashdot** | N/A | 3002 | Pas d'auth requise |
 | **Scrutiny** | N/A | 8080 | Pas d'auth par défaut |

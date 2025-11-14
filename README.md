@@ -11,27 +11,38 @@ Une solution **simple et efficace** de seedbox multi-utilisateurs avec authentif
 - **Gestion facilitée** - Scripts dédiés pour toutes les opérations
 
 ### 📋 Services Par Utilisateur
-- 🖥️ **Homarr** - Dashboard personnel
-- 📥 **qBittorrent + VueTorrent** - Client torrent
-- 📺 **Sonarr** - Séries TV
-- 🎬 **Radarr** - Films
-- 📚 **Readarr** - Livres
-- 💬 **Bazarr** - Sous-titres
-- 🔍 **Prowlarr** - Indexeurs
-- 📝 **Overseerr** - Requêtes
+
+**Services Obligatoires (tous les utilisateurs) :**
+- 📥 **qBittorrent + VueTorrent** - Client torrent moderne
+- 🖥️ **Homarr** - Dashboard personnel avec auto-découverte
+- 📂 **Filebrowser** - Gestionnaire de fichiers web
+
+**Services Optionnels (installables à la demande) :**
+- 📺 **Sonarr** - Gestion de séries TV
+- 🎬 **Radarr** - Gestion de films
+- 📚 **Readarr** - Gestion de livres
+- 💬 **Bazarr** - Gestion de sous-titres
+- 🔍 **Prowlarr** - Gestion d'indexeurs
+- 📝 **Overseerr** - Système de requêtes
 - 📖 **Calibre-web** - Bibliothèque ebooks
-- 📂 **Filebrowser** - Gestionnaire de fichiers
 
-### 🛡️ Services Système
+### 🛡️ Services Système (accès administrateur)
 - 🔐 **Authelia** - Authentification centralisée
-- 🎥 **Plex** - Serveur de streaming média
+- 🎥 **Plex / Jellyfin** - Serveurs de streaming média
 - 🚦 **FlareSolverr** - Bypass Cloudflare
+- 🐋 **Portainer** - Gestion Docker via interface web
 
-### 🔧 Services Optionnels
+### 🔧 Services Optionnels (accès administrateur)
 - 💽 **Scrutiny** - Monitoring des disques (S.M.A.R.T.)
 - 📊 **Uptime Kuma** - Surveillance de disponibilité
+- 🎨 **Dashdot** - Dashboard de monitoring système
+- 📈 **Tautulli** - Statistiques Plex détaillées
 - 🔄 **Watchtower** - Mises à jour automatiques
 - 💾 **Duplicati** - Système de backup
+
+### 👥 Rôles Utilisateurs
+- **Administrateur** (premier utilisateur créé) : Accès aux services système + services utilisateur
+- **Utilisateurs Standard** : Accès uniquement aux services utilisateur (qBittorrent, Homarr, Filebrowser + optionnels)
 
 ### 🔒 Sécurité
 - Authentification centralisée (Authelia)
@@ -75,22 +86,29 @@ sudo ./install.sh
 Le script vous guidera à travers la configuration :
 
 1. **Configuration du domaine**
-   - Nom de domaine
+   - Nom de domaine (utilisé pour la configuration)
    - Email administrateur
 
-2. **Utilisateur administrateur**
-   - Nom d'utilisateur
-   - Mot de passe sécurisé
+2. **Premier utilisateur (Administrateur)**
+   - Le premier utilisateur créé sera automatiquement administrateur
+   - Nom d'utilisateur et mot de passe sécurisé
+   - Quota de stockage
+   - Accès aux services système + services utilisateur
 
-3. **Services optionnels**
+3. **Services système optionnels**
+   - Plex / Jellyfin (streaming média)
    - Scrutiny (monitoring disques)
    - Uptime Kuma (monitoring uptime)
+   - Dashdot (dashboard monitoring)
+   - Tautulli (stats Plex)
+   - Portainer (gestion Docker)
    - Watchtower (mises à jour auto)
    - Duplicati (backups)
 
-4. **Utilisateurs initiaux**
-   - Ajoutez vos premiers utilisateurs
-   - Définissez les quotas
+4. **Utilisateurs supplémentaires (optionnel)**
+   - Créés comme utilisateurs standard
+   - Choisissez les services optionnels à installer pour chaque utilisateur
+   - Services obligatoires : qBittorrent + Homarr + Filebrowser
 
 ## 🎮 Menu Interactif de Gestion
 
@@ -141,15 +159,22 @@ sudo ./menu.sh
 
 ```bash
 cd /opt/seedbox/scripts
-sudo ./add_user.sh <username> <password> <email> [quota_gb]
+sudo ./add_user.sh <username> <password> <email> [quota_gb] [--admin]
 ```
 
-**Exemple:**
+**Exemples:**
 ```bash
+# Créer un utilisateur standard
 sudo ./add_user.sh john MySecurePass123 john@example.com 500
+
+# Créer un administrateur
+sudo ./add_user.sh admin AdminPass456 admin@example.com 1000 --admin
 ```
 
-Chaque utilisateur obtient **automatiquement** tous ses services configurés !
+**Services installés automatiquement :**
+- **Tous les utilisateurs** : qBittorrent + Homarr + Filebrowser
+- **Services optionnels** : Choisis lors de la création (Sonarr, Radarr, etc.)
+- **Mode interactif** : Le script propose une sélection de services à installer
 
 ### Supprimer un utilisateur
 
@@ -185,10 +210,25 @@ sudo ./add_service.sh <service_name>
 
 | Service | Commande | Description | Port |
 |---------|----------|-------------|------|
+| Plex | `sudo ./add_service.sh plex` | Serveur de streaming média | 32400 |
+| Jellyfin | `sudo ./add_service.sh jellyfin` | Alternative open-source à Plex | 8096 |
+| Portainer | `sudo ./add_service.sh portainer` | Gestion Docker via interface web | 9000 |
 | Scrutiny | `sudo ./add_service.sh scrutiny` | Monitoring S.M.A.R.T. des disques | 8080 |
 | Uptime Kuma | `sudo ./add_service.sh uptime-kuma` | Surveillance de disponibilité | 3001 |
+| Dashdot | `sudo ./add_service.sh dashdot` | Dashboard de monitoring système | 3002 |
+| Tautulli | `sudo ./add_service.sh tautulli` | Statistiques détaillées pour Plex | 8181 |
 | Watchtower | `sudo ./add_service.sh watchtower` | Mises à jour automatiques | - |
 | Duplicati | `sudo ./add_service.sh duplicati` | Système de backup | 8200 |
+
+### 🚀 Gestion de Services par les Utilisateurs (API)
+
+Les utilisateurs peuvent installer leurs propres services depuis Homarr via l'API sécurisée.
+
+Voir [HOMARR_INTEGRATION.md](docs/HOMARR_INTEGRATION.md) pour :
+- Configuration de l'API
+- Intégration avec Homarr
+- Interface web de gestion des services
+- Sécurité et authentification JWT
 
 ## 📁 Structure des Dossiers
 
@@ -215,14 +255,18 @@ sudo ./add_service.sh <service_name>
 
 ## 🌐 Accès aux Services
 
-### Services Système
+### Services Système (accès administrateur)
 - **Authelia:** `http://votre-serveur:9091`
 - **Plex:** `http://votre-serveur:32400/web`
+- **Jellyfin:** `http://votre-serveur:8096`
+- **Portainer:** `http://votre-serveur:9000`
 - **FlareSolverr:** `http://votre-serveur:8191`
 
-### Services Optionnels
+### Services Optionnels (accès administrateur)
 - **Scrutiny:** `http://votre-serveur:8080`
 - **Uptime Kuma:** `http://votre-serveur:3001`
+- **Dashdot:** `http://votre-serveur:3002`
+- **Tautulli:** `http://votre-serveur:8181`
 - **Duplicati:** `http://votre-serveur:8200`
 
 ### Services Utilisateur
@@ -414,7 +458,7 @@ Les services suivants créent automatiquement le compte administrateur :
 ### Services Nécessitant Configuration Manuelle
 
 Ces services requièrent une configuration via l'interface web au premier accès :
-- ⚠️ **Uptime Kuma**, **Organizr**, **Tautulli**, **Duplicati**
+- ⚠️ **Uptime Kuma**, **Tautulli**, **Duplicati**
 
 Voir [AUTO_CONFIGURATION.md](docs/AUTO_CONFIGURATION.md) pour les détails complets.
 

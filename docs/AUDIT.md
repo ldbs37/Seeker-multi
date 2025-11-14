@@ -144,7 +144,6 @@ version: '3.8'
 | **Uptime Kuma** | `louislam/uptime-kuma:latest` | Docker Hub Official | ✅ | ✅ |
 | **Dashdot** | `mauricenino/dashdot:latest` | Docker Hub | ✅ | ✅ |
 | **Tautulli** | `linuxserver/tautulli:latest` | LinuxServer.io | ✅ | ✅ |
-| **Organizr** | `organizr/organizr:latest` | Docker Hub Official | ✅ | ✅ |
 | **Watchtower** | `containrrr/watchtower:latest` | Docker Hub Official | ✅ | ✅ |
 | **Duplicati** | `linuxserver/duplicati:latest` | LinuxServer.io | ✅ | ✅ |
 
@@ -318,7 +317,6 @@ Toutes les images utilisateur proviennent de **LinuxServer.io**, une source fiab
 | Uptime Kuma | 3001 | TCP | ❌ Rare |
 | Dashdot | 3002 | TCP | ❌ Rare |
 | Tautulli | 8181 | TCP | ❌ Rare |
-| Organizr | 9983 | TCP | ❌ Rare |
 | Duplicati | 8200 | TCP | ❌ Rare |
 | Watchtower | - | - | ❌ Pas de port |
 

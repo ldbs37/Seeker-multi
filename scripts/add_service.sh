@@ -46,7 +46,6 @@ if [ $# -lt 1 ]; then
     echo ""
     echo "Gestion:"
     echo "  - portainer     : Interface web pour gérer Docker"
-    echo "  - organizr      : Dashboard all-in-one pour tous vos services"
     echo ""
     echo "Maintenance:"
     echo "  - watchtower    : Mises à jour automatiques des conteneurs"
@@ -423,30 +422,6 @@ EOF
         info "Tautulli sera accessible sur le port 8181"
         info "Interface web: http://votre-serveur:8181"
         info "Connectez Tautulli à Plex pour voir les statistiques"
-        ;;
-
-    organizr)
-        log "Installation d'Organizr (dashboard all-in-one)..."
-        mkdir -p "$INSTALL_DIR/organizr"
-
-        cat >> "$DOCKER_COMPOSE_FILE" << EOF
-
-  organizr:
-    image: organizr/organizr:latest
-    container_name: organizr
-    environment:
-      - PUID=$ADMIN_UID
-      - PGID=$ADMIN_GID
-      - TZ=$TZ
-    volumes:
-      - $INSTALL_DIR/organizr:/config
-    ports:
-      - "9983:80"
-    restart: unless-stopped
-EOF
-        info "Organizr sera accessible sur le port 9983"
-        info "Interface web: http://votre-serveur:9983"
-        info "Premier accès : configurez l'admin et ajoutez vos services"
         ;;
 
     *)

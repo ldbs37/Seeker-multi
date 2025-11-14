@@ -117,7 +117,7 @@ show_services_status() {
     cd "$INSTALL_DIR"
 
     echo -e "${CYAN}Services Système:${NC}"
-    for service in authelia flaresolverr plex jellyfin scrutiny uptime-kuma dashdot portainer organizr tautulli watchtower duplicati; do
+    for service in authelia flaresolverr plex jellyfin scrutiny uptime-kuma dashdot portainer tautulli watchtower duplicati; do
         if docker ps --format "{{.Names}}" | grep -q "^${service}$"; then
             echo -e "  ${GREEN}●${NC} $service"
         elif docker ps -a --format "{{.Names}}" | grep -q "^${service}$"; then
@@ -363,11 +363,10 @@ add_service_menu() {
     echo ""
     echo -e "${BOLD}Gestion & Organisation:${NC}"
     echo "  7. portainer - Gestion Docker web"
-    echo "  8. organizr  - Dashboard all-in-one"
     echo ""
     echo -e "${BOLD}Maintenance:${NC}"
-    echo "  9. watchtower - Mises à jour automatiques"
-    echo "  10. duplicati - Système de backup"
+    echo "  8. watchtower - Mises à jour automatiques"
+    echo "  9. duplicati - Système de backup"
     echo ""
 
     read -p "Service à installer: " service

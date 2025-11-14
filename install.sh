@@ -52,7 +52,6 @@ INSTALL_UPTIME_KUMA=false
 INSTALL_DASHDOT=false
 INSTALL_TAUTULLI=false
 INSTALL_PORTAINER=false
-INSTALL_ORGANIZR=false
 INSTALL_WATCHTOWER=false
 INSTALL_DUPLICATI=false
 
@@ -318,7 +317,25 @@ authentication_backend:
     path: /config/users_database.yml
 
 access_control:
-  default_policy: one_factor
+  default_policy: deny
+  rules:
+    # Services système - Accès réservé aux administrateurs
+    - domain:
+        - "portainer.${DOMAIN}"
+        - "scrutiny.${DOMAIN}"
+        - "dashdot.${DOMAIN}"
+        - "tautulli.${DOMAIN}"
+        - "uptime-kuma.${DOMAIN}"
+        - "duplicati.${DOMAIN}"
+        - "watchtower.${DOMAIN}"
+      policy: one_factor
+      subject:
+        - "group:admins"
+
+    # Services utilisateur - Accès à tous les utilisateurs authentifiés
+    - domain:
+        - "*.${DOMAIN}"
+      policy: one_factor
 
 session:
   name: authelia_session
@@ -568,25 +585,6 @@ EOF
         mkdir -p "$INSTALL_DIR/portainer"
     fi
 
-    if [ "$INSTALL_ORGANIZR" = true ]; then
-        cat >> "$compose_file" << 'EOF'
-
-  organizr:
-    image: organizr/organizr:latest
-    container_name: organizr
-    environment:
-      - PUID=${ADMIN_UID}
-      - PGID=${ADMIN_GID}
-      - TZ=${TZ}
-    volumes:
-      - ./organizr:/config
-    ports:
-      - "9983:80"
-    restart: unless-stopped
-EOF
-        mkdir -p "$INSTALL_DIR/organizr"
-    fi
-
     # Créer le fichier .env
     cat > "$INSTALL_DIR/.env" << EOF
 TZ=$TZ
@@ -719,9 +717,6 @@ configure_installation() {
         done
     fi
 
-    read -p "Installer Organizr (dashboard all-in-one) ? (o/N): " input
-    [[ $input =~ ^[oO]$ ]] && INSTALL_ORGANIZR=true
-
     echo -e "\n${BLUE}=== Maintenance ===${NC}"
     read -p "Installer Watchtower (mises à jour auto) ? (o/N): " input
     [[ $input =~ ^[oO]$ ]] && INSTALL_WATCHTOWER=true
@@ -782,7 +777,6 @@ configure_installation() {
     [ "$INSTALL_UPTIME_KUMA" = true ] && echo "  ✓ Uptime Kuma"
     [ "$INSTALL_TAUTULLI" = true ] && echo "  ✓ Tautulli"
     [ "$INSTALL_PORTAINER" = true ] && echo "  ✓ Portainer"
-    [ "$INSTALL_ORGANIZR" = true ] && echo "  ✓ Organizr"
     [ "$INSTALL_WATCHTOWER" = true ] && echo "  ✓ Watchtower"
     [ "$INSTALL_DUPLICATI" = true ] && echo "  ✓ Duplicati"
     echo "Utilisateurs: ${#INITIAL_USERS[@]}"
@@ -962,7 +956,6 @@ main() {
         echo "  - Portainer: http://votre-serveur:9000"
         [ -n "$PORTAINER_USER" ] && echo "    Utilisateur: $PORTAINER_USER"
     fi
-    [ "$INSTALL_ORGANIZR" = true ] && echo "  - Organizr: http://votre-serveur:9983"
     [ "$INSTALL_DUPLICATI" = true ] && echo "  - Duplicati: http://votre-serveur:8200"
 
     echo -e "\n${YELLOW}Prochaines étapes:${NC}"

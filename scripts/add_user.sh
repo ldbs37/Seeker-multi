@@ -196,7 +196,19 @@ fi
 log "Ajout de l'utilisateur à Authelia..."
 HASHED_PASSWORD=$(docker run --rm authelia/authelia:latest authelia crypto hash generate argon2 --password "$PASSWORD" | grep 'Digest:' | awk '{print $2}')
 
-cat >> "$AUTHELIA_CONFIG_DIR/users_database.yml" << EOF
+if [ "$IS_ADMIN" = true ]; then
+    cat >> "$AUTHELIA_CONFIG_DIR/users_database.yml" << EOF
+
+  $USERNAME:
+    displayname: "$USERNAME"
+    password: "$HASHED_PASSWORD"
+    email: "$EMAIL"
+    groups:
+      - users
+      - admins
+EOF
+else
+    cat >> "$AUTHELIA_CONFIG_DIR/users_database.yml" << EOF
 
   $USERNAME:
     displayname: "$USERNAME"
@@ -205,6 +217,7 @@ cat >> "$AUTHELIA_CONFIG_DIR/users_database.yml" << EOF
     groups:
       - users
 EOF
+fi
 
 # Sélection des services supplémentaires
 SERVICES_TO_INSTALL=()
@@ -215,14 +228,12 @@ if [ -n "$SELECTED" ]; then
     read -ra SERVICES_TO_INSTALL <<< "$SELECTED"
 fi
 
-# Pour les admins, ajouter automatiquement Homarr et Filebrowser s'ils ne sont pas déjà sélectionnés
-if [ "$IS_ADMIN" = true ]; then
-    if [[ ! " ${SERVICES_TO_INSTALL[@]} " =~ " homarr " ]]; then
-        SERVICES_TO_INSTALL+=("homarr")
-    fi
-    if [[ ! " ${SERVICES_TO_INSTALL[@]} " =~ " filebrowser " ]]; then
-        SERVICES_TO_INSTALL+=("filebrowser")
-    fi
+# Ajouter automatiquement Homarr et Filebrowser pour TOUS les utilisateurs
+if [[ ! " ${SERVICES_TO_INSTALL[@]} " =~ " homarr " ]]; then
+    SERVICES_TO_INSTALL+=("homarr")
+fi
+if [[ ! " ${SERVICES_TO_INSTALL[@]} " =~ " filebrowser " ]]; then
+    SERVICES_TO_INSTALL+=("filebrowser")
 fi
 
 # Afficher le récapitulatif
