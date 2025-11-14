@@ -1,14 +1,15 @@
-# Seedbox Multi-Utilisateurs - Version Simplifiée
+# Seedbox Multi-Utilisateurs - Version Flexible
 
-Une solution **simple et efficace** de seedbox multi-utilisateurs avec authentification centralisée et gestion facile des utilisateurs.
+Une solution **simple et efficace** de seedbox multi-utilisateurs avec authentification centralisée SSO et gestion facile des utilisateurs.
 
 ## 🎯 Caractéristiques
 
-### ✨ Architecture Simplifiée
-- **Sans Traefik** - Architecture réseau simple avec ports directs
-- **Authentification centralisée** - Authelia pour la gestion des utilisateurs
-- **Services optionnels** - Installez uniquement ce dont vous avez besoin
-- **Gestion facilitée** - Scripts dédiés pour toutes les opérations
+### ✨ Architecture Flexible (Mode Dual)
+- **🔓 Mode Port Direct** - Architecture simple sans reverse proxy (idéal pour débutants)
+- **🔒 Mode Traefik + SSL** - Reverse proxy avec SSL automatique et Single Sign-On (production)
+- **🔐 Authentification SSO** - Authelia pour authentification centralisée avec un seul login
+- **📦 Services optionnels** - Installez uniquement ce dont vous avez besoin
+- **🚀 Gestion facilitée** - Scripts dédiés avec détection automatique du mode actif
 
 ### 📋 Services Par Utilisateur
 
@@ -45,25 +46,47 @@ Une solution **simple et efficace** de seedbox multi-utilisateurs avec authentif
 - **Utilisateurs Standard** : Accès uniquement aux services utilisateur (qBittorrent, Homarr, Filebrowser + optionnels)
 
 ### 🔒 Sécurité
-- Authentification centralisée (Authelia)
-- Protection fail2ban
-- Espaces utilisateurs isolés
-- Quotas par utilisateur
-- Pare-feu UFW configuré
+- **SSO (Single Sign-On)** - Un seul login pour tous les services (mode Traefik)
+- **SSL automatique** - Certificats Let's Encrypt générés automatiquement (mode Traefik)
+- **Authentification centralisée** - Authelia pour gestion des utilisateurs
+- **Protection fail2ban** - Contre les attaques par force brute
+- **Espaces utilisateurs isolés** - Chaque utilisateur dans son environnement
+- **Quotas par utilisateur** - Limitation de l'espace disque
+- **Pare-feu UFW** - Configuré automatiquement
+
+### 🌐 Modes d'Accès
+
+#### Mode Port Direct (Simple)
+- ✅ Configuration simple, pas de DNS requis
+- ✅ Accès direct : `http://IP:PORT`
+- ✅ Idéal pour usage personnel/local
+- ❌ Pas de SSL automatique
+- ❌ Login séparé pour chaque service
+
+#### Mode Traefik + SSL (Production)
+- ✅ SSL automatique via Let's Encrypt
+- ✅ URLs propres : `https://user.domain.com/service`
+- ✅ Single Sign-On (un seul login pour tout)
+- ✅ Protection Authelia sur tous les services
+- ⚠️ Nécessite : nom de domaine + DNS wildcard configuré
 
 ## 🔧 Prérequis
 
 ### Matériel Recommandé
 - **CPU:** 4 cœurs minimum
-- **RAM:** 8 GB minimum
+- **RAM:** 8 GB minimum (10 GB avec Traefik)
 - **Stockage:** 20 GB minimum pour le système
 - **Connexion:** 100 Mbps minimum
 
 ### Système
 - **OS:** Ubuntu 22.04/24.04 LTS ou Debian 12
 - **Système de fichiers:** ext4 ou xfs recommandé (pour les quotas)
-- **Nom de domaine:** Optionnel
 - **Accès:** root (sudo)
+
+### Pour le mode Traefik (optionnel)
+- **Nom de domaine:** Requis (ex: `example.com`)
+- **DNS wildcard:** `*.example.com` pointant vers votre serveur
+- **Ports ouverts:** 80/tcp et 443/tcp dans le firewall
 
 ## 📥 Installation
 
@@ -86,16 +109,23 @@ sudo ./install.sh
 Le script vous guidera à travers la configuration :
 
 1. **Configuration du domaine**
-   - Nom de domaine (utilisé pour la configuration)
-   - Email administrateur
+   - Nom de domaine (ex: `example.com`)
+   - Email administrateur (pour Let's Encrypt)
 
-2. **Premier utilisateur (Administrateur)**
+2. **Choix du mode d'accès** 🆕
+   - **Mode Port Direct** - Simple, sans DNS (par défaut)
+   - **Mode Traefik + SSL** - Avec HTTPS et SSO (si DNS configuré)
+   - ⚠️ Le mode Traefik nécessite :
+     - DNS wildcard `*.example.com` → IP du serveur
+     - Ports 80/443 ouverts dans le firewall
+
+3. **Premier utilisateur (Administrateur)**
    - Le premier utilisateur créé sera automatiquement administrateur
    - Nom d'utilisateur et mot de passe sécurisé
    - Quota de stockage
    - Accès aux services système + services utilisateur
 
-3. **Services système optionnels**
+4. **Services système optionnels**
    - Plex / Jellyfin (streaming média)
    - Scrutiny (monitoring disques)
    - Uptime Kuma (monitoring uptime)
@@ -105,7 +135,7 @@ Le script vous guidera à travers la configuration :
    - Watchtower (mises à jour auto)
    - Duplicati (backups)
 
-4. **Utilisateurs supplémentaires (optionnel)**
+5. **Utilisateurs supplémentaires (optionnel)**
    - Créés comme utilisateurs standard
    - Choisissez les services optionnels à installer pour chaque utilisateur
    - Services obligatoires : qBittorrent + Homarr + Filebrowser
@@ -120,10 +150,11 @@ sudo ./menu.sh
 ```
 
 Le menu vous permet de :
-- 👥 **Gérer les utilisateurs** - Ajouter, supprimer, modifier quotas
+- 👥 **Gérer les utilisateurs** - Ajouter, supprimer, modifier quotas, mots de passe
 - 🔧 **Gérer les services** - Installer, supprimer des services système
 - 📊 **Monitoring** - État système, services, quotas, logs
 - 🛠️ **Maintenance** - Redémarrages, mises à jour, sauvegardes
+- 🌐 **Traefik & SSO** 🆕 - Installer Traefik, gérer SSL, voir certificats
 
 ### Interface du Menu
 
@@ -140,6 +171,7 @@ MENU PRINCIPAL
 2. 🔧  Gestion des services système
 3. 📊  Monitoring
 4. 🛠️   Maintenance
+5. 🌐  Traefik & SSO
 
 0. ❌  Quitter
 ```
@@ -286,21 +318,21 @@ Voir [HOMARR_INTEGRATION.md](docs/HOMARR_INTEGRATION.md) pour :
 
 ## 🌐 Accès aux Services
 
-### Services Système (accès administrateur)
+### Mode Port Direct (HTTP)
+
+#### Services Système (accès administrateur)
 - **Authelia:** `http://votre-serveur:9091`
 - **Plex:** `http://votre-serveur:32400/web`
 - **Jellyfin:** `http://votre-serveur:8096`
 - **Portainer:** `http://votre-serveur:9000`
 - **FlareSolverr:** `http://votre-serveur:8191`
-
-### Services Optionnels (accès administrateur)
 - **Scrutiny:** `http://votre-serveur:8080`
 - **Uptime Kuma:** `http://votre-serveur:3001`
 - **Dashdot:** `http://votre-serveur:3002`
 - **Tautulli:** `http://votre-serveur:8181`
 - **Duplicati:** `http://votre-serveur:8200`
 
-### Services Utilisateur
+#### Services Utilisateur
 
 Chaque utilisateur obtient des ports uniques calculés automatiquement :
 
@@ -316,6 +348,39 @@ Chaque utilisateur obtient des ports uniques calculés automatiquement :
 | Homarr | 7575 + (UID-1000) | 7576 |
 | Calibre | 8083 + (UID-1000) | 8084 |
 | Filebrowser | 8081 + (UID-1000) | 8082 |
+
+### Mode Traefik + SSL (HTTPS) 🆕
+
+Avec Traefik activé, tous les services sont accessibles via HTTPS avec SSL automatique.
+
+#### Services Système
+- **Authelia (SSO):** `https://auth.votre-domaine.com`
+- **Traefik Dashboard:** `https://traefik.votre-domaine.com`
+- **Plex:** `https://plex.votre-domaine.com`
+- **Jellyfin:** `https://jellyfin.votre-domaine.com`
+- **Portainer:** `https://portainer.votre-domaine.com`
+- **Scrutiny:** `https://scrutiny.votre-domaine.com`
+- **Uptime Kuma:** `https://uptime.votre-domaine.com`
+- **Dashdot:** `https://dashdot.votre-domaine.com`
+- **Tautulli:** `https://tautulli.votre-domaine.com`
+- **Duplicati:** `https://duplicati.votre-domaine.com`
+
+#### Services Utilisateur (exemple pour user `john`)
+- **qBittorrent:** `https://john.votre-domaine.com/qbittorrent`
+- **Homarr:** `https://john.votre-domaine.com`
+- **Filebrowser:** `https://john.votre-domaine.com/files`
+- **Sonarr:** `https://john.votre-domaine.com/sonarr`
+- **Radarr:** `https://john.votre-domaine.com/radarr`
+- **Readarr:** `https://john.votre-domaine.com/readarr`
+- **Bazarr:** `https://john.votre-domaine.com/bazarr`
+- **Prowlarr:** `https://john.votre-domaine.com/prowlarr`
+- **Overseerr:** `https://john.votre-domaine.com/overseerr`
+- **Calibre:** `https://john.votre-domaine.com/calibre`
+
+#### 🔐 Connexion SSO (Mode Traefik)
+1. Connectez-vous sur `https://auth.votre-domaine.com`
+2. Une fois authentifié, accédez à **tous les services** sans re-login
+3. Session unique pour toute l'infrastructure
 
 ## 🔧 Maintenance
 
@@ -345,20 +410,23 @@ docker restart <service-username>
 
 ## 📊 Avantages de Cette Version
 
-### ✅ Par rapport à la version complexe
+### ✅ Mode Dual : Le meilleur des deux mondes
 
-| Caractéristique | Avant (Traefik) | Maintenant |
-|-----------------|-----------------|------------|
-| Complexité | Élevée | Simple |
-| Configuration réseau | Reverse proxy complexe | Ports directs |
-| Certificats SSL | Let's Encrypt auto | Manuel (optionnel) |
-| Temps d'installation | Long | Rapide |
-| Debugging | Difficile | Facile |
-| Ajout d'utilisateur | Complexe | 1 commande |
-| Services optionnels | Tous installés | À la carte |
+| Caractéristique | Mode Port Direct | Mode Traefik + SSL |
+|-----------------|------------------|--------------------|
+| Complexité | ⭐ Simple | ⭐⭐ Intermédiaire |
+| Configuration | Aucune (plug & play) | DNS wildcard requis |
+| SSL/HTTPS | ❌ Manuel | ✅ Automatique (Let's Encrypt) |
+| SSO | ❌ Login par service | ✅ Un seul login |
+| URLs | `http://IP:PORT` | `https://user.domain.com/service` |
+| Temps installation | ⚡ Rapide | ⚡ Rapide (si DNS prêt) |
+| Debugging | ✅ Facile | ⭐ Moyen |
+| Idéal pour | Usage personnel/local | Production/multi-users |
+| Ajout utilisateur | 🚀 1 commande (détection auto) | 🚀 1 commande (détection auto) |
 
-### 🎯 Architecture Simplifiée
+### 🎯 Architectures
 
+#### Mode Port Direct
 ```
 ┌─────────────────────────────────┐
 │   Serveur                       │
@@ -378,6 +446,37 @@ docker restart <service-username>
 │  │   Ports: 8100, 8991...      ││
 │  └─────────────────────────────┘│
 └─────────────────────────────────┘
+```
+
+#### Mode Traefik + SSL 🆕
+```
+                 Internet
+                    ↓
+            ┌───────────────┐
+            │ DNS Wildcard  │
+            │ *.domain.com  │
+            └───────┬───────┘
+                    ↓
+        ┌───────────────────────┐
+        │   Traefik (Port 443)  │
+        │   SSL + Reverse Proxy │
+        └───────────┬───────────┘
+                    ↓
+        ┌───────────────────────┐
+        │   Authelia (SSO)      │
+        │   Forward Auth        │
+        └───────────┬───────────┘
+                    ↓
+    ┌───────────────┴───────────────┐
+    │                               │
+┌───▼────┐  ┌──────────┐  ┌────────▼───┐
+│ Plex   │  │ Services │  │ Services   │
+│ Jellyfin  │ User 1   │  │ User 2     │
+└────────┘  └──────────┘  └────────────┘
+
+✅ HTTPS partout
+✅ Un seul login
+✅ URLs propres
 ```
 
 ## 🛠️ Dépannage
@@ -413,9 +512,36 @@ sudo quotaon -ap
 sudo quotaon -av
 ```
 
+## 🌐 Activer Traefik Après Installation
+
+Si vous avez installé en mode port direct et voulez passer à Traefik + SSL :
+
+### Via le Menu (Recommandé)
+```bash
+cd /opt/seedbox
+sudo ./menu.sh
+# Sélectionnez : 5. 🌐 Traefik & SSO
+# Puis : 1. Installer Traefik
+```
+
+### Via Script Direct
+```bash
+cd /opt/seedbox/scripts
+sudo ./setup_traefik.sh votre-domaine.com votre@email.com
+```
+
+**⚠️ Important :**
+- Configurez d'abord le DNS wildcard `*.votre-domaine.com` → IP serveur
+- Ouvrez les ports 80/443 dans le firewall
+- Les **nouveaux utilisateurs** créés après installation Traefik auront automatiquement les labels
+- Les **utilisateurs existants** nécessitent une régénération des labels :
+  ```bash
+  sudo ./scripts/generate_traefik_labels.sh
+  ```
+
 ## 🔄 Migration depuis l'ancienne version
 
-Si vous aviez l'ancienne version avec Traefik :
+Si vous aviez l'ancienne version sans mode dual :
 
 1. **Sauvegarder vos données**
 ```bash
@@ -438,36 +564,45 @@ sudo ./install.sh
 
 ## 📝 Notes
 
-- Chaque utilisateur a son espace totalement isolé
-- Les quotas sont appliqués au niveau système
-- L'authentification est centralisée via Authelia
-- Les services optionnels peuvent être ajoutés à tout moment
-- La configuration est simple et maintenable
+- **Mode dual** : Choisissez entre port direct (simple) ou Traefik + SSL (production)
+- **Détection automatique** : Les scripts détectent le mode actif via le fichier `.env`
+- **Isolation** : Chaque utilisateur a son espace totalement isolé
+- **Quotas** : Appliqués au niveau système (ext4/xfs requis)
+- **SSO** : Single Sign-On avec Authelia (mode Traefik uniquement)
+- **SSL automatique** : Let's Encrypt avec renouvellement auto (mode Traefik)
+- **Services optionnels** : Installation à la carte, à tout moment
+- **Configuration** : Simple et maintenable, adaptée au mode choisi
 
 ## 💡 Cas d'usage
 
-### Pour un usage personnel
+### Pour un usage personnel/local
 ```bash
-# Installation minimale
+# Installation minimale en mode port direct
 sudo ./install.sh
+# Répondre "N" à "Utiliser Traefik ?"
 # Ne sélectionnez aucun service optionnel
 # Ajoutez juste votre utilisateur personnel
+# ✅ Simple, rapide, aucun DNS requis
 ```
 
-### Pour un serveur partagé
+### Pour un serveur partagé (quelques amis)
 ```bash
-# Installation complète avec monitoring
+# Installation avec monitoring en mode Traefik
 sudo ./install.sh
-# Activez Scrutiny et Uptime Kuma
+# Répondre "o" à "Utiliser Traefik ?" (si DNS configuré)
+# Activez Scrutiny et Uptime Kuma pour monitoring
 # Ajoutez plusieurs utilisateurs avec des quotas
+# ✅ SSL + SSO pour facilité d'accès
 ```
 
-### Pour production
+### Pour production (multi-utilisateurs)
 ```bash
-# Installation avec backups et mises à jour auto
+# Installation complète avec Traefik + backups
 sudo ./install.sh
-# Activez Duplicati et Watchtower
-# Configurez les quotas appropriés
+# Répondre "o" à "Utiliser Traefik ?"
+# Activez Duplicati (backups) et Watchtower (auto-update)
+# Configurez les quotas appropriés par utilisateur
+# ✅ HTTPS partout, un seul login, monitoring complet
 ```
 
 ## 📚 Documentation
@@ -478,6 +613,7 @@ Pour plus d'informations, consultez la documentation dans `/docs` :
 - **[MENU.md](docs/MENU.md)** - Guide complet du menu interactif de gestion
 - **[AUTO_CONFIGURATION.md](docs/AUTO_CONFIGURATION.md)** - Guide sur l'auto-configuration des services (Portainer, Jellyfin)
 - **[INSTALLATION.md](docs/INSTALLATION.md)** - Guide d'installation détaillé
+- **[AUTHELIA_SSO.md](docs/AUTHELIA_SSO.md)** 🆕 - Guide complet Traefik + Authelia SSO
 - **[scripts/README.md](scripts/README.md)** - Documentation des scripts de gestion
 
 ### Services avec Auto-Configuration
@@ -513,6 +649,15 @@ Pour toute question ou problème :
 
 ---
 
-**Version:** 2.4 (Audit Complet + Améliorations Compatibilité)
-**Dernière mise à jour:** 2025-01-13
+**Version:** 3.0 (Mode Dual: Port Direct + Traefik SSO)
+**Dernière mise à jour:** 2025-01-14
 **Compatibilité vérifiée:** ✅ Debian 12, Ubuntu 22.04/24.04 LTS
+
+### 🆕 Nouveautés v3.0
+- ✅ **Mode dual** : Choix entre port direct et Traefik + SSL à l'installation
+- ✅ **Détection automatique** : Scripts s'adaptent au mode actif (lecture `.env`)
+- ✅ **Single Sign-On** : Un seul login pour tous les services (mode Traefik)
+- ✅ **SSL automatique** : Let's Encrypt avec renouvellement auto (mode Traefik)
+- ✅ **Gestion mot de passe** : Mise à jour automatique sur tous les services
+- ✅ **Menu Traefik** : Nouvelle section dédiée dans le menu interactif
+- ✅ **Génération labels** : Automatique lors création utilisateur/service
