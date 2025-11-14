@@ -236,14 +236,16 @@ add_user_menu() {
     quota=${quota:-500}
 
     echo ""
-    read -p "Installer les services supplémentaires de manière interactive ? (o/N): " interactive
+    read -p "Cet utilisateur est-il un administrateur ? (o/N): " is_admin
 
     echo ""
-    info "Création de l'utilisateur $username..."
-
-    if [[ $interactive =~ ^[oO]$ ]]; then
-        "$SCRIPTS_DIR/add_user.sh" "$username" "$password" "$email" "$quota" --with-services
+    if [[ $is_admin =~ ^[oO]$ ]]; then
+        info "Création de l'utilisateur ADMINISTRATEUR: $username..."
+        info "(Services inclus: qBittorrent + Homarr + Filebrowser + sélection interactive)"
+        "$SCRIPTS_DIR/add_user.sh" "$username" "$password" "$email" "$quota" --admin
     else
+        info "Création de l'utilisateur STANDARD: $username..."
+        info "(Service obligatoire: qBittorrent + sélection interactive des autres)"
         "$SCRIPTS_DIR/add_user.sh" "$username" "$password" "$email" "$quota"
     fi
 

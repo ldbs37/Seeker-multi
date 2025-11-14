@@ -628,26 +628,7 @@ configure_installation() {
         fi
     done
 
-    # Configuration admin
-    echo -e "\n${BLUE}=== Configuration administrateur ===${NC}"
-    read -p "Nom d'utilisateur admin [admin]: " ADMIN_USER
-    ADMIN_USER=${ADMIN_USER:-"admin"}
-
-    while true; do
-        read -s -p "Mot de passe admin (min 8 caractères): " ADMIN_PASSWORD
-        echo
-        if [ ${#ADMIN_PASSWORD} -ge 8 ]; then
-            read -s -p "Confirmez le mot de passe: " ADMIN_PASSWORD_CONFIRM
-            echo
-            if [ "$ADMIN_PASSWORD" = "$ADMIN_PASSWORD_CONFIRM" ]; then
-                break
-            else
-                warn "Les mots de passe ne correspondent pas"
-            fi
-        else
-            warn "Le mot de passe doit contenir au moins 8 caractères"
-        fi
-    done
+    # Le premier utilisateur sera créé comme administrateur plus tard
 
     # Services optionnels
     echo -e "\n${BLUE}=== Services de streaming ===${NC}"
@@ -786,7 +767,13 @@ configure_installation() {
     echo -e "\n${BLUE}=== Récapitulatif ===${NC}"
     echo "Domaine: $DOMAIN"
     echo "Email: $EMAIL"
-    echo "Admin: $ADMIN_USER"
+    if [ ${#INITIAL_USERS[@]} -gt 0 ]; then
+        IFS=':' read -r username _ _ _ <<< "${INITIAL_USERS[0]}"
+        echo "Premier utilisateur (Admin): $username"
+        echo "Utilisateurs totaux: ${#INITIAL_USERS[@]}"
+    else
+        echo "Utilisateurs: Aucun (à créer après installation)"
+    fi
     echo "Services optionnels:"
     [ "$INSTALL_PLEX" = true ] && echo "  ✓ Plex"
     [ "$INSTALL_JELLYFIN" = true ] && echo "  ✓ Jellyfin"
@@ -810,31 +797,9 @@ configure_installation() {
 # Ajout d'utilisateur à Authelia
 #######################
 
-add_authelia_user() {
-    local username=$1
-    local password=$2
-    local email=$3
-    local is_admin=${4:-false}
-
-    log "Configuration Authelia pour $username..."
-
-    # Génération du hash
-    local password_hash
-    password_hash=$(docker run --rm authelia/authelia:latest authelia crypto hash generate argon2 --password "$password" 2>/dev/null | grep 'Digest:' | awk '{print $2}')
-
-    cat >> "$INSTALL_DIR/authelia/users_database.yml" << EOF
-  $username:
-    displayname: "$username"
-    password: "$password_hash"
-    email: "$email"
-    groups:
-      - users
-EOF
-
-    if [ "$is_admin" = "true" ]; then
-        sed -i "/^  $username:/,/^  [^ ]/ s/groups:/groups:\n      - admins/" "$INSTALL_DIR/authelia/users_database.yml"
-    fi
-}
+# Note: La fonction add_authelia_user n'est plus utilisée
+# Les utilisateurs sont créés via scripts/add_user.sh qui gère à la fois
+# Authelia et les conteneurs Docker
 
 #######################
 # Déploiement
@@ -953,14 +918,25 @@ main() {
     configure_authelia
     show_progress 7 10 "Installation"
 
-    # Ajouter l'admin
-    add_authelia_user "$ADMIN_USER" "$ADMIN_PASSWORD" "$EMAIL" true
+    # Créer les utilisateurs avec add_user.sh
+    if [ ${#INITIAL_USERS[@]} -gt 0 ]; then
+        log "Création des utilisateurs..."
 
-    # Ajouter les utilisateurs initiaux
-    for user_info in "${INITIAL_USERS[@]}"; do
-        IFS=':' read -r username password email quota <<< "$user_info"
-        add_authelia_user "$username" "$password" "$email" false
-    done
+        # Le premier utilisateur est l'administrateur
+        IFS=':' read -r username password email quota <<< "${INITIAL_USERS[0]}"
+        log "Création de l'utilisateur administrateur: $username"
+        "$INSTALL_DIR/scripts/add_user.sh" "$username" "$password" "$email" "$quota" --admin
+
+        # Les utilisateurs suivants sont standard
+        for ((i=1; i<${#INITIAL_USERS[@]}; i++)); do
+            IFS=':' read -r username password email quota <<< "${INITIAL_USERS[$i]}"
+            log "Création de l'utilisateur: $username"
+            "$INSTALL_DIR/scripts/add_user.sh" "$username" "$password" "$email" "$quota"
+        done
+    else
+        warn "Aucun utilisateur créé pendant l'installation"
+        info "Vous devrez créer des utilisateurs manuellement après l'installation"
+    fi
     show_progress 8 10 "Installation"
 
     generate_docker_compose
