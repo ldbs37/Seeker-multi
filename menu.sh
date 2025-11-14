@@ -304,6 +304,39 @@ update_quota_menu() {
     pause
 }
 
+update_password_menu() {
+    show_header
+    echo -e "${BOLD}${BLUE}🔑 Modifier le Mot de Passe d'un Utilisateur${NC}\n"
+
+    read -p "Nom d'utilisateur: " username
+
+    if [ -z "$username" ]; then
+        warn "Nom d'utilisateur requis"
+        pause
+        return
+    fi
+
+    # Vérifier que l'utilisateur existe
+    if ! id "$username" &>/dev/null; then
+        error "L'utilisateur $username n'existe pas"
+        pause
+        return
+    fi
+
+    echo ""
+    info "Le mot de passe sera demandé de manière sécurisée par le script"
+    echo ""
+    read -p "Continuer ? (O/n): " confirm
+
+    if [[ ! $confirm =~ ^[Nn]$ ]]; then
+        "$SCRIPTS_DIR/update_password.sh" "$username"
+    else
+        warn "Modification annulée"
+    fi
+
+    pause
+}
+
 add_user_service_menu() {
     show_header
     echo -e "${BOLD}${BLUE}➕ Ajouter un Service à un Utilisateur${NC}\n"
@@ -562,9 +595,10 @@ menu_users() {
         echo "1. Ajouter un utilisateur"
         echo "2. Supprimer un utilisateur"
         echo "3. Modifier le quota d'un utilisateur"
-        echo "4. Ajouter un service à un utilisateur"
-        echo "5. Lister les services d'un utilisateur"
-        echo "6. Afficher les quotas"
+        echo "4. Modifier le mot de passe d'un utilisateur"
+        echo "5. Ajouter un service à un utilisateur"
+        echo "6. Lister les services d'un utilisateur"
+        echo "7. Afficher les quotas"
         echo ""
         echo "0. Retour au menu principal"
         echo ""
@@ -575,9 +609,10 @@ menu_users() {
             1) add_user_menu ;;
             2) remove_user_menu ;;
             3) update_quota_menu ;;
-            4) add_user_service_menu ;;
-            5) show_user_services ;;
-            6) show_quotas ;;
+            4) update_password_menu ;;
+            5) add_user_service_menu ;;
+            6) show_user_services ;;
+            7) show_quotas ;;
             0) break ;;
             *) warn "Choix invalide" ; pause ;;
         esac

@@ -197,6 +197,33 @@ sudo ./update_quota.sh <username> <quota_gb>
 sudo ./update_quota.sh john 1000  # 1TB
 ```
 
+### Modifier un mot de passe
+
+```bash
+sudo ./update_password.sh <username> [nouveau_mot_de_passe]
+```
+
+**Si le mot de passe n'est pas fourni, il sera demandé de manière sécurisée.**
+
+**Ce qui est mis à jour automatiquement :**
+- ✅ **Mot de passe système Linux** (SSH, console)
+- ✅ **Mot de passe Authelia** (authentification centralisée)
+- ✅ **Mot de passe Jellyfin** (si configuré avec clé API)
+
+**Services à mettre à jour manuellement :**
+- ⚠️ qBittorrent (Options → Web UI → Authentification)
+- ⚠️ Filebrowser (Settings → User Management)
+- ⚠️ Sonarr, Radarr, etc. (Settings → General → Security)
+
+**Exemple:**
+```bash
+# Mode interactif (mot de passe demandé de façon sécurisée)
+sudo ./update_password.sh john
+
+# Mode direct (moins sécurisé)
+sudo ./update_password.sh john NewSecurePass789
+```
+
 ## 🔧 Services Optionnels
 
 ### Installer un service après l'installation
