@@ -78,8 +78,24 @@ validate_password() {
 
 # Détecter si Traefik est actif
 detect_traefik() {
-    # Vérifier si le domaine est configuré dans .env
-    if [ -f "$ENV_FILE" ] && grep -q "^DOMAIN=" "$ENV_FILE"; then
+    [ -f "$ENV_FILE" ] || return
+
+    # Priorité au flag explicite USE_TRAEFIK écrit par install.sh.
+    if grep -q "^USE_TRAEFIK=" "$ENV_FILE"; then
+        local flag
+        flag=$(grep "^USE_TRAEFIK=" "$ENV_FILE" | cut -d'=' -f2)
+        if [ "$flag" = "true" ]; then
+            DOMAIN=$(grep "^DOMAIN=" "$ENV_FILE" | cut -d'=' -f2)
+            USE_TRAEFIK=true
+            info "Mode Traefik détecté (domaine: $DOMAIN)"
+        else
+            info "Mode port direct détecté"
+        fi
+        return
+    fi
+
+    # Rétro-compatibilité : ancien .env sans flag → déduire du domaine.
+    if grep -q "^DOMAIN=" "$ENV_FILE"; then
         DOMAIN=$(grep "^DOMAIN=" "$ENV_FILE" | cut -d'=' -f2)
         if [ -n "$DOMAIN" ]; then
             USE_TRAEFIK=true

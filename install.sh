@@ -33,6 +33,7 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
 # Fonctions de base pour les logs
@@ -409,7 +410,41 @@ generate_docker_compose() {
 
     local compose_file="$INSTALL_DIR/docker-compose.yml"
 
-    cat > "$compose_file" << 'EOF'
+    if [ "$USE_TRAEFIK" = "true" ]; then
+        # Mode Traefik : Authelia est routé par Traefik et publie le middleware
+        # forward-auth "authelia@docker" référencé par les services utilisateurs.
+        # Heredoc NON quoté : ${DOMAIN} est injecté maintenant, \${TZ} reste
+        # une variable interpolée par docker-compose, \` protège les backticks.
+        cat > "$compose_file" << EOF
+version: '3.8'
+
+networks:
+  traefik_proxy:
+    external: true
+
+services:
+  authelia:
+    image: authelia/authelia:4.39.28
+    container_name: authelia
+    volumes:
+      - ./authelia:/config
+    environment:
+      - TZ=\${TZ}
+    networks:
+      - traefik_proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.authelia.rule=Host(\`auth.${DOMAIN}\`)"
+      - "traefik.http.routers.authelia.entrypoints=websecure"
+      - "traefik.http.routers.authelia.tls.certresolver=letsencrypt"
+      - "traefik.http.middlewares.authelia.forwardauth.address=http://authelia:9091/api/verify?rd=https://auth.${DOMAIN}"
+      - "traefik.http.middlewares.authelia.forwardauth.trustForwardHeader=true"
+      - "traefik.http.middlewares.authelia.forwardauth.authResponseHeaders=Remote-User,Remote-Groups,Remote-Name,Remote-Email"
+    restart: unless-stopped
+EOF
+    else
+        # Mode port direct : Authelia publie son port 9091 sur l'hôte.
+        cat > "$compose_file" << 'EOF'
 version: '3.8'
 
 services:
@@ -424,6 +459,7 @@ services:
       - "9091:9091"
     restart: unless-stopped
 EOF
+    fi
 
     # Plex optionnel
     if [ "$INSTALL_PLEX" = true ]; then
@@ -620,12 +656,13 @@ EOF
         mkdir -p "$INSTALL_DIR/portainer"
     fi
 
-    # Créer le fichier .env
+    # Créer le fichier .env (USE_TRAEFIK = flag explicite lu par add_user.sh)
     cat > "$INSTALL_DIR/.env" << EOF
 TZ=$TZ
 DOMAIN=$DOMAIN
 ADMIN_UID=$ADMIN_UID
 ADMIN_GID=$ADMIN_GID
+USE_TRAEFIK=$USE_TRAEFIK
 EOF
 
     log "✓ Configuration Docker générée"
@@ -1079,17 +1116,27 @@ main() {
     setup_system
     show_progress 4 10 "Installation"
 
-    configure_installation
+    # Créer la structure de dossiers et copier les scripts AVANT la
+    # configuration interactive : celle-ci peut appeler les scripts DNS/Traefik
+    # (setup_cloudflare.sh, setup_duckdns.sh, check_dns.sh) depuis $INSTALL_DIR/scripts.
+    prepare_directories
     show_progress 5 10 "Installation"
 
-    prepare_directories
+    configure_installation
     show_progress 6 10 "Installation"
 
     configure_authelia
     show_progress 7 10 "Installation"
 
-    # Configurer Traefik si activé (avant création des utilisateurs pour que .env existe)
+    # Configurer Traefik si activé (avant génération du compose pour que le
+    # réseau traefik_proxy et le .env existent)
     setup_traefik_if_enabled
+
+    # Générer le docker-compose.yml de base (Authelia + services système)
+    # AVANT la création des utilisateurs : add_user.sh y ajoute (>>) les
+    # services par-utilisateur. Générer après écraserait ces ajouts.
+    generate_docker_compose
+    show_progress 8 10 "Installation"
 
     # Créer les utilisateurs avec add_user.sh
     if [ ${#INITIAL_USERS[@]} -gt 0 ]; then
@@ -1110,9 +1157,6 @@ main() {
         warn "Aucun utilisateur créé pendant l'installation"
         info "Vous devrez créer des utilisateurs manuellement après l'installation"
     fi
-    show_progress 8 10 "Installation"
-
-    generate_docker_compose
     show_progress 9 10 "Installation"
 
     deploy_services
