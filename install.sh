@@ -414,7 +414,7 @@ version: '3.8'
 
 services:
   authelia:
-    image: authelia/authelia:latest
+    image: authelia/authelia:4.39.28
     container_name: authelia
     volumes:
       - ./authelia:/config
@@ -430,7 +430,7 @@ EOF
         cat >> "$compose_file" << 'EOF'
 
   plex:
-    image: linuxserver/plex:latest
+    image: linuxserver/plex:1.43.4
     container_name: plex
     network_mode: host
     environment:
@@ -449,7 +449,7 @@ EOF
     cat >> "$compose_file" << 'EOF'
 
   flaresolverr:
-    image: ghcr.io/flaresolverr/flaresolverr:latest
+    image: ghcr.io/flaresolverr/flaresolverr:v3.5.2
     container_name: flaresolverr
     environment:
       - LOG_LEVEL=info
@@ -488,7 +488,7 @@ EOF
         cat >> "$compose_file" << 'EOF'
 
   uptime-kuma:
-    image: louislam/uptime-kuma:latest
+    image: louislam/uptime-kuma:2.5.5
     container_name: uptime-kuma
     volumes:
       - ./uptime-kuma:/app/data
@@ -505,7 +505,7 @@ EOF
         cat >> "$compose_file" << 'EOF'
 
   watchtower:
-    image: containrrr/watchtower:latest
+    image: containrrr/watchtower:1.7.1
     container_name: watchtower
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
@@ -521,7 +521,7 @@ EOF
         cat >> "$compose_file" << 'EOF'
 
   duplicati:
-    image: linuxserver/duplicati:latest
+    image: linuxserver/duplicati:2.4.0
     container_name: duplicati
     environment:
       - PUID=${ADMIN_UID}
@@ -541,7 +541,7 @@ EOF
         cat >> "$compose_file" << 'EOF'
 
   jellyfin:
-    image: jellyfin/jellyfin:latest
+    image: jellyfin/jellyfin:10.11.11
     container_name: jellyfin
     environment:
       - PUID=${ADMIN_UID}
@@ -566,7 +566,7 @@ EOF
         cat >> "$compose_file" << 'EOF'
 
   dashdot:
-    image: mauricenino/dashdot:latest
+    image: mauricenino/dashdot:6.3.4
     container_name: dashdot
     privileged: true
     ports:
@@ -586,7 +586,7 @@ EOF
         cat >> "$compose_file" << 'EOF'
 
   tautulli:
-    image: linuxserver/tautulli:latest
+    image: linuxserver/tautulli:2.18.1
     container_name: tautulli
     environment:
       - PUID=${ADMIN_UID}
@@ -605,7 +605,7 @@ EOF
         cat >> "$compose_file" << 'EOF'
 
   portainer:
-    image: portainer/portainer-ce:latest
+    image: portainer/portainer-ce:2.45.1
     container_name: portainer
     ports:
       - "9000:9000"

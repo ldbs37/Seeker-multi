@@ -139,7 +139,7 @@ add_service_to_compose() {
                 cat >> "$DOCKER_COMPOSE_FILE" << EOF
 
   sonarr-$username:
-    image: linuxserver/sonarr:latest
+    image: linuxserver/sonarr:4.0.20
     container_name: sonarr-$username
     environment:
       - PUID=$user_id
@@ -157,7 +157,7 @@ EOF
                 cat >> "$DOCKER_COMPOSE_FILE" << EOF
 
   sonarr-$username:
-    image: linuxserver/sonarr:latest
+    image: linuxserver/sonarr:4.0.20
     container_name: sonarr-$username
     environment:
       - PUID=$user_id
@@ -181,7 +181,7 @@ EOF
                 cat >> "$DOCKER_COMPOSE_FILE" << EOF
 
   radarr-$username:
-    image: linuxserver/radarr:latest
+    image: linuxserver/radarr:6.4.4
     container_name: radarr-$username
     environment:
       - PUID=$user_id
@@ -199,7 +199,7 @@ EOF
                 cat >> "$DOCKER_COMPOSE_FILE" << EOF
 
   radarr-$username:
-    image: linuxserver/radarr:latest
+    image: linuxserver/radarr:6.4.4
     container_name: radarr-$username
     environment:
       - PUID=$user_id
@@ -265,7 +265,7 @@ EOF
                 cat >> "$DOCKER_COMPOSE_FILE" << EOF
 
   bazarr-$username:
-    image: linuxserver/bazarr:latest
+    image: linuxserver/bazarr:1.6.1
     container_name: bazarr-$username
     environment:
       - PUID=$user_id
@@ -283,7 +283,7 @@ EOF
                 cat >> "$DOCKER_COMPOSE_FILE" << EOF
 
   bazarr-$username:
-    image: linuxserver/bazarr:latest
+    image: linuxserver/bazarr:1.6.1
     container_name: bazarr-$username
     environment:
       - PUID=$user_id
@@ -307,7 +307,7 @@ EOF
                 cat >> "$DOCKER_COMPOSE_FILE" << EOF
 
   prowlarr-$username:
-    image: linuxserver/prowlarr:latest
+    image: linuxserver/prowlarr:2.6.5
     container_name: prowlarr-$username
     environment:
       - PUID=$user_id
@@ -323,7 +323,7 @@ EOF
                 cat >> "$DOCKER_COMPOSE_FILE" << EOF
 
   prowlarr-$username:
-    image: linuxserver/prowlarr:latest
+    image: linuxserver/prowlarr:2.6.5
     container_name: prowlarr-$username
     environment:
       - PUID=$user_id
@@ -345,7 +345,7 @@ EOF
                 cat >> "$DOCKER_COMPOSE_FILE" << EOF
 
   overseerr-$username:
-    image: sctx/overseerr:latest
+    image: sctx/overseerr:1.35.0
     container_name: overseerr-$username
     environment:
       - PUID=$user_id
@@ -361,7 +361,7 @@ EOF
                 cat >> "$DOCKER_COMPOSE_FILE" << EOF
 
   overseerr-$username:
-    image: sctx/overseerr:latest
+    image: sctx/overseerr:1.35.0
     container_name: overseerr-$username
     environment:
       - PUID=$user_id
@@ -386,7 +386,7 @@ EOF
                 cat >> "$DOCKER_COMPOSE_FILE" << EOF
 
   calibre-$username:
-    image: linuxserver/calibre-web:latest
+    image: linuxserver/calibre-web:0.6.27
     container_name: calibre-$username
     environment:
       - PUID=$user_id
@@ -403,7 +403,7 @@ EOF
                 cat >> "$DOCKER_COMPOSE_FILE" << EOF
 
   calibre-$username:
-    image: linuxserver/calibre-web:latest
+    image: linuxserver/calibre-web:0.6.27
     container_name: calibre-$username
     environment:
       - PUID=$user_id

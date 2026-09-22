@@ -244,7 +244,7 @@ fi
 
 # Ajouter l'utilisateur à Authelia
 log "Ajout de l'utilisateur à Authelia..."
-HASHED_PASSWORD=$(docker run --rm authelia/authelia:latest authelia crypto hash generate argon2 --password "$PASSWORD" | grep 'Digest:' | awk '{print $2}')
+HASHED_PASSWORD=$(docker run --rm authelia/authelia:4.39.28 authelia crypto hash generate argon2 --password "$PASSWORD" | grep 'Digest:' | awk '{print $2}')
 
 if [ "$IS_ADMIN" = true ]; then
     cat >> "$AUTHELIA_CONFIG_DIR/users_database.yml" << EOF
@@ -306,7 +306,7 @@ if [ "$USE_TRAEFIK" = "true" ]; then
     cat >> "$DOCKER_COMPOSE_FILE" << EOF
 
   qbittorrent-$USERNAME:
-    image: linuxserver/qbittorrent:latest
+    image: linuxserver/qbittorrent:5.2.3
     container_name: qbittorrent-$USERNAME
     environment:
       - PUID=$USER_ID
@@ -325,7 +325,7 @@ else
     cat >> "$DOCKER_COMPOSE_FILE" << EOF
 
   qbittorrent-$USERNAME:
-    image: linuxserver/qbittorrent:latest
+    image: linuxserver/qbittorrent:5.2.3
     container_name: qbittorrent-$USERNAME
     environment:
       - PUID=$USER_ID
@@ -352,7 +352,7 @@ for service in "${SERVICES_TO_INSTALL[@]}"; do
                 cat >> "$DOCKER_COMPOSE_FILE" << EOF
 
   homarr-$USERNAME:
-    image: ghcr.io/ajnart/homarr:latest
+    image: ghcr.io/ajnart/homarr:0.16.1
     container_name: homarr-$USERNAME
     environment:
       - PUID=$USER_ID
@@ -369,7 +369,7 @@ EOF
                 cat >> "$DOCKER_COMPOSE_FILE" << EOF
 
   homarr-$USERNAME:
-    image: ghcr.io/ajnart/homarr:latest
+    image: ghcr.io/ajnart/homarr:0.16.1
     container_name: homarr-$USERNAME
     environment:
       - PUID=$USER_ID
@@ -391,7 +391,7 @@ EOF
                 cat >> "$DOCKER_COMPOSE_FILE" << EOF
 
   filebrowser-$USERNAME:
-    image: filebrowser/filebrowser:latest
+    image: filebrowser/filebrowser:v2.63.23
     container_name: filebrowser-$USERNAME
     environment:
       - PUID=$USER_ID
@@ -408,7 +408,7 @@ EOF
                 cat >> "$DOCKER_COMPOSE_FILE" << EOF
 
   filebrowser-$USERNAME:
-    image: filebrowser/filebrowser:latest
+    image: filebrowser/filebrowser:v2.63.23
     container_name: filebrowser-$USERNAME
     environment:
       - PUID=$USER_ID
