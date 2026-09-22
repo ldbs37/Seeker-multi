@@ -405,6 +405,38 @@ EOF
 # Génération du docker-compose.yml
 #######################
 
+# Ajoute réseau + labels Traefik à la fin du dernier service écrit.
+# $1 = nom routeur/service, $2 = sous-domaine, $3 = port interne,
+# $4 = protéger avec Authelia SSO (true/false, défaut true)
+append_traefik_system() {
+    [ "$USE_TRAEFIK" = "true" ] || return 0
+    local name=$1 sub=$2 port=$3 protect=${4:-true}
+    local f="$INSTALL_DIR/docker-compose.yml"
+    {
+        echo "    networks:"
+        echo "      - traefik_proxy"
+        echo "    labels:"
+        echo "      - \"traefik.enable=true\""
+        echo "      - \"traefik.http.routers.${name}.rule=Host(\`${sub}.${DOMAIN}\`)\""
+        echo "      - \"traefik.http.routers.${name}.entrypoints=websecure\""
+        echo "      - \"traefik.http.routers.${name}.tls.certresolver=letsencrypt\""
+        echo "      - \"traefik.http.services.${name}.loadbalancer.server.port=${port}\""
+        if [ "$protect" = "true" ]; then
+            echo "      - \"traefik.http.routers.${name}.middlewares=authelia@docker\""
+        fi
+    } >> "$f"
+}
+
+# Attache un service au réseau traefik_proxy SANS routage public
+# (ex: backend interne accessible par les conteneurs *arr via son nom d'hôte).
+append_traefik_network_only() {
+    [ "$USE_TRAEFIK" = "true" ] || return 0
+    {
+        echo "    networks:"
+        echo "      - traefik_proxy"
+    } >> "$INSTALL_DIR/docker-compose.yml"
+}
+
 generate_docker_compose() {
     log "Génération de la configuration Docker..."
 
@@ -480,6 +512,9 @@ EOF
     restart: unless-stopped
 EOF
         mkdir -p "$INSTALL_DIR/plex"
+        # Plex utilise network_mode: host (découverte DLNA/GDM) et reste donc
+        # accessible via http://IP:32400 même en mode Traefik.
+        [ "$USE_TRAEFIK" = "true" ] && warn "Plex reste en mode hôte (port 32400), non routé par Traefik"
     fi
 
     cat >> "$compose_file" << 'EOF'
@@ -494,6 +529,9 @@ EOF
       - "8191:8191"
     restart: unless-stopped
 EOF
+    # Backend interne : joint au réseau pour être joignable par les *arr,
+    # pas de routage public.
+    append_traefik_network_only
 
     # Ajouter les services optionnels
     if [ "$INSTALL_SCRUTINY" = true ]; then
@@ -518,6 +556,7 @@ EOF
 EOF
         mkdir -p "$INSTALL_DIR/scrutiny/config"
         mkdir -p "$INSTALL_DIR/scrutiny/influxdb"
+        append_traefik_system "scrutiny" "scrutiny" "8080" "true"
     fi
 
     if [ "$INSTALL_UPTIME_KUMA" = true ]; then
@@ -535,6 +574,7 @@ EOF
     restart: unless-stopped
 EOF
         mkdir -p "$INSTALL_DIR/uptime-kuma"
+        append_traefik_system "uptime-kuma" "uptime" "3001" "true"
     fi
 
     if [ "$INSTALL_WATCHTOWER" = true ]; then
@@ -571,6 +611,7 @@ EOF
     restart: unless-stopped
 EOF
         mkdir -p "$INSTALL_DIR/duplicati/config"
+        append_traefik_system "duplicati" "duplicati" "8200" "true"
     fi
 
     if [ "$INSTALL_JELLYFIN" = true ]; then
@@ -596,6 +637,9 @@ EOF
 EOF
         mkdir -p "$INSTALL_DIR/jellyfin/config"
         mkdir -p "$INSTALL_DIR/jellyfin/cache"
+        # Jellyfin gère sa propre authentification (clients/apps) : routé mais
+        # NON protégé par Authelia pour ne pas casser les applications.
+        append_traefik_system "jellyfin" "jellyfin" "8096" "false"
     fi
 
     if [ "$INSTALL_DASHDOT" = true ]; then
@@ -616,6 +660,7 @@ EOF
     restart: unless-stopped
 EOF
         mkdir -p "$INSTALL_DIR/dashdot"
+        append_traefik_system "dashdot" "dashdot" "3001" "true"
     fi
 
     if [ "$INSTALL_TAUTULLI" = true ]; then
@@ -635,6 +680,7 @@ EOF
     restart: unless-stopped
 EOF
         mkdir -p "$INSTALL_DIR/tautulli"
+        append_traefik_system "tautulli" "tautulli" "8181" "true"
     fi
 
     if [ "$INSTALL_PORTAINER" = true ]; then
@@ -654,6 +700,7 @@ EOF
     restart: unless-stopped
 EOF
         mkdir -p "$INSTALL_DIR/portainer"
+        append_traefik_system "portainer" "portainer" "9000" "true"
     fi
 
     # Créer le fichier .env (USE_TRAEFIK = flag explicite lu par add_user.sh)
