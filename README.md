@@ -614,6 +614,7 @@ Pour plus d'informations, consultez la documentation dans `/docs` :
 - **[AUTO_CONFIGURATION.md](docs/AUTO_CONFIGURATION.md)** - Guide sur l'auto-configuration des services (Portainer, Jellyfin)
 - **[INSTALLATION.md](docs/INSTALLATION.md)** - Guide d'installation détaillé
 - **[AUTHELIA_SSO.md](docs/AUTHELIA_SSO.md)** 🆕 - Guide complet Traefik + Authelia SSO
+- **[JELLYFIN_SSO.md](docs/JELLYFIN_SSO.md)** 🆕 - Authentification commune (SSO OIDC) pour Jellyfin via Authelia
 - **[scripts/README.md](scripts/README.md)** - Documentation des scripts de gestion
 
 ### Services avec Auto-Configuration
