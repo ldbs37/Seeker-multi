@@ -703,6 +703,21 @@ EOF
         append_traefik_system "portainer" "portainer" "9000" "true"
     fi
 
+    # Durcissement (mode Traefik) : les UI d'administration et le backend
+    # flaresolverr ne doivent PAS rester joignables en direct par IP:port
+    # (Docker publie les ports en contournant UFW), ce qui court-circuiterait
+    # le SSO Authelia. On restreint leurs ports publiés à la boucle locale
+    # (127.0.0.1) ; Traefik les atteint via le réseau Docker interne.
+    # Jellyfin (média, non protégé par le SSO) et Plex (mode hôte) sont laissés
+    # intacts pour préserver la découverte LAN et les applications natives.
+    if [ "$USE_TRAEFIK" = "true" ]; then
+        for map in "8080:8080" "3001:3001" "8200:8200" "3002:3001" \
+                   "8181:8181" "9000:9000" "8000:8000" "8191:8191"; do
+            sed -i "s|      - \"${map}\"|      - \"127.0.0.1:${map}\"|g" "$compose_file"
+        done
+        log "✓ Ports des services admin restreints à 127.0.0.1 (accès via Traefik/SSO)"
+    fi
+
     # Créer le fichier .env (USE_TRAEFIK = flag explicite lu par add_user.sh)
     cat > "$INSTALL_DIR/.env" << EOF
 TZ=$TZ
