@@ -247,6 +247,8 @@ echo "$USERNAME:$PASSWORD" | chpasswd
 log "Création des répertoires utilisateur..."
 USER_DIR="$INSTALL_DIR/data/users/$USERNAME"
 mkdir -p "$USER_DIR"/{downloads,config,data}
+# Dossier dédié à la base Filebrowser (monté en tant que /config dans le conteneur)
+mkdir -p "$USER_DIR/config/filebrowser"
 chown -R "$USER_ID:$USER_ID" "$USER_DIR"
 
 # Configurer les quotas
@@ -413,9 +415,11 @@ EOF
       - PUID=$USER_ID
       - PGID=$USER_ID
       - TZ=$TZ
+      - FB_ROOT=/srv
+      - FB_DATABASE=/config/filebrowser.db
     volumes:
       - $USER_DIR:/srv
-      - $USER_DIR/config/filebrowser/filebrowser.db:/database.db
+      - $USER_DIR/config/filebrowser:/config
 $(generate_traefik_labels "fb-$USERNAME" "$USERNAME" "80" "/files" "true")
     restart: unless-stopped
 EOF
@@ -430,9 +434,11 @@ EOF
       - PUID=$USER_ID
       - PGID=$USER_ID
       - TZ=$TZ
+      - FB_ROOT=/srv
+      - FB_DATABASE=/config/filebrowser.db
     volumes:
       - $USER_DIR:/srv
-      - $USER_DIR/config/filebrowser/filebrowser.db:/database.db
+      - $USER_DIR/config/filebrowser:/config
     ports:
       - "$FILEBROWSER_PORT:80"
     restart: unless-stopped
