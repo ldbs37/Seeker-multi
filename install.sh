@@ -260,9 +260,25 @@ setup_system() {
 bantime = 1h
 findtime = 10m
 maxretry = 3
+
+# Protection SSH activée (sinon fail2ban tourne sans bannir personne).
+# backend = systemd : les logs SSH passent par journald sur Debian 12 / Ubuntu.
+[sshd]
+enabled = true
+backend = systemd
 EOF
 
+    systemctl enable fail2ban 2>/dev/null || true
     systemctl restart fail2ban 2>/dev/null || true
+
+    # Vérification : au moins une jail active
+    if command -v fail2ban-client &>/dev/null; then
+        if fail2ban-client status 2>/dev/null | grep -q "sshd"; then
+            log "✓ fail2ban actif (jail sshd)"
+        else
+            warn "fail2ban installé mais la jail sshd n'est pas active — vérifiez les logs SSH (journald)"
+        fi
+    fi
 
     log "✓ Système configuré"
 }
@@ -448,8 +464,6 @@ generate_docker_compose() {
         # Heredoc NON quoté : ${DOMAIN} est injecté maintenant, \${TZ} reste
         # une variable interpolée par docker-compose, \` protège les backticks.
         cat > "$compose_file" << EOF
-version: '3.8'
-
 networks:
   traefik_proxy:
     external: true
@@ -477,8 +491,6 @@ EOF
     else
         # Mode port direct : Authelia publie son port 9091 sur l'hôte.
         cat > "$compose_file" << 'EOF'
-version: '3.8'
-
 services:
   authelia:
     image: authelia/authelia:4.39.28
@@ -1102,17 +1114,20 @@ deploy_services() {
         if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
             warn "Portainer n'est pas encore prêt, la configuration sera à faire manuellement"
         else
-            # Créer le compte admin via l'API
-            RESPONSE=$(curl -s -X POST http://localhost:9000/api/users/admin/init \
+            # Créer le compte admin via l'API (on juge sur le code HTTP)
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:9000/api/users/admin/init \
                 -H "Content-Type: application/json" \
-                -d "{\"Username\":\"$PORTAINER_USER\",\"Password\":\"$PORTAINER_PASSWORD\"}")
+                -d "{\"Username\":\"$PORTAINER_USER\",\"Password\":\"$PORTAINER_PASSWORD\"}" || echo "000")
 
-            if echo "$RESPONSE" | grep -q "Id"; then
-                log "${GREEN}✓${NC} Compte administrateur Portainer créé automatiquement"
-            else
-                warn "Impossible de créer le compte admin Portainer automatiquement"
-                info "Créez-le manuellement sur http://votre-serveur:9000"
-            fi
+            case "$HTTP_CODE" in
+                200|204)
+                    log "✓ Compte administrateur Portainer créé automatiquement" ;;
+                409)
+                    info "Portainer : un administrateur existe déjà (rien à faire)" ;;
+                *)
+                    warn "Création admin Portainer échouée (HTTP $HTTP_CODE)"
+                    info "Créez-le manuellement sur http://<votre-serveur>:9000 (dans les minutes suivant le 1er démarrage : Portainer verrouille l'init passé un délai de sécurité)" ;;
+            esac
         fi
     fi
 
@@ -1134,20 +1149,29 @@ deploy_services() {
         if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
             warn "Jellyfin n'est pas encore prêt, la configuration sera à faire manuellement"
         else
-            # Créer le compte admin via l'API
-            RESPONSE=$(curl -s -X POST http://localhost:8096/Startup/User \
+            # Assistant de démarrage Jellyfin : l'ordre des appels est imposé
+            # (Configuration → User → RemoteAccess → Complete), sinon le wizard
+            # peut refuser de se terminer.
+            curl -s -X POST http://localhost:8096/Startup/Configuration \
                 -H "Content-Type: application/json" \
-                -d "{\"Name\":\"$JELLYFIN_USER\",\"Password\":\"$JELLYFIN_PASSWORD\"}")
+                -d '{"UICulture":"fr-FR","MetadataCountryCode":"FR","PreferredMetadataLanguage":"fr"}' >/dev/null 2>&1 || true
+            # GET obligatoire avant le POST User (récupère l'utilisateur par défaut)
+            curl -s http://localhost:8096/Startup/User >/dev/null 2>&1 || true
+            USER_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:8096/Startup/User \
+                -H "Content-Type: application/json" \
+                -d "{\"Name\":\"$JELLYFIN_USER\",\"Password\":\"$JELLYFIN_PASSWORD\"}" || echo "000")
+            curl -s -X POST http://localhost:8096/Startup/RemoteAccess \
+                -H "Content-Type: application/json" \
+                -d '{"EnableRemoteAccess":true,"EnableAutomaticPortMapping":false}' >/dev/null 2>&1 || true
+            curl -s -X POST http://localhost:8096/Startup/Complete >/dev/null 2>&1 || true
 
-            # Compléter le wizard de démarrage
-            curl -s -X POST http://localhost:8096/Startup/Complete >/dev/null 2>&1
-
-            if [ $? -eq 0 ]; then
-                log "${GREEN}✓${NC} Compte administrateur Jellyfin créé automatiquement"
-            else
-                warn "Impossible de créer le compte admin Jellyfin automatiquement"
-                info "Créez-le manuellement sur http://votre-serveur:8096"
-            fi
+            case "$USER_CODE" in
+                200|204)
+                    log "✓ Compte administrateur Jellyfin créé automatiquement" ;;
+                *)
+                    warn "Création admin Jellyfin échouée (HTTP $USER_CODE)"
+                    info "Terminez l'assistant manuellement sur http://<votre-serveur>:8096" ;;
+            esac
         fi
     fi
 
