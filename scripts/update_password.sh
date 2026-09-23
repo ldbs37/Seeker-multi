@@ -98,7 +98,7 @@ fi
 log "Mise à jour du mot de passe Authelia..."
 
 # Générer le nouveau hash Argon2
-NEW_HASHED_PASSWORD=$(docker run --rm authelia/authelia:latest authelia crypto hash generate argon2 --password "$NEW_PASSWORD" | grep 'Digest:' | awk '{print $2}')
+NEW_HASHED_PASSWORD=$(docker run --rm authelia/authelia:4.39.28 authelia crypto hash generate argon2 --password "$NEW_PASSWORD" | grep 'Digest:' | awk '{print $2}')
 
 if [ -z "$NEW_HASHED_PASSWORD" ]; then
     error "Impossible de générer le hash Argon2"

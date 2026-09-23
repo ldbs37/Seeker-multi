@@ -52,8 +52,60 @@ mkdir -p "$HOMARR_CONFIG_DIR/configs"
 mkdir -p "$HOMARR_CONFIG_DIR/data"
 mkdir -p "$HOMARR_CONFIG_DIR/icons"
 
+# Détecter le mode d'accès (Traefik/SSL ou port direct) depuis .env
+ENV_FILE="$INSTALL_DIR/.env"
+USE_TRAEFIK=false
+DOMAIN=""
+if [ -f "$ENV_FILE" ]; then
+    grep -q '^USE_TRAEFIK=true' "$ENV_FILE" && USE_TRAEFIK=true
+    DOMAIN=$(grep '^DOMAIN=' "$ENV_FILE" | cut -d'=' -f2)
+fi
+HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}'); [ -n "$HOST_IP" ] || HOST_IP="localhost"
+BASE_PORT=$((USER_ID - 1000))
+
+# URL d'un service selon le mode d'accès
+svc_url() {
+    local p path
+    case "$1" in
+        qbittorrent) p=$((8080 + BASE_PORT * 10)); path="/qbittorrent" ;;
+        filebrowser) p=$((8081 + BASE_PORT));      path="/files" ;;
+        sonarr)      p=$((8989 + BASE_PORT));       path="/sonarr" ;;
+        radarr)      p=$((7878 + BASE_PORT));       path="/radarr" ;;
+        readarr)     p=$((8787 + BASE_PORT));       path="/readarr" ;;
+        bazarr)      p=$((6767 + BASE_PORT));       path="/bazarr" ;;
+        prowlarr)    p=$((9696 + BASE_PORT));       path="/prowlarr" ;;
+        overseerr)   p=$((5055 + BASE_PORT));       path="/overseerr" ;;
+        calibre)     p=$((8083 + BASE_PORT));       path="/calibre" ;;
+        *) return 1 ;;
+    esac
+    if [ "$USE_TRAEFIK" = true ] && [ -n "$DOMAIN" ]; then
+        echo "https://${USERNAME}.${DOMAIN}${path}"
+    else
+        echo "http://${HOST_IP}:${p}"
+    fi
+}
+
+# Construire la liste des services RÉELLEMENT présents pour cet utilisateur
+# (détection par nom de conteneur), sous forme de liens HTML (guillemets
+# simples pour rester valide en JSON).
+declare -A SVC_LABELS=(
+    [qbittorrent]="qBittorrent" [filebrowser]="Filebrowser"
+    [sonarr]="Sonarr" [radarr]="Radarr" [readarr]="Readarr" [bazarr]="Bazarr"
+    [prowlarr]="Prowlarr" [overseerr]="Overseerr" [calibre]="Calibre-Web"
+)
+LINKS=""
+for s in qbittorrent filebrowser sonarr radarr readarr bazarr prowlarr overseerr calibre; do
+    if docker ps -a --format '{{.Names}}' | grep -q "^${s}-${USERNAME}$"; then
+        LINKS="${LINKS}<li><a href='$(svc_url "$s")' target='_blank' rel='noopener'>${SVC_LABELS[$s]}</a></li>"
+    fi
+done
+[ -n "$LINKS" ] || LINKS="<li>Aucun service détecté pour le moment</li>"
+SERVICES_HTML="<h1>Bienvenue ${USERNAME} !</h1><p>Vos services :</p><ul>${LINKS}</ul>"
+
 # Configuration par défaut de Homarr avec les services de l'utilisateur
-cat > "$HOMARR_CONFIG_DIR/configs/default.json" << 'EOF'
+# (heredoc NON quoté : \${SERVICES_HTML} est injecté ; le JSON ne contient
+# ni \$ ni backtick).
+cat > "$HOMARR_CONFIG_DIR/configs/default.json" << EOF
 {
   "schemaVersion": 1,
   "configProperties": {
@@ -83,7 +135,7 @@ cat > "$HOMARR_CONFIG_DIR/configs/default.json" << 'EOF'
       "id": "welcome",
       "type": "html",
       "properties": {
-        "html": "<h1>Bienvenue sur votre Seedbox!</h1><p>Vos services sont configurés automatiquement.</p>"
+        "html": "${SERVICES_HTML}"
       },
       "area": {
         "type": "wrapper",
@@ -110,7 +162,7 @@ cat > "$HOMARR_CONFIG_DIR/configs/default.json" << 'EOF'
       "layout": {
         "enabledLeftSidebar": false,
         "enabledRightSidebar": false,
-        "enabledDocker": true,
+        "enabledDocker": false,
         "enabledPing": true
       },
       "pageTitle": "Seedbox Dashboard",
@@ -161,13 +213,12 @@ info ""
 info "📍 Accès: http://votre-serveur:$HOMARR_PORT"
 info ""
 info "🎨 Personnalisation:"
-info "   - Les services avec Docker labels seront auto-détectés"
-info "   - Ajoutez manuellement d'autres services via l'interface"
+info "   - Vos services sont pré-listés (liens) sur le tableau de bord"
+info "   - Ajoutez des tuiles/widgets supplémentaires via l'interface"
 info "   - Personnalisez l'apparence dans les paramètres"
 info ""
-info "🔧 Services disponibles:"
-info "   - qBittorrent sera auto-détecté"
-info "   - Filebrowser sera auto-détecté"
-info "   - Autres services: ajoutez-les manuellement ou via l'API"
+info "ℹ️  Note: l'auto-découverte Docker n'est pas activée (le socket Docker"
+info "   n'est pas monté dans Homarr, par sécurité). Les services sont donc"
+info "   listés à partir des conteneurs détectés au moment de la configuration."
 info ""
 info "═══════════════════════════════════════════════════════════"

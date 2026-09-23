@@ -153,6 +153,25 @@ if [ -f "$AUTHELIA_CONFIG_DIR/users_database.yml" ]; then
     docker restart authelia 2>/dev/null || warn "Impossible de redémarrer Authelia"
 fi
 
+# Nettoyage du quota projet (tant que l'utilisateur système existe encore)
+if id "$USERNAME" &>/dev/null; then
+    PROJID=$(id -u "$USERNAME")
+    QUOTA_LIB="$(dirname "$0")/lib_quota.sh"
+    if [ -f "$QUOTA_LIB" ]; then
+        # shellcheck source=/dev/null
+        source "$QUOTA_LIB"
+        MNT=$(quota_mount "$INSTALL_DIR/data" 2>/dev/null); MNT=${MNT:-/}
+        FST=$(quota_fstype "$INSTALL_DIR/data" 2>/dev/null)
+        case "$FST" in
+            xfs)  command -v xfs_quota >/dev/null 2>&1 && xfs_quota -x -c "limit -p bhard=0 $PROJID" "$MNT" >/dev/null 2>&1 || true ;;
+            ext*) command -v setquota  >/dev/null 2>&1 && setquota -P "$PROJID" 0 0 0 0 "$MNT"           >/dev/null 2>&1 || true ;;
+        esac
+    fi
+    # Retirer les mappings de projet
+    [ -f /etc/projid ]   && sed -i "/^${USERNAME}:/d" /etc/projid   2>/dev/null || true
+    [ -f /etc/projects ] && sed -i "/^${PROJID}:/d"   /etc/projects 2>/dev/null || true
+fi
+
 # Suppression de l'utilisateur système
 log "Suppression de l'utilisateur système..."
 if [ "$KEEP_DATA" = false ]; then
