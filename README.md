@@ -278,6 +278,28 @@ sudo ./healthcheck.sh --quiet  # n'affiche que les avertissements/erreurs
 ```
 Code de sortie `0` si aucun problème critique, `1` sinon.
 
+### Sauvegarde & restauration de la configuration
+
+Sauvegarde **complète de la config** (Authelia + base utilisateurs, `.env`,
+`docker-compose.yml`, `traefik/` + certificats, configs système et
+par-utilisateur, mappings de quotas) — **hors** téléchargements, médias et
+caches. Menu : **Maintenance → Créer une sauvegarde / Restaurer**.
+
+```bash
+sudo ./backup.sh                 # sauvegarde horodatée dans /var/backups/seedbox
+sudo ./restore.sh                # liste les sauvegardes et restaure celle choisie
+sudo ./restore.sh <archive.tar.gz>
+```
+
+- **Retour en arrière** : `restore.sh` arrête la stack, restaure les fichiers,
+  redémarre et lance le healthcheck.
+- **Filet de sécurité** : avant toute restauration, un **snapshot** de la
+  config actuelle est créé (la commande pour annuler la restauration est
+  affichée à la fin).
+- **Snapshot automatique** : `update.sh` crée une sauvegarde de la config
+  **avant** chaque mise à jour Docker/module → on peut toujours revenir à
+  l'état précédent en cas de problème.
+
 - **Changer une version** (`--bump`) : liste les images, vous choisissez la
   nouvelle version ; le `docker-compose.yml` est **sauvegardé** avant
   modification, et **restauré automatiquement** si le déploiement échoue.

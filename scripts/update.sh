@@ -36,6 +36,24 @@ compose() {
     else docker compose "$@"; fi
 }
 
+# Snapshot de la configuration avant une mise à jour (une fois par exécution)
+SNAP_DONE=false
+snapshot_before() {
+    $SNAP_DONE && return 0
+    local b="$(dirname "$0")/backup.sh"
+    if [ -x "$b" ]; then
+        log "Snapshot de la configuration avant mise à jour..."
+        if INSTALL_DIR="$INSTALL_DIR" "$b" --auto --label preupdate >/dev/null; then
+            SNAP_DONE=true
+            success "Snapshot config créé (restaurable via restore.sh)"
+        else
+            warn "Snapshot config échoué — poursuite quand même"
+        fi
+    else
+        warn "backup.sh introuvable — pas de snapshot avant MAJ"
+    fi
+}
+
 # Vérification complète du système (script séparé)
 run_healthcheck() {
     local hc="$(dirname "$0")/healthcheck.sh"
@@ -67,6 +85,7 @@ update_system() {
 # Re-pull des tags actuels (récupère d'éventuels rebuilds du même tag)
 update_docker_pull() {
     [ -f "$COMPOSE" ] || { warn "docker-compose.yml introuvable ($COMPOSE)"; return 1; }
+    snapshot_before
     log "Re-pull des images épinglées..."
     ( cd "$INSTALL_DIR" && compose pull ) || { warn "pull a échoué"; return 1; }
     log "Redéploiement..."
@@ -101,6 +120,7 @@ update_docker_bump() {
     [ -n "$newtag" ] || { warn "Tag vide, annulé"; return 0; }
     [ "$newtag" = "$oldtag" ] && { info "Tag identique, rien à faire"; return 0; }
 
+    snapshot_before
     # Sauvegarde puis remplacement ciblé (repo identique, on ne change que le tag)
     local backup="$COMPOSE.bak.$(date +%Y%m%d%H%M%S)"
     cp "$COMPOSE" "$backup"
@@ -124,6 +144,7 @@ update_docker_bump() {
 # 3) Module seedbox (scripts + menu)
 #######################
 update_seedbox() {
+    snapshot_before
     local src="" url="" sync_from="" tmp=""
 
     if [ -f "$INSTALL_DIR/.source" ]; then

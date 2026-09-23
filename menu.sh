@@ -550,37 +550,23 @@ cleanup_docker_menu() {
 
 backup_menu() {
     show_header
-    echo -e "${BOLD}${BLUE}💾 Sauvegarde${NC}\n"
-
-    BACKUP_DIR="/var/backups/seedbox"
-    BACKUP_FILE="seedbox-backup-$(date +%Y%m%d-%H%M%S).tar.gz"
-
-    echo "Répertoire de sauvegarde: $BACKUP_DIR"
-    echo "Fichier: $BACKUP_FILE"
-    echo ""
-
-    warn "Cette opération peut prendre du temps selon la taille des données"
-    read -p "Continuer ? (o/N): " confirm
-
-    if [[ $confirm =~ ^[oO]$ ]]; then
-        echo ""
-        mkdir -p "$BACKUP_DIR"
-
-        info "Sauvegarde de la configuration..."
-        cd "$INSTALL_DIR"
-        tar -czf "$BACKUP_DIR/$BACKUP_FILE" \
-            --exclude='*/cache/*' \
-            --exclude='*/data/*' \
-            --exclude='*/downloads/*' \
-            authelia/ docker-compose.yml scripts/ 2>/dev/null
-
-        echo ""
-        success "Sauvegarde créée: $BACKUP_DIR/$BACKUP_FILE"
-        ls -lh "$BACKUP_DIR/$BACKUP_FILE"
+    echo -e "${BOLD}${BLUE}💾 Sauvegarde (configuration complète)${NC}\n"
+    if [ -x "$INSTALL_DIR/scripts/backup.sh" ]; then
+        "$INSTALL_DIR/scripts/backup.sh"
     else
-        warn "Sauvegarde annulée"
+        error "Script backup.sh introuvable dans $INSTALL_DIR/scripts"
     fi
+    pause
+}
 
+restore_menu() {
+    show_header
+    echo -e "${BOLD}${BLUE}♻️  Restaurer une sauvegarde${NC}\n"
+    if [ -x "$INSTALL_DIR/scripts/restore.sh" ]; then
+        "$INSTALL_DIR/scripts/restore.sh"
+    else
+        error "Script restore.sh introuvable dans $INSTALL_DIR/scripts"
+    fi
     pause
 }
 
@@ -707,8 +693,9 @@ menu_maintenance() {
         echo "1. Redémarrer les services"
         echo "2. Mettre à jour les conteneurs (re-pull des tags actuels)"
         echo "3. Nettoyage Docker"
-        echo "4. Créer une sauvegarde"
-        echo "5. Mises à jour (système / Docker / module seedbox)"
+        echo "4. Créer une sauvegarde (config complète)"
+        echo "5. Restaurer une sauvegarde"
+        echo "6. Mises à jour (système / Docker / module seedbox)"
         echo ""
         echo "0. Retour au menu principal"
         echo ""
@@ -720,7 +707,8 @@ menu_maintenance() {
             2) update_containers_menu ;;
             3) cleanup_docker_menu ;;
             4) backup_menu ;;
-            5) updates_menu ;;
+            5) restore_menu ;;
+            6) updates_menu ;;
             0) break ;;
             *) warn "Choix invalide" ; pause ;;
         esac
