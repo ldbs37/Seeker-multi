@@ -497,7 +497,8 @@ update_containers_menu() {
     show_header
     echo -e "${BOLD}${BLUE}🔄 Mettre à Jour les Conteneurs${NC}\n"
 
-    warn "Cette opération va télécharger les dernières images et redémarrer les conteneurs"
+    warn "Re-pull des images ÉPINGLÉES (mêmes versions) puis redémarrage."
+    info "Pour passer à une NOUVELLE version, utilisez le menu 'Mises à jour'."
     read -p "Continuer ? (o/N): " confirm
 
     if [[ $confirm =~ ^[oO]$ ]]; then
@@ -673,15 +674,27 @@ menu_monitoring() {
     done
 }
 
+updates_menu() {
+    show_header
+    echo -e "${BOLD}${BLUE}⬆️  Mises à jour${NC}\n"
+    if [ -x "$INSTALL_DIR/scripts/update.sh" ]; then
+        "$INSTALL_DIR/scripts/update.sh"
+    else
+        error "Script update.sh introuvable dans $INSTALL_DIR/scripts"
+    fi
+    pause
+}
+
 menu_maintenance() {
     while true; do
         show_header
         echo -e "${BOLD}${MAGENTA}🛠️  MAINTENANCE${NC}\n"
 
         echo "1. Redémarrer les services"
-        echo "2. Mettre à jour les conteneurs"
+        echo "2. Mettre à jour les conteneurs (re-pull des tags actuels)"
         echo "3. Nettoyage Docker"
         echo "4. Créer une sauvegarde"
+        echo "5. Mises à jour (système / Docker / module seedbox)"
         echo ""
         echo "0. Retour au menu principal"
         echo ""
@@ -693,6 +706,7 @@ menu_maintenance() {
             2) update_containers_menu ;;
             3) cleanup_docker_menu ;;
             4) backup_menu ;;
+            5) updates_menu ;;
             0) break ;;
             *) warn "Choix invalide" ; pause ;;
         esac

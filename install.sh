@@ -308,6 +308,15 @@ prepare_directories() {
         chmod +x "$INSTALL_DIR/menu.sh"
     fi
 
+    # Enregistrer la source (chemin + dépôt git) pour la mise à jour du module
+    # seedbox via scripts/update.sh --seedbox.
+    local src_dir
+    src_dir=$(cd "$(dirname "$0")" && pwd)
+    {
+        echo "path=$src_dir"
+        echo "url=$(git -C "$src_dir" remote get-url origin 2>/dev/null || echo '')"
+    } > "$INSTALL_DIR/.source"
+
     log "✓ Dossiers créés"
 }
 

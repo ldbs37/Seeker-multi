@@ -251,6 +251,28 @@ sudo ./update_quota.sh <username> <quota_gb>
 sudo ./update_quota.sh john 1000  # 1TB
 ```
 
+### Mises à jour (système / Docker / module)
+
+Les images Docker sont **épinglées** à l'installation (stabilité et
+reproductibilité, pas de rupture surprise). Pour mettre à jour **quand vous le
+décidez**, utilisez le module dédié — via le menu (**Maintenance → Mises à
+jour**) ou directement :
+
+```bash
+sudo ./update.sh              # menu interactif
+sudo ./update.sh --system     # système : apt update && upgrade
+sudo ./update.sh --docker     # re-pull des tags épinglés + redéploiement
+sudo ./update.sh --bump       # changer la version d'une image (choix + tag)
+sudo ./update.sh --seedbox    # met à jour scripts + menu depuis le dépôt git
+sudo ./update.sh --all        # système + re-pull Docker + module
+```
+
+- **Changer une version** (`--bump`) : liste les images, vous choisissez la
+  nouvelle version ; le `docker-compose.yml` est **sauvegardé** avant
+  modification, et **restauré automatiquement** si le déploiement échoue.
+- **Module seedbox** (`--seedbox`) : met à jour uniquement les scripts de
+  gestion et le menu (ni `docker-compose.yml`, ni `.env`, ni données touchés).
+
 ### Modifier un mot de passe
 
 ```bash
