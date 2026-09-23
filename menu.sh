@@ -656,6 +656,7 @@ menu_monitoring() {
         echo "3. Liste des utilisateurs"
         echo "4. Quotas utilisateurs"
         echo "5. Logs d'un service"
+        echo "6. Vérification complète (healthcheck)"
         echo ""
         echo "0. Retour au menu principal"
         echo ""
@@ -668,6 +669,7 @@ menu_monitoring() {
             3) show_users_list ;;
             4) show_quotas ;;
             5) show_logs ;;
+            6) healthcheck_menu ;;
             0) break ;;
             *) warn "Choix invalide" ; pause ;;
         esac
@@ -682,6 +684,18 @@ updates_menu() {
     else
         error "Script update.sh introuvable dans $INSTALL_DIR/scripts"
     fi
+    pause
+}
+
+healthcheck_menu() {
+    show_header
+    echo -e "${BOLD}${BLUE}🩺 Vérification complète du système${NC}\n"
+    if [ -x "$INSTALL_DIR/scripts/healthcheck.sh" ]; then
+        "$INSTALL_DIR/scripts/healthcheck.sh"
+    else
+        error "Script healthcheck.sh introuvable dans $INSTALL_DIR/scripts"
+    fi
+    echo ""
     pause
 }
 

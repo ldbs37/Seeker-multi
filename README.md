@@ -265,7 +265,18 @@ sudo ./update.sh --docker     # re-pull des tags épinglés + redéploiement
 sudo ./update.sh --bump       # changer la version d'une image (choix + tag)
 sudo ./update.sh --seedbox    # met à jour scripts + menu depuis le dépôt git
 sudo ./update.sh --all        # système + re-pull Docker + module
+sudo ./update.sh --check      # vérification complète du système (healthcheck)
 ```
+
+Après chaque mise à jour Docker, un **healthcheck complet** est lancé
+automatiquement (état de tous les conteneurs, Traefik, Authelia, réseau,
+pare-feu, espace disque, quotas). Il est aussi disponible seul :
+
+```bash
+sudo ./healthcheck.sh          # rapport complet (menu : Monitoring → Vérification complète)
+sudo ./healthcheck.sh --quiet  # n'affiche que les avertissements/erreurs
+```
+Code de sortie `0` si aucun problème critique, `1` sinon.
 
 - **Changer une version** (`--bump`) : liste les images, vous choisissez la
   nouvelle version ; le `docker-compose.yml` est **sauvegardé** avant

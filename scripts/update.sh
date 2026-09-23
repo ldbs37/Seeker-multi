@@ -36,6 +36,18 @@ compose() {
     else docker compose "$@"; fi
 }
 
+# Vérification complète du système (script séparé)
+run_healthcheck() {
+    local hc="$(dirname "$0")/healthcheck.sh"
+    if [ -x "$hc" ]; then
+        echo ""
+        log "Vérification du système (healthcheck)..."
+        INSTALL_DIR="$INSTALL_DIR" "$hc" || warn "Le healthcheck signale des problèmes (voir ci-dessus)."
+    else
+        warn "healthcheck.sh introuvable — vérification ignorée"
+    fi
+}
+
 #######################
 # 1) Système (apt)
 #######################
@@ -61,6 +73,7 @@ update_docker_pull() {
     ( cd "$INSTALL_DIR" && compose up -d ) || { warn "up -d a échoué"; return 1; }
     docker image prune -f >/dev/null 2>&1 || true
     success "Images à jour (tags inchangés)"
+    run_healthcheck
 }
 
 # Changer la version épinglée d'une image, puis redéployer
@@ -98,6 +111,7 @@ update_docker_bump() {
     if ( cd "$INSTALL_DIR" && compose pull && compose up -d ); then
         docker image prune -f >/dev/null 2>&1 || true
         success "Image $repo mise à jour vers $newtag"
+        run_healthcheck
     else
         warn "Échec du déploiement — restauration de la configuration précédente"
         cp "$backup" "$COMPOSE"
@@ -164,6 +178,7 @@ menu() {
         echo "  3) Images Docker — changer la version d'une image"
         echo "  4) Module seedbox (scripts + menu depuis git)"
         echo "  5) Tout (système + re-pull Docker + module)"
+        echo "  6) Vérifier le système (healthcheck complet)"
         echo "  0) Quitter"
         echo ""
         read -r -p "Choix : " c
@@ -173,6 +188,7 @@ menu() {
             3) update_docker_bump ;;
             4) update_seedbox ;;
             5) update_system; update_docker_pull; update_seedbox ;;
+            6) run_healthcheck ;;
             0) break ;;
             *) warn "Choix invalide" ;;
         esac
@@ -185,6 +201,7 @@ case "${1:-}" in
     --bump)    update_docker_bump ;;
     --seedbox) update_seedbox ;;
     --all)     update_system; update_docker_pull; update_seedbox ;;
+    --check)   run_healthcheck ;;
     ""|--menu) menu ;;
-    *) error "Option inconnue : $1 (voir --system|--docker|--bump|--seedbox|--all)" ;;
+    *) error "Option inconnue : $1 (voir --system|--docker|--bump|--seedbox|--all|--check)" ;;
 esac
