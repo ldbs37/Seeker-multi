@@ -33,6 +33,7 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
 # Fonctions de base pour les logs
@@ -259,9 +260,25 @@ setup_system() {
 bantime = 1h
 findtime = 10m
 maxretry = 3
+
+# Protection SSH activée (sinon fail2ban tourne sans bannir personne).
+# backend = systemd : les logs SSH passent par journald sur Debian 12 / Ubuntu.
+[sshd]
+enabled = true
+backend = systemd
 EOF
 
+    systemctl enable fail2ban 2>/dev/null || true
     systemctl restart fail2ban 2>/dev/null || true
+
+    # Vérification : au moins une jail active
+    if command -v fail2ban-client &>/dev/null; then
+        if fail2ban-client status 2>/dev/null | grep -q "sshd"; then
+            log "✓ fail2ban actif (jail sshd)"
+        else
+            warn "fail2ban installé mais la jail sshd n'est pas active — vérifiez les logs SSH (journald)"
+        fi
+    fi
 
     log "✓ Système configuré"
 }
@@ -404,17 +421,79 @@ EOF
 # Génération du docker-compose.yml
 #######################
 
+# Ajoute réseau + labels Traefik à la fin du dernier service écrit.
+# $1 = nom routeur/service, $2 = sous-domaine, $3 = port interne,
+# $4 = protéger avec Authelia SSO (true/false, défaut true)
+append_traefik_system() {
+    [ "$USE_TRAEFIK" = "true" ] || return 0
+    local name=$1 sub=$2 port=$3 protect=${4:-true}
+    local f="$INSTALL_DIR/docker-compose.yml"
+    {
+        echo "    networks:"
+        echo "      - traefik_proxy"
+        echo "    labels:"
+        echo "      - \"traefik.enable=true\""
+        echo "      - \"traefik.http.routers.${name}.rule=Host(\`${sub}.${DOMAIN}\`)\""
+        echo "      - \"traefik.http.routers.${name}.entrypoints=websecure\""
+        echo "      - \"traefik.http.routers.${name}.tls.certresolver=letsencrypt\""
+        echo "      - \"traefik.http.services.${name}.loadbalancer.server.port=${port}\""
+        if [ "$protect" = "true" ]; then
+            echo "      - \"traefik.http.routers.${name}.middlewares=authelia@docker\""
+        fi
+    } >> "$f"
+}
+
+# Attache un service au réseau traefik_proxy SANS routage public
+# (ex: backend interne accessible par les conteneurs *arr via son nom d'hôte).
+append_traefik_network_only() {
+    [ "$USE_TRAEFIK" = "true" ] || return 0
+    {
+        echo "    networks:"
+        echo "      - traefik_proxy"
+    } >> "$INSTALL_DIR/docker-compose.yml"
+}
+
 generate_docker_compose() {
     log "Génération de la configuration Docker..."
 
     local compose_file="$INSTALL_DIR/docker-compose.yml"
 
-    cat > "$compose_file" << 'EOF'
-version: '3.8'
+    if [ "$USE_TRAEFIK" = "true" ]; then
+        # Mode Traefik : Authelia est routé par Traefik et publie le middleware
+        # forward-auth "authelia@docker" référencé par les services utilisateurs.
+        # Heredoc NON quoté : ${DOMAIN} est injecté maintenant, \${TZ} reste
+        # une variable interpolée par docker-compose, \` protège les backticks.
+        cat > "$compose_file" << EOF
+networks:
+  traefik_proxy:
+    external: true
 
 services:
   authelia:
-    image: authelia/authelia:latest
+    image: authelia/authelia:4.39.28
+    container_name: authelia
+    volumes:
+      - ./authelia:/config
+    environment:
+      - TZ=\${TZ}
+    networks:
+      - traefik_proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.authelia.rule=Host(\`auth.${DOMAIN}\`)"
+      - "traefik.http.routers.authelia.entrypoints=websecure"
+      - "traefik.http.routers.authelia.tls.certresolver=letsencrypt"
+      - "traefik.http.middlewares.authelia.forwardauth.address=http://authelia:9091/api/verify?rd=https://auth.${DOMAIN}"
+      - "traefik.http.middlewares.authelia.forwardauth.trustForwardHeader=true"
+      - "traefik.http.middlewares.authelia.forwardauth.authResponseHeaders=Remote-User,Remote-Groups,Remote-Name,Remote-Email"
+    restart: unless-stopped
+EOF
+    else
+        # Mode port direct : Authelia publie son port 9091 sur l'hôte.
+        cat > "$compose_file" << 'EOF'
+services:
+  authelia:
+    image: authelia/authelia:4.39.28
     container_name: authelia
     volumes:
       - ./authelia:/config
@@ -424,13 +503,14 @@ services:
       - "9091:9091"
     restart: unless-stopped
 EOF
+    fi
 
     # Plex optionnel
     if [ "$INSTALL_PLEX" = true ]; then
         cat >> "$compose_file" << 'EOF'
 
   plex:
-    image: linuxserver/plex:latest
+    image: linuxserver/plex:1.43.4
     container_name: plex
     network_mode: host
     environment:
@@ -444,12 +524,15 @@ EOF
     restart: unless-stopped
 EOF
         mkdir -p "$INSTALL_DIR/plex"
+        # Plex utilise network_mode: host (découverte DLNA/GDM) et reste donc
+        # accessible via http://IP:32400 même en mode Traefik.
+        [ "$USE_TRAEFIK" = "true" ] && warn "Plex reste en mode hôte (port 32400), non routé par Traefik"
     fi
 
     cat >> "$compose_file" << 'EOF'
 
   flaresolverr:
-    image: ghcr.io/flaresolverr/flaresolverr:latest
+    image: ghcr.io/flaresolverr/flaresolverr:v3.5.2
     container_name: flaresolverr
     environment:
       - LOG_LEVEL=info
@@ -458,6 +541,9 @@ EOF
       - "8191:8191"
     restart: unless-stopped
 EOF
+    # Backend interne : joint au réseau pour être joignable par les *arr,
+    # pas de routage public.
+    append_traefik_network_only
 
     # Ajouter les services optionnels
     if [ "$INSTALL_SCRUTINY" = true ]; then
@@ -482,13 +568,14 @@ EOF
 EOF
         mkdir -p "$INSTALL_DIR/scrutiny/config"
         mkdir -p "$INSTALL_DIR/scrutiny/influxdb"
+        append_traefik_system "scrutiny" "scrutiny" "8080" "true"
     fi
 
     if [ "$INSTALL_UPTIME_KUMA" = true ]; then
         cat >> "$compose_file" << 'EOF'
 
   uptime-kuma:
-    image: louislam/uptime-kuma:latest
+    image: louislam/uptime-kuma:2.5.5
     container_name: uptime-kuma
     volumes:
       - ./uptime-kuma:/app/data
@@ -499,13 +586,14 @@ EOF
     restart: unless-stopped
 EOF
         mkdir -p "$INSTALL_DIR/uptime-kuma"
+        append_traefik_system "uptime-kuma" "uptime" "3001" "true"
     fi
 
     if [ "$INSTALL_WATCHTOWER" = true ]; then
         cat >> "$compose_file" << 'EOF'
 
   watchtower:
-    image: containrrr/watchtower:latest
+    image: containrrr/watchtower:1.7.1
     container_name: watchtower
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
@@ -521,7 +609,7 @@ EOF
         cat >> "$compose_file" << 'EOF'
 
   duplicati:
-    image: linuxserver/duplicati:latest
+    image: linuxserver/duplicati:2.4.0
     container_name: duplicati
     environment:
       - PUID=${ADMIN_UID}
@@ -535,13 +623,14 @@ EOF
     restart: unless-stopped
 EOF
         mkdir -p "$INSTALL_DIR/duplicati/config"
+        append_traefik_system "duplicati" "duplicati" "8200" "true"
     fi
 
     if [ "$INSTALL_JELLYFIN" = true ]; then
         cat >> "$compose_file" << 'EOF'
 
   jellyfin:
-    image: jellyfin/jellyfin:latest
+    image: jellyfin/jellyfin:10.11.11
     container_name: jellyfin
     environment:
       - PUID=${ADMIN_UID}
@@ -560,13 +649,16 @@ EOF
 EOF
         mkdir -p "$INSTALL_DIR/jellyfin/config"
         mkdir -p "$INSTALL_DIR/jellyfin/cache"
+        # Jellyfin gère sa propre authentification (clients/apps) : routé mais
+        # NON protégé par Authelia pour ne pas casser les applications.
+        append_traefik_system "jellyfin" "jellyfin" "8096" "false"
     fi
 
     if [ "$INSTALL_DASHDOT" = true ]; then
         cat >> "$compose_file" << 'EOF'
 
   dashdot:
-    image: mauricenino/dashdot:latest
+    image: mauricenino/dashdot:6.3.4
     container_name: dashdot
     privileged: true
     ports:
@@ -580,13 +672,14 @@ EOF
     restart: unless-stopped
 EOF
         mkdir -p "$INSTALL_DIR/dashdot"
+        append_traefik_system "dashdot" "dashdot" "3001" "true"
     fi
 
     if [ "$INSTALL_TAUTULLI" = true ]; then
         cat >> "$compose_file" << 'EOF'
 
   tautulli:
-    image: linuxserver/tautulli:latest
+    image: linuxserver/tautulli:2.18.1
     container_name: tautulli
     environment:
       - PUID=${ADMIN_UID}
@@ -599,13 +692,14 @@ EOF
     restart: unless-stopped
 EOF
         mkdir -p "$INSTALL_DIR/tautulli"
+        append_traefik_system "tautulli" "tautulli" "8181" "true"
     fi
 
     if [ "$INSTALL_PORTAINER" = true ]; then
         cat >> "$compose_file" << 'EOF'
 
   portainer:
-    image: portainer/portainer-ce:latest
+    image: portainer/portainer-ce:2.45.1
     container_name: portainer
     ports:
       - "9000:9000"
@@ -618,14 +712,31 @@ EOF
     restart: unless-stopped
 EOF
         mkdir -p "$INSTALL_DIR/portainer"
+        append_traefik_system "portainer" "portainer" "9000" "true"
     fi
 
-    # Créer le fichier .env
+    # Durcissement (mode Traefik) : les UI d'administration et le backend
+    # flaresolverr ne doivent PAS rester joignables en direct par IP:port
+    # (Docker publie les ports en contournant UFW), ce qui court-circuiterait
+    # le SSO Authelia. On restreint leurs ports publiés à la boucle locale
+    # (127.0.0.1) ; Traefik les atteint via le réseau Docker interne.
+    # Jellyfin (média, non protégé par le SSO) et Plex (mode hôte) sont laissés
+    # intacts pour préserver la découverte LAN et les applications natives.
+    if [ "$USE_TRAEFIK" = "true" ]; then
+        for map in "8080:8080" "3001:3001" "8200:8200" "3002:3001" \
+                   "8181:8181" "9000:9000" "8000:8000" "8191:8191"; do
+            sed -i "s|      - \"${map}\"|      - \"127.0.0.1:${map}\"|g" "$compose_file"
+        done
+        log "✓ Ports des services admin restreints à 127.0.0.1 (accès via Traefik/SSO)"
+    fi
+
+    # Créer le fichier .env (USE_TRAEFIK = flag explicite lu par add_user.sh)
     cat > "$INSTALL_DIR/.env" << EOF
 TZ=$TZ
 DOMAIN=$DOMAIN
 ADMIN_UID=$ADMIN_UID
 ADMIN_GID=$ADMIN_GID
+USE_TRAEFIK=$USE_TRAEFIK
 EOF
 
     log "✓ Configuration Docker générée"
@@ -1003,17 +1114,20 @@ deploy_services() {
         if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
             warn "Portainer n'est pas encore prêt, la configuration sera à faire manuellement"
         else
-            # Créer le compte admin via l'API
-            RESPONSE=$(curl -s -X POST http://localhost:9000/api/users/admin/init \
+            # Créer le compte admin via l'API (on juge sur le code HTTP)
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:9000/api/users/admin/init \
                 -H "Content-Type: application/json" \
-                -d "{\"Username\":\"$PORTAINER_USER\",\"Password\":\"$PORTAINER_PASSWORD\"}")
+                -d "{\"Username\":\"$PORTAINER_USER\",\"Password\":\"$PORTAINER_PASSWORD\"}" || echo "000")
 
-            if echo "$RESPONSE" | grep -q "Id"; then
-                log "${GREEN}✓${NC} Compte administrateur Portainer créé automatiquement"
-            else
-                warn "Impossible de créer le compte admin Portainer automatiquement"
-                info "Créez-le manuellement sur http://votre-serveur:9000"
-            fi
+            case "$HTTP_CODE" in
+                200|204)
+                    log "✓ Compte administrateur Portainer créé automatiquement" ;;
+                409)
+                    info "Portainer : un administrateur existe déjà (rien à faire)" ;;
+                *)
+                    warn "Création admin Portainer échouée (HTTP $HTTP_CODE)"
+                    info "Créez-le manuellement sur http://<votre-serveur>:9000 (dans les minutes suivant le 1er démarrage : Portainer verrouille l'init passé un délai de sécurité)" ;;
+            esac
         fi
     fi
 
@@ -1035,20 +1149,29 @@ deploy_services() {
         if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
             warn "Jellyfin n'est pas encore prêt, la configuration sera à faire manuellement"
         else
-            # Créer le compte admin via l'API
-            RESPONSE=$(curl -s -X POST http://localhost:8096/Startup/User \
+            # Assistant de démarrage Jellyfin : l'ordre des appels est imposé
+            # (Configuration → User → RemoteAccess → Complete), sinon le wizard
+            # peut refuser de se terminer.
+            curl -s -X POST http://localhost:8096/Startup/Configuration \
                 -H "Content-Type: application/json" \
-                -d "{\"Name\":\"$JELLYFIN_USER\",\"Password\":\"$JELLYFIN_PASSWORD\"}")
+                -d '{"UICulture":"fr-FR","MetadataCountryCode":"FR","PreferredMetadataLanguage":"fr"}' >/dev/null 2>&1 || true
+            # GET obligatoire avant le POST User (récupère l'utilisateur par défaut)
+            curl -s http://localhost:8096/Startup/User >/dev/null 2>&1 || true
+            USER_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:8096/Startup/User \
+                -H "Content-Type: application/json" \
+                -d "{\"Name\":\"$JELLYFIN_USER\",\"Password\":\"$JELLYFIN_PASSWORD\"}" || echo "000")
+            curl -s -X POST http://localhost:8096/Startup/RemoteAccess \
+                -H "Content-Type: application/json" \
+                -d '{"EnableRemoteAccess":true,"EnableAutomaticPortMapping":false}' >/dev/null 2>&1 || true
+            curl -s -X POST http://localhost:8096/Startup/Complete >/dev/null 2>&1 || true
 
-            # Compléter le wizard de démarrage
-            curl -s -X POST http://localhost:8096/Startup/Complete >/dev/null 2>&1
-
-            if [ $? -eq 0 ]; then
-                log "${GREEN}✓${NC} Compte administrateur Jellyfin créé automatiquement"
-            else
-                warn "Impossible de créer le compte admin Jellyfin automatiquement"
-                info "Créez-le manuellement sur http://votre-serveur:8096"
-            fi
+            case "$USER_CODE" in
+                200|204)
+                    log "✓ Compte administrateur Jellyfin créé automatiquement" ;;
+                *)
+                    warn "Création admin Jellyfin échouée (HTTP $USER_CODE)"
+                    info "Terminez l'assistant manuellement sur http://<votre-serveur>:8096" ;;
+            esac
         fi
     fi
 
@@ -1079,17 +1202,27 @@ main() {
     setup_system
     show_progress 4 10 "Installation"
 
-    configure_installation
+    # Créer la structure de dossiers et copier les scripts AVANT la
+    # configuration interactive : celle-ci peut appeler les scripts DNS/Traefik
+    # (setup_cloudflare.sh, setup_duckdns.sh, check_dns.sh) depuis $INSTALL_DIR/scripts.
+    prepare_directories
     show_progress 5 10 "Installation"
 
-    prepare_directories
+    configure_installation
     show_progress 6 10 "Installation"
 
     configure_authelia
     show_progress 7 10 "Installation"
 
-    # Configurer Traefik si activé (avant création des utilisateurs pour que .env existe)
+    # Configurer Traefik si activé (avant génération du compose pour que le
+    # réseau traefik_proxy et le .env existent)
     setup_traefik_if_enabled
+
+    # Générer le docker-compose.yml de base (Authelia + services système)
+    # AVANT la création des utilisateurs : add_user.sh y ajoute (>>) les
+    # services par-utilisateur. Générer après écraserait ces ajouts.
+    generate_docker_compose
+    show_progress 8 10 "Installation"
 
     # Créer les utilisateurs avec add_user.sh
     if [ ${#INITIAL_USERS[@]} -gt 0 ]; then
@@ -1110,9 +1243,6 @@ main() {
         warn "Aucun utilisateur créé pendant l'installation"
         info "Vous devrez créer des utilisateurs manuellement après l'installation"
     fi
-    show_progress 8 10 "Installation"
-
-    generate_docker_compose
     show_progress 9 10 "Installation"
 
     deploy_services

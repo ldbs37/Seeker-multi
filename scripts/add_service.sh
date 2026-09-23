@@ -77,7 +77,7 @@ case $SERVICE in
         cat >> "$DOCKER_COMPOSE_FILE" << EOF
 
   plex:
-    image: linuxserver/plex:latest
+    image: linuxserver/plex:1.43.4
     container_name: plex
     network_mode: host
     environment:
@@ -132,7 +132,7 @@ EOF
         cat >> "$DOCKER_COMPOSE_FILE" << EOF
 
   uptime-kuma:
-    image: louislam/uptime-kuma:latest
+    image: louislam/uptime-kuma:2.5.5
     container_name: uptime-kuma
     volumes:
       - $INSTALL_DIR/uptime-kuma:/app/data
@@ -151,7 +151,7 @@ EOF
         cat >> "$DOCKER_COMPOSE_FILE" << EOF
 
   watchtower:
-    image: containrrr/watchtower:latest
+    image: containrrr/watchtower:1.7.1
     container_name: watchtower
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
@@ -173,7 +173,7 @@ EOF
         cat >> "$DOCKER_COMPOSE_FILE" << EOF
 
   duplicati:
-    image: linuxserver/duplicati:latest
+    image: linuxserver/duplicati:2.4.0
     container_name: duplicati
     environment:
       - PUID=$ADMIN_UID
@@ -199,7 +199,7 @@ EOF
         cat >> "$DOCKER_COMPOSE_FILE" << EOF
 
   jellyfin:
-    image: jellyfin/jellyfin:latest
+    image: jellyfin/jellyfin:10.11.11
     container_name: jellyfin
     environment:
       - PUID=$ADMIN_UID
@@ -295,7 +295,7 @@ EOF
         cat >> "$DOCKER_COMPOSE_FILE" << EOF
 
   dashdot:
-    image: mauricenino/dashdot:latest
+    image: mauricenino/dashdot:6.3.4
     container_name: dashdot
     privileged: true
     ports:
@@ -319,7 +319,7 @@ EOF
         cat >> "$DOCKER_COMPOSE_FILE" << EOF
 
   portainer:
-    image: portainer/portainer-ce:latest
+    image: portainer/portainer-ce:2.45.1
     container_name: portainer
     ports:
       - "9000:9000"
@@ -407,7 +407,7 @@ EOF
         cat >> "$DOCKER_COMPOSE_FILE" << EOF
 
   tautulli:
-    image: linuxserver/tautulli:latest
+    image: linuxserver/tautulli:2.18.1
     container_name: tautulli
     environment:
       - PUID=$ADMIN_UID

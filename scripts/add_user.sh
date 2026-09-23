@@ -78,8 +78,24 @@ validate_password() {
 
 # Détecter si Traefik est actif
 detect_traefik() {
-    # Vérifier si le domaine est configuré dans .env
-    if [ -f "$ENV_FILE" ] && grep -q "^DOMAIN=" "$ENV_FILE"; then
+    [ -f "$ENV_FILE" ] || return
+
+    # Priorité au flag explicite USE_TRAEFIK écrit par install.sh.
+    if grep -q "^USE_TRAEFIK=" "$ENV_FILE"; then
+        local flag
+        flag=$(grep "^USE_TRAEFIK=" "$ENV_FILE" | cut -d'=' -f2)
+        if [ "$flag" = "true" ]; then
+            DOMAIN=$(grep "^DOMAIN=" "$ENV_FILE" | cut -d'=' -f2)
+            USE_TRAEFIK=true
+            info "Mode Traefik détecté (domaine: $DOMAIN)"
+        else
+            info "Mode port direct détecté"
+        fi
+        return
+    fi
+
+    # Rétro-compatibilité : ancien .env sans flag → déduire du domaine.
+    if grep -q "^DOMAIN=" "$ENV_FILE"; then
         DOMAIN=$(grep "^DOMAIN=" "$ENV_FILE" | cut -d'=' -f2)
         if [ -n "$DOMAIN" ]; then
             USE_TRAEFIK=true
@@ -231,6 +247,8 @@ echo "$USERNAME:$PASSWORD" | chpasswd
 log "Création des répertoires utilisateur..."
 USER_DIR="$INSTALL_DIR/data/users/$USERNAME"
 mkdir -p "$USER_DIR"/{downloads,config,data}
+# Dossier dédié à la base Filebrowser (monté en tant que /config dans le conteneur)
+mkdir -p "$USER_DIR/config/filebrowser"
 chown -R "$USER_ID:$USER_ID" "$USER_DIR"
 
 # Configurer les quotas
@@ -244,7 +262,7 @@ fi
 
 # Ajouter l'utilisateur à Authelia
 log "Ajout de l'utilisateur à Authelia..."
-HASHED_PASSWORD=$(docker run --rm authelia/authelia:latest authelia crypto hash generate argon2 --password "$PASSWORD" | grep 'Digest:' | awk '{print $2}')
+HASHED_PASSWORD=$(docker run --rm authelia/authelia:4.39.28 authelia crypto hash generate argon2 --password "$PASSWORD" | grep 'Digest:' | awk '{print $2}')
 
 if [ "$IS_ADMIN" = true ]; then
     cat >> "$AUTHELIA_CONFIG_DIR/users_database.yml" << EOF
@@ -306,7 +324,7 @@ if [ "$USE_TRAEFIK" = "true" ]; then
     cat >> "$DOCKER_COMPOSE_FILE" << EOF
 
   qbittorrent-$USERNAME:
-    image: linuxserver/qbittorrent:latest
+    image: linuxserver/qbittorrent:5.2.3
     container_name: qbittorrent-$USERNAME
     environment:
       - PUID=$USER_ID
@@ -325,7 +343,7 @@ else
     cat >> "$DOCKER_COMPOSE_FILE" << EOF
 
   qbittorrent-$USERNAME:
-    image: linuxserver/qbittorrent:latest
+    image: linuxserver/qbittorrent:5.2.3
     container_name: qbittorrent-$USERNAME
     environment:
       - PUID=$USER_ID
@@ -352,7 +370,7 @@ for service in "${SERVICES_TO_INSTALL[@]}"; do
                 cat >> "$DOCKER_COMPOSE_FILE" << EOF
 
   homarr-$USERNAME:
-    image: ghcr.io/ajnart/homarr:latest
+    image: ghcr.io/ajnart/homarr:0.16.1
     container_name: homarr-$USERNAME
     environment:
       - PUID=$USER_ID
@@ -369,7 +387,7 @@ EOF
                 cat >> "$DOCKER_COMPOSE_FILE" << EOF
 
   homarr-$USERNAME:
-    image: ghcr.io/ajnart/homarr:latest
+    image: ghcr.io/ajnart/homarr:0.16.1
     container_name: homarr-$USERNAME
     environment:
       - PUID=$USER_ID
@@ -391,15 +409,17 @@ EOF
                 cat >> "$DOCKER_COMPOSE_FILE" << EOF
 
   filebrowser-$USERNAME:
-    image: filebrowser/filebrowser:latest
+    image: filebrowser/filebrowser:v2.63.23
     container_name: filebrowser-$USERNAME
     environment:
       - PUID=$USER_ID
       - PGID=$USER_ID
       - TZ=$TZ
+      - FB_ROOT=/srv
+      - FB_DATABASE=/config/filebrowser.db
     volumes:
       - $USER_DIR:/srv
-      - $USER_DIR/config/filebrowser/filebrowser.db:/database.db
+      - $USER_DIR/config/filebrowser:/config
 $(generate_traefik_labels "fb-$USERNAME" "$USERNAME" "80" "/files" "true")
     restart: unless-stopped
 EOF
@@ -408,15 +428,17 @@ EOF
                 cat >> "$DOCKER_COMPOSE_FILE" << EOF
 
   filebrowser-$USERNAME:
-    image: filebrowser/filebrowser:latest
+    image: filebrowser/filebrowser:v2.63.23
     container_name: filebrowser-$USERNAME
     environment:
       - PUID=$USER_ID
       - PGID=$USER_ID
       - TZ=$TZ
+      - FB_ROOT=/srv
+      - FB_DATABASE=/config/filebrowser.db
     volumes:
       - $USER_DIR:/srv
-      - $USER_DIR/config/filebrowser/filebrowser.db:/database.db
+      - $USER_DIR/config/filebrowser:/config
     ports:
       - "$FILEBROWSER_PORT:80"
     restart: unless-stopped
