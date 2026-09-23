@@ -251,13 +251,30 @@ mkdir -p "$USER_DIR"/{downloads,config,data}
 mkdir -p "$USER_DIR/config/filebrowser"
 chown -R "$USER_ID:$USER_ID" "$USER_DIR"
 
-# Configurer les quotas
-log "Configuration des quotas..."
-if command -v setquota &>/dev/null; then
-    setquota -u "$USERNAME" "$((QUOTA * 1024 * 1024))" "$((QUOTA * 1024 * 1024))" 0 0 /
-    info "Quota défini: ${QUOTA}GB"
+# Configurer le quota PROJET : on limite directement le dossier de
+# l'utilisateur ($USER_DIR), indépendamment du propriétaire des fichiers.
+# L'id de projet = l'UID de l'utilisateur (unique).
+# Non-bloquant : si les quotas ne sont pas activés, la création continue
+# (sinon, sous `set -e`, l'utilisateur serait créé sans ses conteneurs).
+log "Configuration du quota disque (projet)..."
+QUOTA_LIB="$(dirname "$0")/lib_quota.sh"
+if [ -f "$QUOTA_LIB" ]; then
+    # shellcheck source=/dev/null
+    source "$QUOTA_LIB"
+    if quota_project_active "$USER_DIR"; then
+        quota_register_project "$USERNAME" "$USER_ID" "$USER_DIR"
+        if quota_apply_project "$USER_DIR" "$USER_ID" "$QUOTA"; then
+            info "Quota projet appliqué : ${QUOTA}GB sur $USER_DIR"
+        else
+            warn "Échec de l'application du quota projet (quota non appliqué)"
+        fi
+    else
+        warn "Quotas disque NON actifs : quota de ${QUOTA}GB non appliqué."
+        info "Activez-les : sudo $INSTALL_DIR/scripts/enable_quotas.sh"
+        info "Puis :        sudo $INSTALL_DIR/scripts/update_quota.sh $USERNAME $QUOTA"
+    fi
 else
-    warn "Quotas non disponibles sur ce système"
+    warn "lib_quota.sh introuvable : quota de ${QUOTA}GB non appliqué"
 fi
 
 # Ajouter l'utilisateur à Authelia

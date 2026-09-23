@@ -51,7 +51,7 @@ Une solution **simple et efficace** de seedbox multi-utilisateurs avec authentif
 - **Authentification centralisée** - Authelia pour gestion des utilisateurs
 - **Protection fail2ban** - Contre les attaques par force brute
 - **Espaces utilisateurs isolés** - Chaque utilisateur dans son environnement
-- **Quotas par utilisateur** - Limitation de l'espace disque
+- **Quotas par utilisateur** - Limitation de l'espace disque via **quota projet** (limite le dossier de chaque utilisateur). Nécessite d'activer les quotas sur le système de fichiers : `sudo scripts/enable_quotas.sh` (voir note ci-dessous)
 - **Pare-feu UFW** - Configuré automatiquement
 
 ### 🌐 Modes d'Accès
@@ -217,6 +217,28 @@ sudo ./remove_user.sh <username>
 # Suppression en gardant les données
 sudo ./remove_user.sh <username> --keep-data
 ```
+
+### Quotas disque (activation préalable)
+
+Les quotas utilisent des **quotas projet** : chaque utilisateur a un dossier
+(`/opt/seedbox/data/users/<user>`) dont la taille est limitée, quel que soit le
+propriétaire des fichiers.
+
+⚠️ Les quotas Linux doivent d'abord être **activés sur le système de fichiers**
+(option de montage + `quotaon`). Ce n'est pas fait automatiquement à
+l'installation. Lancez une fois :
+
+```bash
+sudo ./enable_quotas.sh            # cible /opt/seedbox par défaut
+```
+
+- **ext4** : active la feature `project` + l'option `prjquota`.
+- **XFS** : ajoute l'option `pquota`.
+- Sur le système de fichiers **racine (`/`)**, un **redémarrage** est requis
+  pour que l'activation prenne effet.
+
+Tant que les quotas ne sont pas activés, `add_user.sh` crée les utilisateurs
+normalement mais **sans appliquer** de limite (un avertissement s'affiche).
 
 ### Modifier un quota
 
