@@ -69,7 +69,10 @@ if [ -f "$COMPOSE" ] && docker info >/dev/null 2>&1; then
         wn "Aucun service défini dans le compose"
     fi
     for svc in "${SERVICES[@]}"; do
-        cid=$(cd "$INSTALL_DIR" && compose ps -q "$svc" 2>/dev/null | head -1)
+        # Recherche par nom (container_name = nom du service) : fiable quelle
+        # que soit la version/le wrapper compose ; repli sur "compose ps"
+        cid=$(docker ps -aq --filter "name=^/${svc}\$" 2>/dev/null | head -1)
+        [ -n "$cid" ] || cid=$(cd "$INSTALL_DIR" && compose ps -aq "$svc" 2>/dev/null | head -1)
         if [ -z "$cid" ]; then
             wn "$svc : aucun conteneur (non démarré)"
             continue
@@ -80,7 +83,8 @@ if [ -f "$COMPOSE" ] && docker info >/dev/null 2>&1; then
         case "$status" in
             running)
                 if [ "$health" = "unhealthy" ]; then
-                    ko "$svc : running mais UNHEALTHY"
+                    # Traefik n'expose pas un conteneur unhealthy (→ 404)
+                    ko "$svc : running mais UNHEALTHY (ignoré par Traefik : voir docker logs $svc)"
                 elif [ "${restarts:-0}" -ge 5 ]; then
                     wn "$svc : running mais ${restarts} redémarrages (instable ?)"
                 else
