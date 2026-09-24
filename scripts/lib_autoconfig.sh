@@ -31,9 +31,18 @@ autoconfig_portainer() {
         warn "Portainer n'est pas prêt : créez le compte admin via un tunnel SSH (ssh -L 9000:localhost:9000 …)"
         return 1
     fi
-    code=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:9000/api/users/admin/init \
-        -H "Content-Type: application/json" \
-        -d "{\"Username\":\"$(json_escape "$user")\",\"Password\":\"$(json_escape "$pass")\"}") || code=000
+    local body try
+    body="{\"Username\":\"$(json_escape "$user")\",\"Password\":\"$(json_escape "$pass")\"}"
+    for try in 1 2; do
+        code=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:9000/api/users/admin/init \
+            -H "Content-Type: application/json" -d "$body") || code=000
+        # Portainer se verrouille si aucun admin n'est créé dans les 5 min suivant
+        # son démarrage (installation longue) : redémarrage puis nouvel essai
+        [ "$try" = 1 ] && [ "$code" = 403 ] || break
+        info "Portainer verrouillé (délai de sécurité de 5 min dépassé) : redémarrage..."
+        docker restart portainer >/dev/null 2>&1 || break
+        wait_for_url http://localhost:9000/api/status 90 || break
+    done
     case "$code" in
         200|204) log "✓ Compte administrateur Portainer créé ($user)" ;;
         409)     info "Portainer : un administrateur existe déjà" ;;

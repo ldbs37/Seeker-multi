@@ -43,7 +43,9 @@ get_server_ip() {
     info "Détection de l'IP publique du serveur..."
 
     # Essayer plusieurs services
-    SERVER_IP=$(curl -s ifconfig.me || curl -s icanhazip.com || curl -s ipecho.net/plain)
+    # IPv4 (-4) : les enregistrements vérifiés sont de type A
+    SERVER_IP=$(curl -4 -s -m 5 ifconfig.me || curl -4 -s -m 5 icanhazip.com || curl -4 -s -m 5 ipecho.net/plain || true)
+    SERVER_IP=$(echo "$SERVER_IP" | tr -d '[:space:]')
 
     if [ -z "$SERVER_IP" ]; then
         error "Impossible de détecter l'IP publique du serveur"
@@ -135,7 +137,7 @@ check_dns_propagation() {
 
             if [ "$resolved_ip" = "$expected_ip" ]; then
                 success "✓ DNS $dns : $domain → $resolved_ip"
-                ((success_count++))
+                success_count=$((success_count + 1))   # ((x++)) vaut 0 → quitte sous set -e
             else
                 warn "⚠️  DNS $dns : $domain → $resolved_ip (attendu: $expected_ip)"
             fi
@@ -198,7 +200,8 @@ echo ""
 
 # 5. Vérifier la propagation
 log "Test 4: Propagation DNS globale"
-check_dns_propagation "$DOMAIN" "$SERVER_IP"
+# Informative : une propagation partielle ne doit pas interrompre le script (set -e)
+check_dns_propagation "$DOMAIN" "$SERVER_IP" || true
 
 echo ""
 
