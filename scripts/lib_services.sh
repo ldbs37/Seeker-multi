@@ -17,7 +17,7 @@
 #######################
 
 # shellcheck disable=SC2034  # lue par les bibliothèques sourcées
-USER_SERVICES="qbittorrent homarr filebrowser sonarr radarr readarr bazarr prowlarr overseerr calibre"
+USER_SERVICES="qbittorrent homarr filebrowser sonarr radarr readarr bazarr prowlarr seerr calibre"
 
 service_image() {
     case "$1" in
@@ -29,7 +29,9 @@ service_image() {
         readarr)     echo "lscr.io/linuxserver/readarr:develop" ;;
         bazarr)      echo "linuxserver/bazarr:1.6.1" ;;
         prowlarr)    echo "linuxserver/prowlarr:2.6.5" ;;
-        overseerr)   echo "sctx/overseerr:1.35.0" ;;
+        # Seerr : successeur d'Overseerr/Jellyseerr (fusion) ; connexion via
+        # Jellyfin, Plex ou Emby (Overseerr n'acceptait que Plex)
+        seerr)       echo "seerr/seerr:v3.0.1" ;;
         calibre)     echo "linuxserver/calibre-web:0.6.27" ;;
         *) return 1 ;;
     esac
@@ -83,8 +85,12 @@ service_block() {
     echo "  ${name}:"
     echo "    image: ${img}"
     echo "    container_name: ${name}"
-    # Filebrowser (image officielle) ignore PUID/PGID : UID imposé ici
-    [ "$svc" = filebrowser ] && echo "    user: \"${USER_ID}:${USER_ID}\""
+    # Filebrowser (image officielle) ignore PUID/PGID ; Seerr tourne en
+    # utilisateur fixe (node, 1000) : UID imposé pour écrire sa configuration
+    case "$svc" in
+        filebrowser|seerr) echo "    user: \"${USER_ID}:${USER_ID}\"" ;;
+    esac
+    [ "$svc" = seerr ] && echo "    init: true"
     echo "    environment:"
     echo "      - PUID=${USER_ID}"
     echo "      - PGID=${USER_ID}"
@@ -127,7 +133,7 @@ service_block() {
             echo "      - ${cfg}:/config" ;;
         prowlarr)
             echo "      - ${cfg}:/config" ;;
-        overseerr)
+        seerr)
             echo "      - ${cfg}:/app/config" ;;
         calibre)
             echo "      - ${cfg}:/config"

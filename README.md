@@ -24,7 +24,7 @@ Une solution **simple et efficace** de seedbox multi-utilisateurs avec authentif
 - 📚 **Readarr** - Gestion de livres
 - 💬 **Bazarr** - Gestion de sous-titres
 - 🔍 **Prowlarr** - Gestion d'indexeurs
-- 📝 **Overseerr** - Système de requêtes
+- 📝 **Seerr** - Demandes de films/séries (successeur d'Overseerr, connexion Jellyfin/Plex/Emby)
 - 📖 **Calibre-web** - Bibliothèque ebooks
 
 ### 🛡️ Services Système (accès administrateur)
@@ -394,7 +394,7 @@ Pour retirer un service système : `sudo ./remove_service.sh <service>`.
 ### 🧩 API libre-service des utilisateurs (mode Traefik)
 
 Chaque utilisateur peut ajouter ou retirer lui-même ses services optionnels
-(Sonarr, Radarr, Readarr, Bazarr, Prowlarr, Overseerr, Calibre-Web) depuis
+(Sonarr, Radarr, Readarr, Bazarr, Prowlarr, Seerr, Calibre-Web) depuis
 `https://<utilisateur>.votre-domaine.com/seedbox-api/`, lien affiché sur son
 tableau de bord Homarr. Activation (désactivée par défaut) :
 
@@ -486,7 +486,7 @@ Chaque utilisateur reçoit un bloc de 20 ports sans collision possible :
 | Readarr | 5 | 20005 | 20025 |
 | Bazarr | 6 | 20006 | 20026 |
 | Prowlarr | 7 | 20007 | 20027 |
-| Overseerr | 8 | 20008 | 20028 |
+| Seerr | 8 | 20008 | 20028 |
 | Calibre-Web | 9 | 20009 | 20029 |
 | **Port torrent entrant** (TCP+UDP) | 10 | 20010 | 20030 |
 
@@ -522,14 +522,14 @@ Traefik, Portainer, Scrutiny, Dashdot, Tautulli, Uptime Kuma et Duplicati sont
 - **Readarr:** `https://john.votre-domaine.com/readarr`
 - **Bazarr:** `https://john.votre-domaine.com/bazarr`
 - **Prowlarr:** `https://john.votre-domaine.com/prowlarr`
-- **Overseerr:** `https://overseerr-john.votre-domaine.com` (sous-domaine dédié : Overseerr ne gère pas les sous-chemins)
+- **Seerr (demandes):** `https://seerr-john.votre-domaine.com` (sous-domaine dédié : pas de sous-chemins)
 - **Calibre:** `https://john.votre-domaine.com/calibre`
 
 #### 🔐 Connexion SSO (Mode Traefik)
 1. Connectez-vous sur `https://auth.votre-domaine.com`
 2. Une fois authentifié, accédez à **vos services** sans re-login
 3. Chaque utilisateur n'accède qu'à `https://<son-nom>.votre-domaine.com` et
-   `https://overseerr-<son-nom>.votre-domaine.com` ; Plex et Jellyfin gardent
+   `https://seerr-<son-nom>.votre-domaine.com` ; Plex et Jellyfin gardent
    leur propre connexion (applis TV/mobiles)
 
 ## 🔧 Maintenance

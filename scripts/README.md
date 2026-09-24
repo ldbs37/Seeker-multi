@@ -28,7 +28,7 @@ sudo ./add_user.sh john 'MySecurePass123' john@example.com 500
 ```bash
 sudo ./add_user_service.sh <username> <service>
 ```
-Services : `sonarr radarr readarr bazarr prowlarr overseerr calibre`.
+Services : `sonarr radarr readarr bazarr prowlarr seerr calibre`.
 URL de base (mode Traefik) pré-configurée, tableau de bord Homarr mis à jour.
 
 ### `list_user_services.sh`
@@ -131,12 +131,12 @@ Bloc de 20 ports par utilisateur : `20000 + (UID − 2001) × 20 + décalage`.
 | Readarr | 5 | 20005 | 20025 |
 | Bazarr | 6 | 20006 | 20026 |
 | Prowlarr | 7 | 20007 | 20027 |
-| Overseerr | 8 | 20008 | 20028 |
+| Seerr | 8 | 20008 | 20028 |
 | Calibre-Web | 9 | 20009 | 20029 |
 | Port torrent (TCP+UDP, aussi en mode Traefik) | 10 | 20010 | 20030 |
 
 En mode Traefik, seules les URL `https://<user>.<domaine>/<service>` (et
-`https://overseerr-<user>.<domaine>`) sont utilisées.
+`https://seerr-<user>.<domaine>`) sont utilisées.
 
 ## 📁 Structure
 
@@ -146,7 +146,7 @@ En mode Traefik, seules les URL `https://<user>.<domaine>/<service>` (et
 │   ├── downloads/ tv/ movies/ books/
 │   └── config/{qbittorrent,homarr,filebrowser}/
 ├── sonarr/<user>/ radarr/<user>/ readarr/<user>/ bazarr/<user>/
-├── prowlarr/<user>/ overseerr/<user>/ calibre/<user>/
+├── prowlarr/<user>/ seerr/<user>/ calibre/<user>/
 ├── authelia/  backups/  scripts/
 ├── docker-compose.yml
 └── .env

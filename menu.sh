@@ -129,7 +129,7 @@ show_services_status() {
     echo ""
 
     echo -e "${CYAN}Services Utilisateurs:${NC}"
-    docker ps --format "{{.Names}}" | grep -E "(qbittorrent|homarr|sonarr|radarr|readarr|bazarr|prowlarr|overseerr|calibre|filebrowser)-" | sort
+    docker ps --format "{{.Names}}" | grep -E "(qbittorrent|homarr|sonarr|radarr|readarr|bazarr|prowlarr|seerr|calibre|filebrowser)-" | sort
     echo ""
 
     pause
@@ -379,11 +379,16 @@ add_user_service_menu() {
     echo "  3. readarr   - Livres"
     echo "  4. bazarr    - Sous-titres"
     echo "  5. prowlarr  - Indexeurs"
-    echo "  6. overseerr - Requêtes"
+    echo "  6. seerr     - Demandes de films/séries (connexion Jellyfin/Plex)"
     echo "  7. calibre   - Bibliothèque ebooks"
     echo ""
 
-    read -r -p "Service à ajouter: " service
+    read -r -p "Service à ajouter (numéro ou nom): " service
+    case "$service" in
+        1) service=sonarr ;;  2) service=radarr ;;   3) service=readarr ;;
+        4) service=bazarr ;;  5) service=prowlarr ;; 6) service=seerr ;;
+        7) service=calibre ;;
+    esac
 
     if [ -z "$service" ]; then
         warn "Service requis"

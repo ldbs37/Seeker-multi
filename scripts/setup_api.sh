@@ -203,5 +203,5 @@ refresh_homarr
 
 log "${GREEN}✓${NC} API libre-service active"
 info "Chaque utilisateur : https://<utilisateur>.${DOMAIN}/seedbox-api/ (lien sur Homarr)"
-info "Services proposés : sonarr radarr readarr bazarr prowlarr overseerr calibre"
+info "Services proposés : sonarr radarr readarr bazarr prowlarr seerr calibre"
 info "Journal des actions : journalctl -t seedbox-api"

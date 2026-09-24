@@ -38,7 +38,7 @@ SERVICES = {
     "readarr": "Livres",
     "bazarr": "Sous-titres",
     "prowlarr": "Indexeurs",
-    "overseerr": "Demandes de médias",
+    "seerr": "Demandes de films/séries (connexion Jellyfin/Plex)",
     "calibre": "Bibliothèque e-books (Calibre-Web)",
 }
 USER_RE = re.compile(r"^[a-z][a-z0-9]{0,31}$")

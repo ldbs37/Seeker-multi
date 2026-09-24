@@ -139,7 +139,7 @@ select_services() {
         echo "  [3] 📚 Readarr       - Gestion livres"
         echo "  [4] 💬 Bazarr        - Sous-titres automatiques"
         echo "  [5] 🔍 Prowlarr      - Gestion indexeurs"
-        echo "  [6] 📝 Overseerr     - Système de requêtes"
+        echo "  [6] 📝 Seerr         - Demandes de films/séries (connexion Jellyfin/Plex)"
         echo "  [7] 📖 Calibre-web   - Bibliothèque ebooks"
         echo ""
         echo "  Numéros séparés par des espaces (ex: 1 2 5), Entrée pour aucun"
@@ -153,7 +153,7 @@ select_services() {
             3) EXTRA_SERVICES+=("readarr") ;;
             4) EXTRA_SERVICES+=("bazarr") ;;
             5) EXTRA_SERVICES+=("prowlarr") ;;
-            6) EXTRA_SERVICES+=("overseerr") ;;
+            6) EXTRA_SERVICES+=("seerr") ;;
             7) EXTRA_SERVICES+=("calibre") ;;
             *) warn "Numéro invalide ignoré: $num" ;;
         esac

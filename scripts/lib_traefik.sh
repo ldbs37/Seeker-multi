@@ -12,8 +12,8 @@
 #   https://<user>.<domaine>/sonarr …        -> *arr (UrlBase pré-configurée)
 #   https://<user>.<domaine>/bazarr          -> Bazarr (base_url pré-configurée)
 #   https://<user>.<domaine>/calibre         -> Calibre-Web (en-tête X-Script-Name)
-#   https://overseerr-<user>.<domaine>/      -> Overseerr (ne supporte pas les
-#                                               sous-chemins : sous-domaine dédié)
+#   https://seerr-<user>.<domaine>/          -> Seerr (successeur d'Overseerr,
+#                                               pas de sous-chemins : sous-domaine dédié)
 # Tous protégés par Authelia (authelia@docker), isolés par utilisateur via les
 # règles domain_regex (?P<User>…) de la configuration Authelia.
 #######################
@@ -43,7 +43,7 @@ traefik_service_path() {
         qbittorrent) echo "/qbittorrent" ;;
         filebrowser) echo "/files" ;;
         sonarr|radarr|readarr|bazarr|prowlarr|calibre) echo "/$1" ;;
-        overseerr)   echo "SUBDOMAIN" ;;
+        seerr)       echo "SUBDOMAIN" ;;
         *) return 1 ;;
     esac
 }
@@ -53,7 +53,7 @@ traefik_service_port() {
     case "$1" in
         homarr) echo 7575 ;;      qbittorrent) echo 8080 ;;  filebrowser) echo 80 ;;
         sonarr) echo 8989 ;;      radarr) echo 7878 ;;       readarr) echo 8787 ;;
-        bazarr) echo 6767 ;;      prowlarr) echo 9696 ;;     overseerr) echo 5055 ;;
+        bazarr) echo 6767 ;;      prowlarr) echo 9696 ;;     seerr) echo 5055 ;;
         calibre) echo 8083 ;;
         *) return 1 ;;
     esac

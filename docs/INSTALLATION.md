@@ -259,17 +259,15 @@ Cela créera automatiquement:
 
 ### Ports attribués automatiquement
 
-L'utilisateur Alice (UID 1001) obtiendra:
-- qBittorrent: `8090`
-- Sonarr: `8990`
-- Radarr: `7879`
-- Readarr: `8788`
-- Bazarr: `6768`
-- Prowlarr: `9697`
-- Overseerr: `5056`
-- Homarr: `7576`
-- Calibre: `8084`
-- Filebrowser: `8082`
+Mode port direct uniquement (en mode Traefik, tout passe par
+`https://alice.votre-domaine.com/...`). Le premier utilisateur (UID 2001)
+obtient le bloc 20000-20019 :
+- qBittorrent: `20000` · Homarr: `20001` · Filebrowser: `20002`
+- Sonarr: `20003` · Radarr: `20004` · Readarr: `20005`
+- Bazarr: `20006` · Prowlarr: `20007` · Seerr: `20008` · Calibre: `20009`
+- Port torrent entrant (TCP/UDP) : `20010`
+
+`sudo ./scripts/list_user_services.sh alice` affiche les adresses exactes.
 
 ## 🔐 Sécurité
 

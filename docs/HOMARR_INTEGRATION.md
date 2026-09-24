@@ -17,7 +17,7 @@ lui-même**, sans SSH ni intervention de l'admin, depuis la page
 `https://<user>.votre-domaine.com/seedbox-api/` (lien « ➕ Ajouter / retirer
 des services » sur son Homarr).
 
-Services proposés : Sonarr, Radarr, Readarr, Bazarr, Prowlarr, Overseerr,
+Services proposés : Sonarr, Radarr, Readarr, Bazarr, Prowlarr, Seerr,
 Calibre-Web. qBittorrent, Homarr et Filebrowser (services de base) ne sont
 pas concernés. Retirer un service **conserve ses données**.
 

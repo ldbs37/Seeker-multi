@@ -84,7 +84,7 @@ Ajoute un service spécifique à un utilisateur existant.
 - `readarr` - Gestion des livres
 - `bazarr` - Gestion des sous-titres
 - `prowlarr` - Gestion des indexeurs
-- `overseerr` - Système de requêtes
+- `seerr` - Demandes de films/séries (connexion Jellyfin/Plex)
 - `calibre` - Bibliothèque d'ebooks
 
 ### 1.5 Lister les services d'un utilisateur

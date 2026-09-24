@@ -3,7 +3,7 @@
 #######################
 # Script d'ajout de service à un utilisateur existant
 # Usage: ./add_user_service.sh <username> <service>
-# Services: sonarr, radarr, readarr, bazarr, prowlarr, overseerr, calibre
+# Services: sonarr, radarr, readarr, bazarr, prowlarr, seerr, calibre
 #           (ainsi que qbittorrent, homarr, filebrowser s'ils manquent)
 #######################
 
@@ -44,7 +44,7 @@ usage() {
     echo "  - readarr     : Gestion de livres"
     echo "  - bazarr      : Gestion de sous-titres"
     echo "  - prowlarr    : Gestion d'indexeurs"
-    echo "  - overseerr   : Système de requêtes"
+    echo "  - seerr       : demandes de films/séries (connexion Jellyfin/Plex)"
     echo "  - calibre     : Bibliothèque ebooks"
     exit 1
 }

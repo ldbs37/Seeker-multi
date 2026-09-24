@@ -414,11 +414,11 @@ ${admin_domains}
     # sous-domaines. Le groupe nommé (?P<User>…) doit correspondre au nom de
     # l'utilisateur connecté, sinon la règle ne s'applique pas (→ deny).
     #   <user>.domaine            : Homarr, qBittorrent, Filebrowser, *arr…
-    #   <service>-<user>.domaine  : services en sous-domaine (ex. Overseerr)
+    #   <service>-<user>.domaine  : services en sous-domaine (ex. Seerr)
     # (noms d'utilisateur limités à [a-z0-9] : pas d'ambiguïté possible)
     - domain_regex:
         - '^(?P<User>[a-z0-9]+)\.${DOMAIN//./\\.}$'
-        - '^overseerr-(?P<User>[a-z0-9]+)\.${DOMAIN//./\\.}$'
+        - '^seerr-(?P<User>[a-z0-9]+)\.${DOMAIN//./\\.}$'
       policy: one_factor
 
 session:
