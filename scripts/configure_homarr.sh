@@ -2,7 +2,11 @@
 
 #######################
 # Script de configuration automatique Homarr
-# Configure Homarr avec les services de l'utilisateur via Docker labels
+# Génère le tableau de bord de l'utilisateur avec des liens vers SES services
+# (détectés dans docker-compose.yml : fonctionne aussi avant le démarrage).
+# L'auto-découverte Docker n'est pas utilisée : il faudrait monter le socket
+# Docker dans un conteneur par utilisateur (équivalent root) — exclu.
+# Usage: ./configure_homarr.sh <username>
 #######################
 
 set -e
@@ -22,38 +26,51 @@ info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 
 # Configuration
 INSTALL_DIR="/opt/seedbox"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+DOCKER_COMPOSE_FILE="$INSTALL_DIR/docker-compose.yml"
 
-# Vérification des arguments
-if [ $# -lt 1 ]; then
-    echo "Usage: $0 <username>"
-    exit 1
-fi
+for lib in lib_ports lib_traefik lib_services; do
+    [ -f "$SCRIPT_DIR/$lib.sh" ] || error "$lib.sh introuvable dans $SCRIPT_DIR"
+    # shellcheck source=/dev/null
+    source "$SCRIPT_DIR/$lib.sh"
+done
 
+[ $# -ge 1 ] || { echo "Usage: $0 <username>"; exit 1; }
 USERNAME=$1
-
-# Vérification root
-if [[ $EUID -ne 0 ]]; then
-    error "Ce script doit être exécuté en tant que root"
-fi
-
-# Vérifier que l'utilisateur existe
-if ! id "$USERNAME" &>/dev/null; then
-    error "L'utilisateur $USERNAME n'existe pas"
-fi
+[[ $EUID -eq 0 ]] || error "Ce script doit être exécuté en tant que root"
+id "$USERNAME" &>/dev/null || error "L'utilisateur $USERNAME n'existe pas"
 
 USER_ID=$(id -u "$USERNAME")
-HOMARR_PORT=$((7575 + USER_ID - 1000))
+USER_DIR="$INSTALL_DIR/data/users/$USERNAME"
+traefik_detect "$INSTALL_DIR/.env"
 
-log "Configuration de Homarr pour $USERNAME (port $HOMARR_PORT)..."
+HOMARR_CONFIG_DIR="$USER_DIR/config/homarr"
+mkdir -p "$HOMARR_CONFIG_DIR"
+log "Configuration de Homarr pour $USERNAME..."
 
-# Créer le fichier de configuration Homarr
-HOMARR_CONFIG_DIR="$INSTALL_DIR/data/users/$USERNAME/config/homarr"
-mkdir -p "$HOMARR_CONFIG_DIR/configs"
-mkdir -p "$HOMARR_CONFIG_DIR/data"
-mkdir -p "$HOMARR_CONFIG_DIR/icons"
+# Liens vers les services de l'utilisateur présents dans le compose
+# (guillemets simples dans le HTML pour rester valide en JSON)
+declare -A SVC_LABELS=(
+    [qbittorrent]="qBittorrent" [filebrowser]="Filebrowser"
+    [sonarr]="Sonarr" [radarr]="Radarr" [readarr]="Readarr" [bazarr]="Bazarr"
+    [prowlarr]="Prowlarr" [overseerr]="Overseerr" [calibre]="Calibre-Web"
+)
+LINKS=""
+for s in qbittorrent filebrowser sonarr radarr readarr bazarr prowlarr overseerr calibre; do
+    if grep -q "^  ${s}-${USERNAME}:" "$DOCKER_COMPOSE_FILE" 2>/dev/null; then
+        LINKS="${LINKS}<li><a href='$(service_url "$s")' target='_blank' rel='noopener'>${SVC_LABELS[$s]}</a></li>"
+    fi
+done
+[ -n "$LINKS" ] || LINKS="<li>Aucun service pour le moment</li>"
+SERVICES_HTML="<h1>Bienvenue ${USERNAME} !</h1><p>Vos services :</p><ul>${LINKS}</ul>"
+# API libre-service activée (setup_api.sh) : lien de gestion des services
+if [ "$USE_TRAEFIK" = true ] && grep -q '^SEEDBOX_API=true' "$INSTALL_DIR/.env" 2>/dev/null; then
+    SERVICES_HTML="${SERVICES_HTML}<p><a href='/seedbox-api/'>➕ Ajouter / retirer des services</a></p>"
+fi
 
-# Configuration par défaut de Homarr avec les services de l'utilisateur
-cat > "$HOMARR_CONFIG_DIR/configs/default.json" << 'EOF'
+# Heredoc NON quoté : ${SERVICES_HTML} est injecté (le JSON ne contient ni $
+# ni backtick).
+cat > "$HOMARR_CONFIG_DIR/default.json" << EOF
 {
   "schemaVersion": 1,
   "configProperties": {
@@ -83,7 +100,7 @@ cat > "$HOMARR_CONFIG_DIR/configs/default.json" << 'EOF'
       "id": "welcome",
       "type": "html",
       "properties": {
-        "html": "<h1>Bienvenue sur votre Seedbox!</h1><p>Vos services sont configurés automatiquement.</p>"
+        "html": "${SERVICES_HTML}"
       },
       "area": {
         "type": "wrapper",
@@ -110,7 +127,7 @@ cat > "$HOMARR_CONFIG_DIR/configs/default.json" << 'EOF'
       "layout": {
         "enabledLeftSidebar": false,
         "enabledRightSidebar": false,
-        "enabledDocker": true,
+        "enabledDocker": false,
         "enabledPing": true
       },
       "pageTitle": "Seedbox Dashboard",
@@ -128,46 +145,12 @@ cat > "$HOMARR_CONFIG_DIR/configs/default.json" << 'EOF'
 }
 EOF
 
-# Changer les permissions
 chown -R "$USER_ID:$USER_ID" "$HOMARR_CONFIG_DIR"
+log "✓ Tableau de bord Homarr généré"
 
-log "✓ Configuration Homarr créée"
-
-# Attendre que Homarr soit démarré
-info "Attente du démarrage de Homarr..."
-RETRY_COUNT=0
-MAX_RETRIES=30
-while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-    if curl -s "http://localhost:$HOMARR_PORT" >/dev/null 2>&1; then
-        break
-    fi
-    sleep 2
-    RETRY_COUNT=$((RETRY_COUNT + 1))
-done
-
-if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
-    warn "Homarr a mis trop de temps à démarrer"
-    info "Configuration créée mais Homarr n'est pas encore accessible"
-else
-    log "✓ Homarr est accessible sur http://localhost:$HOMARR_PORT"
+# Recharger Homarr s'il tourne déjà
+if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "homarr-${USERNAME}"; then
+    docker restart "homarr-${USERNAME}" >/dev/null 2>&1 && log "✓ Homarr redémarré"
 fi
 
-# Instructions pour l'utilisateur
-echo ""
-info "═══════════════════════════════════════════════════════════"
-info "Homarr est maintenant configuré pour $USERNAME"
-info "═══════════════════════════════════════════════════════════"
-info ""
-info "📍 Accès: http://votre-serveur:$HOMARR_PORT"
-info ""
-info "🎨 Personnalisation:"
-info "   - Les services avec Docker labels seront auto-détectés"
-info "   - Ajoutez manuellement d'autres services via l'interface"
-info "   - Personnalisez l'apparence dans les paramètres"
-info ""
-info "🔧 Services disponibles:"
-info "   - qBittorrent sera auto-détecté"
-info "   - Filebrowser sera auto-détecté"
-info "   - Autres services: ajoutez-les manuellement ou via l'API"
-info ""
-info "═══════════════════════════════════════════════════════════"
+info "📍 Accès: $(service_url homarr)"

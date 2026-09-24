@@ -203,7 +203,7 @@ docker-compose logs -f
 
 ### 1. Configurer Authelia
 
-Accédez à `http://votre-serveur:9091` et connectez-vous avec les identifiants admin.
+En mode Traefik : `https://auth.votre-domaine.com`. En mode port direct, Authelia n'écoute qu'en local : `ssh -L 9091:127.0.0.1:9091 admin@votre-serveur` puis `http://localhost:9091`.
 
 **Première connexion:**
 1. Entrez votre nom d'utilisateur et mot de passe
@@ -247,7 +247,7 @@ Accédez à `http://votre-serveur:32400/web`
 
 ```bash
 cd /opt/seedbox/scripts
-sudo ./add_user.sh alice SecurePass789 alice@example.com 1000
+sudo ./add_user.sh alice 'SecurePass7890' alice@example.com 1000
 ```
 
 Cela créera automatiquement:

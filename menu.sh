@@ -5,7 +5,9 @@
 # Interface centralisée pour tous les scripts de gestion
 #######################
 
-set -e
+# Pas de `set -e` : dans un menu interactif, l'échec d'une sous-commande
+# (script qui renvoie un code d'erreur, healthcheck qui détecte un problème…)
+# ne doit pas fermer le menu. Les erreurs sont gérées au cas par cas.
 set -u
 
 #######################
@@ -38,7 +40,7 @@ success() { echo -e "${GREEN}✓${NC} $1"; }
 # Fonction pour attendre l'appui sur une touche
 pause() {
     echo ""
-    read -p "Appuyez sur Entrée pour continuer..."
+    read -r -p "Appuyez sur Entrée pour continuer..."
 }
 
 # Fonction pour afficher l'en-tête
@@ -114,7 +116,7 @@ show_services_status() {
     show_header
     echo -e "${BOLD}${BLUE}🔧 État des Services${NC}\n"
 
-    cd "$INSTALL_DIR"
+    cd "$INSTALL_DIR" || return
 
     echo -e "${CYAN}Services Système:${NC}"
     for service in authelia flaresolverr plex jellyfin scrutiny uptime-kuma dashdot portainer tautulli watchtower duplicati; do
@@ -137,23 +139,19 @@ show_users_list() {
     show_header
     echo -e "${BOLD}${BLUE}👥 Liste des Utilisateurs${NC}\n"
 
-    cd "$INSTALL_DIR"
-
-    # Lister les utilisateurs à partir des conteneurs qBittorrent
-    echo -e "${CYAN}Utilisateurs configurés:${NC}"
-    docker ps -a --format "{{.Names}}" | grep "^qbittorrent-" | sed 's/qbittorrent-//' | while read username; do
-        # Vérifier le quota
-        if id "$username" &>/dev/null; then
-            QUOTA=$(sudo quota -v -u "$username" 2>/dev/null | grep "$INSTALL_DIR" | awk '{print $3}' || echo "N/A")
-            RUNNING=$(docker ps --format "{{.Names}}" | grep -c ".*-${username}$" || echo "0")
-            TOTAL=$(docker ps -a --format "{{.Names}}" | grep -c ".*-${username}$" || echo "0")
-            echo "  • $username - Services: $RUNNING/$TOTAL actifs - Quota: $QUOTA"
-        else
-            echo "  • $username (utilisateur système non trouvé)"
-        fi
+    local dir username running total role db="$INSTALL_DIR/authelia/users_database.yml"
+    printf "%-14s %-8s %-10s %-10s\n" "Utilisateur" "Rôle" "Services" "Espace"
+    for dir in "$INSTALL_DIR"/data/users/*/; do
+        [ -d "$dir" ] || continue
+        username=$(basename "$dir")
+        running=$(docker ps --format "{{.Names}}" 2>/dev/null | grep -c -- "-${username}$")
+        total=$(grep -cE "^  [a-z]+-${username}:" "$INSTALL_DIR/docker-compose.yml" 2>/dev/null)
+        role="user"
+        awk -v u="  ${username}:" '$0==u{f=1;next} /^  [^ ]/{f=0} f && /^      - admins$/{found=1} END{exit !found}' "$db" 2>/dev/null && role="admin"
+        id "$username" &>/dev/null || role="orphelin"
+        printf "%-14s %-8s %-10s %-10s\n" "$username" "$role" "${running}/${total}" "$(du -sh "$dir" 2>/dev/null | cut -f1)"
     done
     echo ""
-
     pause
 }
 
@@ -161,7 +159,7 @@ show_user_services() {
     show_header
     echo -e "${BOLD}${BLUE}📋 Services d'un Utilisateur${NC}\n"
 
-    read -p "Nom d'utilisateur: " username
+    read -r -p "Nom d'utilisateur: " username
 
     if [ -z "$username" ]; then
         warn "Nom d'utilisateur requis"
@@ -183,7 +181,7 @@ show_logs() {
     show_header
     echo -e "${BOLD}${BLUE}📝 Logs d'un Service${NC}\n"
 
-    read -p "Nom du conteneur: " container
+    read -r -p "Nom du conteneur: " container
 
     if [ -z "$container" ]; then
         warn "Nom de conteneur requis"
@@ -206,17 +204,34 @@ show_quotas() {
     show_header
     echo -e "${BOLD}${BLUE}💾 Quotas Utilisateurs${NC}\n"
 
-    cd "$INSTALL_DIR"
+    # Quotas PROJET (par dossier utilisateur) — cf. scripts/lib_quota.sh
+    local active=false dir used limit projid mnt fs
+    if [ -f "$SCRIPTS_DIR/lib_quota.sh" ]; then
+        # shellcheck source=/dev/null
+        source "$SCRIPTS_DIR/lib_quota.sh"
+        quota_project_active "$INSTALL_DIR/data" && active=true
+    fi
+    $active || warn "Quotas projet NON actifs : utilisation affichée, limites non appliquées (voir enable_quotas.sh)"
+    echo ""
 
-    echo -e "${CYAN}Utilisation des quotas:${NC}\n"
-    docker ps -a --format "{{.Names}}" | grep "^qbittorrent-" | sed 's/qbittorrent-//' | while read username; do
-        if id "$username" &>/dev/null; then
-            echo -e "${BOLD}Utilisateur: $username${NC}"
-            sudo quota -v -u "$username" 2>/dev/null || echo "  Quota non configuré"
-            echo ""
+    mnt=$(findmnt -T "$INSTALL_DIR/data" -no TARGET 2>/dev/null)
+    fs=$(findmnt -T "$INSTALL_DIR/data" -no FSTYPE 2>/dev/null)
+    printf "%-16s %-12s %-12s\n" "Utilisateur" "Utilisé" "Limite"
+    for dir in "$INSTALL_DIR"/data/users/*/; do
+        [ -d "$dir" ] || continue
+        username=$(basename "$dir")
+        used=$(du -sh "$dir" 2>/dev/null | cut -f1)
+        limit="-"
+        if $active && projid=$(id -u "$username" 2>/dev/null); then
+            case "$fs" in
+                xfs)  limit=$(xfs_quota -x -c "quota -p -h -N $projid" "$mnt" 2>/dev/null | awk '{print $4}') ;;
+                ext*) limit=$(repquota -P -s "$mnt" 2>/dev/null | awk -v p="#$projid" '$1==p {print $5}') ;;
+            esac
+            [ -n "$limit" ] && [ "$limit" != "0" ] || limit="aucune"
         fi
+        printf "%-16s %-12s %-12s\n" "$username" "${used:-?}" "$limit"
     done
-
+    echo ""
     pause
 }
 
@@ -228,29 +243,39 @@ add_user_menu() {
     show_header
     echo -e "${BOLD}${BLUE}➕ Ajouter un Utilisateur${NC}\n"
 
-    read -p "Nom d'utilisateur: " username
-    read -s -p "Mot de passe: " password
-    echo ""
-    read -p "Email: " email
-    read -p "Quota (GB) [500]: " quota
+    read -r -p "Nom d'utilisateur (minuscules/chiffres): " username
+    local password password2
+    while true; do
+        read -r -s -p "Mot de passe (min 12): " password; echo ""
+        read -r -s -p "Confirmez: " password2; echo ""
+        [ "$password" = "$password2" ] && [ ${#password} -ge 12 ] && break
+        warn "Mots de passe différents ou trop courts, recommencez"
+    done
+    read -r -p "Email: " email
+    read -r -p "Quota (GB) [500]: " quota
     quota=${quota:-500}
 
     echo ""
-    read -p "Cet utilisateur est-il un administrateur ? (o/N): " is_admin
+    read -r -p "Cet utilisateur est-il un administrateur ? (o/N): " is_admin
 
     echo ""
+    local admin_flag="" rc=0
     if [[ $is_admin =~ ^[oO]$ ]]; then
+        admin_flag="--admin"
         info "Création de l'utilisateur ADMINISTRATEUR: $username..."
         info "(Services inclus: qBittorrent + Homarr + Filebrowser + sélection interactive)"
-        "$SCRIPTS_DIR/add_user.sh" "$username" "$password" "$email" "$quota" --admin
     else
         info "Création de l'utilisateur STANDARD: $username..."
         info "(Service obligatoire: qBittorrent + sélection interactive des autres)"
-        "$SCRIPTS_DIR/add_user.sh" "$username" "$password" "$email" "$quota"
     fi
+    "$SCRIPTS_DIR/add_user.sh" "$username" "$password" "$email" "$quota" $admin_flag || rc=$?
 
     echo ""
-    success "Utilisateur créé !"
+    if [ "$rc" -eq 0 ]; then
+        success "Utilisateur créé !"
+    else
+        error "La création de l'utilisateur a échoué (code $rc) — voir les messages ci-dessus"
+    fi
     pause
 }
 
@@ -258,7 +283,7 @@ remove_user_menu() {
     show_header
     echo -e "${BOLD}${BLUE}➖ Supprimer un Utilisateur${NC}\n"
 
-    read -p "Nom d'utilisateur à supprimer: " username
+    read -r -p "Nom d'utilisateur à supprimer: " username
 
     if [ -z "$username" ]; then
         warn "Nom d'utilisateur requis"
@@ -268,18 +293,16 @@ remove_user_menu() {
 
     echo ""
     warn "Cette action va supprimer l'utilisateur et tous ses conteneurs"
-    read -p "Conserver les données de l'utilisateur ? (o/N): " keep_data
+    read -r -p "Conserver les données de l'utilisateur ? (o/N): " keep_data
 
     echo ""
-    if [[ $keep_data =~ ^[oO]$ ]]; then
-        "$SCRIPTS_DIR/remove_user.sh" "$username" --keep-data
+    local opts=(--yes)
+    [[ $keep_data =~ ^[oO]$ ]] && opts+=(--keep-data)
+    read -r -p "Êtes-vous sûr ? Tapez 'supprimer' pour confirmer: " confirm
+    if [ "$confirm" = "supprimer" ]; then
+        "$SCRIPTS_DIR/remove_user.sh" "$username" "${opts[@]}" || error "La suppression a échoué"
     else
-        read -p "Êtes-vous sûr ? Tapez 'supprimer' pour confirmer: " confirm
-        if [ "$confirm" = "supprimer" ]; then
-            "$SCRIPTS_DIR/remove_user.sh" "$username"
-        else
-            warn "Suppression annulée"
-        fi
+        warn "Suppression annulée"
     fi
 
     pause
@@ -289,8 +312,8 @@ update_quota_menu() {
     show_header
     echo -e "${BOLD}${BLUE}💾 Modifier le Quota d'un Utilisateur${NC}\n"
 
-    read -p "Nom d'utilisateur: " username
-    read -p "Nouveau quota (GB): " quota
+    read -r -p "Nom d'utilisateur: " username
+    read -r -p "Nouveau quota (GB): " quota
 
     if [ -z "$username" ] || [ -z "$quota" ]; then
         warn "Nom d'utilisateur et quota requis"
@@ -308,7 +331,7 @@ update_password_menu() {
     show_header
     echo -e "${BOLD}${BLUE}🔑 Modifier le Mot de Passe d'un Utilisateur${NC}\n"
 
-    read -p "Nom d'utilisateur: " username
+    read -r -p "Nom d'utilisateur: " username
 
     if [ -z "$username" ]; then
         warn "Nom d'utilisateur requis"
@@ -326,7 +349,7 @@ update_password_menu() {
     echo ""
     info "Le mot de passe sera demandé de manière sécurisée par le script"
     echo ""
-    read -p "Continuer ? (O/n): " confirm
+    read -r -p "Continuer ? (O/n): " confirm
 
     if [[ ! $confirm =~ ^[Nn]$ ]]; then
         "$SCRIPTS_DIR/update_password.sh" "$username"
@@ -341,7 +364,7 @@ add_user_service_menu() {
     show_header
     echo -e "${BOLD}${BLUE}➕ Ajouter un Service à un Utilisateur${NC}\n"
 
-    read -p "Nom d'utilisateur: " username
+    read -r -p "Nom d'utilisateur: " username
 
     if [ -z "$username" ]; then
         warn "Nom d'utilisateur requis"
@@ -360,7 +383,7 @@ add_user_service_menu() {
     echo "  7. calibre   - Bibliothèque ebooks"
     echo ""
 
-    read -p "Service à ajouter: " service
+    read -r -p "Service à ajouter: " service
 
     if [ -z "$service" ]; then
         warn "Service requis"
@@ -402,7 +425,7 @@ add_service_menu() {
     echo "  9. duplicati - Système de backup"
     echo ""
 
-    read -p "Service à installer: " service
+    read -r -p "Service à installer: " service
 
     if [ -z "$service" ]; then
         warn "Service requis"
@@ -418,9 +441,10 @@ add_service_menu() {
 
 remove_service_menu() {
     show_header
-    echo -e "${BOLD}${BLUE}➖ Supprimer un Service Système${NC}\n"
+    echo -e "${BOLD}${BLUE}➖ Supprimer un Service${NC}\n"
+    info "Service système (ex: dashdot) ou service d'un utilisateur (ex: sonarr-alice)"
 
-    read -p "Nom du service à supprimer: " service
+    read -r -p "Nom du service à supprimer: " service
 
     if [ -z "$service" ]; then
         warn "Nom de service requis"
@@ -430,13 +454,10 @@ remove_service_menu() {
 
     echo ""
     warn "Cette action va arrêter et supprimer le service $service"
-    read -p "Êtes-vous sûr ? (o/N): " confirm
+    read -r -p "Êtes-vous sûr ? (o/N): " confirm
 
     if [[ $confirm =~ ^[oO]$ ]]; then
-        cd "$INSTALL_DIR"
-        docker-compose stop "$service" 2>/dev/null || true
-        docker-compose rm -f "$service" 2>/dev/null || true
-        success "Service $service supprimé"
+        "$SCRIPTS_DIR/remove_service.sh" "$service" || error "La suppression a échoué"
     else
         warn "Suppression annulée"
     fi
@@ -457,10 +478,10 @@ restart_services_menu() {
     echo "3. Redémarrer les services d'un utilisateur"
     echo ""
 
-    read -p "Choix: " choice
+    read -r -p "Choix: " choice
 
     echo ""
-    cd "$INSTALL_DIR"
+    cd "$INSTALL_DIR" || return
 
     case $choice in
         1)
@@ -469,16 +490,16 @@ restart_services_menu() {
             success "Tous les services ont été redémarrés"
             ;;
         2)
-            read -p "Nom du service: " service
+            read -r -p "Nom du service: " service
             if [ -n "$service" ]; then
                 docker restart "$service"
                 success "Service $service redémarré"
             fi
             ;;
         3)
-            read -p "Nom d'utilisateur: " username
+            read -r -p "Nom d'utilisateur: " username
             if [ -n "$username" ]; then
-                docker ps -a --format "{{.Names}}" | grep ".*-${username}$" | while read container; do
+                docker ps -a --format "{{.Names}}" | grep ".*-${username}$" | while read -r container; do
                     docker restart "$container"
                     echo "  ✓ $container redémarré"
                 done
@@ -497,12 +518,13 @@ update_containers_menu() {
     show_header
     echo -e "${BOLD}${BLUE}🔄 Mettre à Jour les Conteneurs${NC}\n"
 
-    warn "Cette opération va télécharger les dernières images et redémarrer les conteneurs"
-    read -p "Continuer ? (o/N): " confirm
+    warn "Re-pull des images ÉPINGLÉES (mêmes versions) puis redémarrage."
+    info "Pour passer à une NOUVELLE version, utilisez le menu 'Mises à jour'."
+    read -r -p "Continuer ? (o/N): " confirm
 
     if [[ $confirm =~ ^[oO]$ ]]; then
         echo ""
-        cd "$INSTALL_DIR"
+        cd "$INSTALL_DIR" || return
 
         info "Téléchargement des nouvelles images..."
         docker-compose pull
@@ -532,7 +554,7 @@ cleanup_docker_menu() {
     echo ""
 
     warn "Assurez-vous de ne pas avoir de conteneurs temporairement arrêtés"
-    read -p "Continuer ? (o/N): " confirm
+    read -r -p "Continuer ? (o/N): " confirm
 
     if [[ $confirm =~ ^[oO]$ ]]; then
         echo ""
@@ -549,37 +571,23 @@ cleanup_docker_menu() {
 
 backup_menu() {
     show_header
-    echo -e "${BOLD}${BLUE}💾 Sauvegarde${NC}\n"
-
-    BACKUP_DIR="/var/backups/seedbox"
-    BACKUP_FILE="seedbox-backup-$(date +%Y%m%d-%H%M%S).tar.gz"
-
-    echo "Répertoire de sauvegarde: $BACKUP_DIR"
-    echo "Fichier: $BACKUP_FILE"
-    echo ""
-
-    warn "Cette opération peut prendre du temps selon la taille des données"
-    read -p "Continuer ? (o/N): " confirm
-
-    if [[ $confirm =~ ^[oO]$ ]]; then
-        echo ""
-        mkdir -p "$BACKUP_DIR"
-
-        info "Sauvegarde de la configuration..."
-        cd "$INSTALL_DIR"
-        tar -czf "$BACKUP_DIR/$BACKUP_FILE" \
-            --exclude='*/cache/*' \
-            --exclude='*/data/*' \
-            --exclude='*/downloads/*' \
-            authelia/ docker-compose.yml scripts/ 2>/dev/null
-
-        echo ""
-        success "Sauvegarde créée: $BACKUP_DIR/$BACKUP_FILE"
-        ls -lh "$BACKUP_DIR/$BACKUP_FILE"
+    echo -e "${BOLD}${BLUE}💾 Sauvegarde (configuration complète)${NC}\n"
+    if [ -x "$INSTALL_DIR/scripts/backup.sh" ]; then
+        "$INSTALL_DIR/scripts/backup.sh"
     else
-        warn "Sauvegarde annulée"
+        error "Script backup.sh introuvable dans $INSTALL_DIR/scripts"
     fi
+    pause
+}
 
+restore_menu() {
+    show_header
+    echo -e "${BOLD}${BLUE}♻️  Restaurer une sauvegarde${NC}\n"
+    if [ -x "$INSTALL_DIR/scripts/restore.sh" ]; then
+        "$INSTALL_DIR/scripts/restore.sh"
+    else
+        error "Script restore.sh introuvable dans $INSTALL_DIR/scripts"
+    fi
     pause
 }
 
@@ -603,7 +611,7 @@ menu_users() {
         echo "0. Retour au menu principal"
         echo ""
 
-        read -p "Choix: " choice
+        read -r -p "Choix: " choice
 
         case $choice in
             1) add_user_menu ;;
@@ -632,7 +640,7 @@ menu_services() {
         echo "0. Retour au menu principal"
         echo ""
 
-        read -p "Choix: " choice
+        read -r -p "Choix: " choice
 
         case $choice in
             1) add_service_menu ;;
@@ -655,11 +663,12 @@ menu_monitoring() {
         echo "3. Liste des utilisateurs"
         echo "4. Quotas utilisateurs"
         echo "5. Logs d'un service"
+        echo "6. Vérification complète (healthcheck)"
         echo ""
         echo "0. Retour au menu principal"
         echo ""
 
-        read -p "Choix: " choice
+        read -r -p "Choix: " choice
 
         case $choice in
             1) show_system_status ;;
@@ -667,10 +676,34 @@ menu_monitoring() {
             3) show_users_list ;;
             4) show_quotas ;;
             5) show_logs ;;
+            6) healthcheck_menu ;;
             0) break ;;
             *) warn "Choix invalide" ; pause ;;
         esac
     done
+}
+
+updates_menu() {
+    show_header
+    echo -e "${BOLD}${BLUE}⬆️  Mises à jour${NC}\n"
+    if [ -x "$INSTALL_DIR/scripts/update.sh" ]; then
+        "$INSTALL_DIR/scripts/update.sh"
+    else
+        error "Script update.sh introuvable dans $INSTALL_DIR/scripts"
+    fi
+    pause
+}
+
+healthcheck_menu() {
+    show_header
+    echo -e "${BOLD}${BLUE}🩺 Vérification complète du système${NC}\n"
+    if [ -x "$INSTALL_DIR/scripts/healthcheck.sh" ]; then
+        "$INSTALL_DIR/scripts/healthcheck.sh"
+    else
+        error "Script healthcheck.sh introuvable dans $INSTALL_DIR/scripts"
+    fi
+    echo ""
+    pause
 }
 
 menu_maintenance() {
@@ -679,20 +712,24 @@ menu_maintenance() {
         echo -e "${BOLD}${MAGENTA}🛠️  MAINTENANCE${NC}\n"
 
         echo "1. Redémarrer les services"
-        echo "2. Mettre à jour les conteneurs"
+        echo "2. Mettre à jour les conteneurs (re-pull des tags actuels)"
         echo "3. Nettoyage Docker"
-        echo "4. Créer une sauvegarde"
+        echo "4. Créer une sauvegarde (config complète)"
+        echo "5. Restaurer une sauvegarde"
+        echo "6. Mises à jour (système / Docker / module seedbox)"
         echo ""
         echo "0. Retour au menu principal"
         echo ""
 
-        read -p "Choix: " choice
+        read -r -p "Choix: " choice
 
         case $choice in
             1) restart_services_menu ;;
             2) update_containers_menu ;;
             3) cleanup_docker_menu ;;
             4) backup_menu ;;
+            5) restore_menu ;;
+            6) updates_menu ;;
             0) break ;;
             *) warn "Choix invalide" ; pause ;;
         esac
@@ -722,11 +759,12 @@ menu_traefik() {
         echo "3. Voir l'état de Traefik"
         echo "4. Voir les certificats SSL"
         echo "5. Redémarrer Traefik"
+        echo "6. API libre-service des utilisateurs (activer / désactiver)"
         echo ""
         echo "0. Retour au menu principal"
         echo ""
 
-        read -p "Choix: " choice
+        read -r -p "Choix: " choice
 
         case $choice in
             1) setup_traefik_menu ;;
@@ -734,6 +772,7 @@ menu_traefik() {
             3) traefik_status_menu ;;
             4) traefik_certs_menu ;;
             5) restart_traefik_menu ;;
+            6) api_menu ;;
             0) break ;;
             *) warn "Choix invalide" ; pause ;;
         esac
@@ -744,8 +783,8 @@ setup_traefik_menu() {
     show_header
     echo -e "${BOLD}${BLUE}🌐 Installation Traefik${NC}\n"
 
-    read -p "Nom de domaine (ex: example.com): " domain
-    read -p "Email pour Let's Encrypt: " email
+    read -r -p "Nom de domaine (ex: example.com): " domain
+    read -r -p "Email pour Let's Encrypt: " email
 
     if [ -z "$domain" ] || [ -z "$email" ]; then
         warn "Domaine et email requis"
@@ -759,7 +798,7 @@ setup_traefik_menu() {
     warn "   - Ports 80/443 doivent être ouverts"
     echo ""
 
-    read -p "Les prérequis sont-ils remplis ? (o/N): " confirm
+    read -r -p "Les prérequis sont-ils remplis ? (o/N): " confirm
 
     if [[ $confirm =~ ^[oO]$ ]]; then
         "$SCRIPTS_DIR/setup_traefik.sh" "$domain" "$email"
@@ -774,15 +813,36 @@ generate_labels_menu() {
     show_header
     echo -e "${BOLD}${BLUE}🏷️  Génération Labels Docker${NC}\n"
 
-    if ! docker ps --format '{{.Names}}' | grep -q "^traefik$"; then
-        warn "Traefik n'est pas installé. Installez-le d'abord."
+    # Traefik doit être configuré (service présent dans le compose) ; il n'a
+    # pas besoin de tourner : la migration démarre tout.
+    if ! grep -q "^  traefik:" "$INSTALL_DIR/docker-compose.yml" 2>/dev/null; then
+        warn "Traefik n'est pas installé. Installez-le d'abord (option 1)."
         pause
         return
     fi
 
+    info "Migration des services vers Traefik + SSO (sauvegarde automatique)"
     echo ""
-    "$SCRIPTS_DIR/generate_traefik_labels.sh"
+    "$SCRIPTS_DIR/generate_traefik_labels.sh" || error "La migration a échoué (voir ci-dessus)"
 
+    pause
+}
+
+api_menu() {
+    show_header
+    echo -e "${BOLD}${BLUE}🧩 API libre-service${NC}\n"
+    info "Permet à chaque utilisateur d'ajouter/retirer ses services optionnels"
+    info "depuis https://<utilisateur>.<domaine>/seedbox-api/ (lien sur Homarr)."
+    echo ""
+    if grep -q '^SEEDBOX_API=true' "$INSTALL_DIR/.env" 2>/dev/null; then
+        echo -e "${GREEN}● API active${NC}"
+        read -r -p "Désactiver l'API ? (o/N): " c
+        [[ "$c" =~ ^[oO]$ ]] && "$SCRIPTS_DIR/setup_api.sh" --disable
+    else
+        echo -e "${YELLOW}○ API inactive${NC} (mode Traefik requis)"
+        read -r -p "Activer l'API ? (o/N): " c
+        [[ "$c" =~ ^[oO]$ ]] && "$SCRIPTS_DIR/setup_api.sh"
+    fi
     pause
 }
 
@@ -876,7 +936,7 @@ menu_main() {
         echo -e "${CYAN}0.${NC} ❌  Quitter"
         echo ""
 
-        read -p "Choix: " choice
+        read -r -p "Choix: " choice
 
         case $choice in
             1) menu_users ;;

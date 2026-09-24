@@ -1,0 +1,187 @@
+#!/bin/bash
+#######################
+# lib_services.sh — Définition des services UTILISATEUR (source unique)
+#
+# Génère les blocs docker-compose de chaque service d'un utilisateur, pour les
+# deux modes (Traefik ou port direct). Utilisée par add_user.sh et
+# add_user_service.sh.
+#
+# Pré-requis (variables) : USERNAME USER_ID USER_DIR INSTALL_DIR TZ USE_TRAEFIK
+#                          DOMAIN ; FB_PASSWORD_HASH pour filebrowser.
+# Dépendances : lib_ports.sh, lib_traefik.sh (sourcées par l'appelant).
+#
+# Organisation des données d'un utilisateur ($USER_DIR, monté sur /data) :
+#   downloads/ tv/ movies/ books/ config/
+# Un montage /data unique pour qBittorrent et les *arr permet les imports par
+# hardlink (pas de copie : l'espace disque n'est pas doublé pendant le seed).
+#######################
+
+# shellcheck disable=SC2034  # lue par les bibliothèques sourcées
+USER_SERVICES="qbittorrent homarr filebrowser sonarr radarr readarr bazarr prowlarr overseerr calibre"
+
+service_image() {
+    case "$1" in
+        qbittorrent) echo "linuxserver/qbittorrent:5.2.3" ;;
+        homarr)      echo "ghcr.io/ajnart/homarr:0.16.1" ;;
+        filebrowser) echo "filebrowser/filebrowser:v2.63.23" ;;
+        sonarr)      echo "linuxserver/sonarr:4.0.20" ;;
+        radarr)      echo "linuxserver/radarr:6.4.4" ;;
+        readarr)     echo "lscr.io/linuxserver/readarr:develop" ;;
+        bazarr)      echo "linuxserver/bazarr:1.6.1" ;;
+        prowlarr)    echo "linuxserver/prowlarr:2.6.5" ;;
+        overseerr)   echo "sctx/overseerr:1.35.0" ;;
+        calibre)     echo "linuxserver/calibre-web:0.6.27" ;;
+        *) return 1 ;;
+    esac
+}
+
+# Dossier de configuration (côté hôte) d'un service
+service_config_dir() {
+    case "$1" in
+        qbittorrent|homarr|filebrowser) echo "$USER_DIR/config/$1" ;;
+        *) echo "$INSTALL_DIR/$1/$USERNAME" ;;
+    esac
+}
+
+# Prépare dossiers et fichiers AVANT le premier démarrage du service.
+# $1=service [$2=mot de passe en clair, pour qBittorrent]
+service_prepare() {
+    local svc="$1" pass="${2:-}" cfg proxy_net=""
+    cfg=$(service_config_dir "$svc")
+    mkdir -p "$cfg" "$USER_DIR"/{downloads,tv,movies,books}
+    case "$svc" in
+        qbittorrent)
+            local conf="$cfg/qBittorrent/qBittorrent.conf"
+            qbit_seed_defaults "$conf"
+            if [ -n "$pass" ]; then
+                if [ "$USE_TRAEFIK" = true ]; then
+                    proxy_net=$(docker network inspect traefik_proxy \
+                        -f '{{(index .IPAM.Config 0).Subnet}}' 2>/dev/null || true)
+                fi
+                qbit_configure "$conf" "$USERNAME" "$pass" "$proxy_net" \
+                    || warn "Mot de passe qBittorrent non défini (voir logs du conteneur)"
+            fi
+            ;;
+        homarr) mkdir -p "$USER_DIR/config/homarr-icons" ;;
+    esac
+    [ "$USE_TRAEFIK" = true ] && traefik_prepare_app "$svc" "$cfg" "$USER_ID"
+    chown -R "$USER_ID:$USER_ID" "$cfg" "$USER_DIR"/{downloads,tv,movies,books} \
+        "$USER_DIR/config" 2>/dev/null || true
+}
+
+# Émet le bloc docker-compose d'un service (stdout). $1=service
+service_block() {
+    local svc="$1" name img cfg port inner tport
+    name="${svc}-${USERNAME}"
+    img=$(service_image "$svc") || return 1
+    cfg=$(service_config_dir "$svc")
+    port=$(user_port "$USER_ID" "$svc")
+    inner=$(traefik_service_port "$svc")
+    tport=$(user_port "$USER_ID" torrent)
+
+    echo ""
+    echo "  ${name}:"
+    echo "    image: ${img}"
+    echo "    container_name: ${name}"
+    # Filebrowser (image officielle) ignore PUID/PGID : UID imposé ici
+    [ "$svc" = filebrowser ] && echo "    user: \"${USER_ID}:${USER_ID}\""
+    echo "    environment:"
+    echo "      - PUID=${USER_ID}"
+    echo "      - PGID=${USER_ID}"
+    echo "      - TZ=${TZ}"
+    case "$svc" in
+        qbittorrent)
+            # WebUI : port interne = port publié en mode direct
+            if [ "$USE_TRAEFIK" = true ]; then echo "      - WEBUI_PORT=8080"
+            else echo "      - WEBUI_PORT=${port}"; inner=$port; fi
+            echo "      - TORRENTING_PORT=${tport}"
+            ;;
+        filebrowser)
+            echo "      - FB_ROOT=/srv"
+            echo "      - FB_DATABASE=/config/filebrowser.db"
+            echo "      - FB_PORT=80"
+            echo "      - FB_ADDRESS=0.0.0.0"
+            # Compte initial = identifiants seedbox (appliqué uniquement à la
+            # création de la base ; sans effet ensuite)
+            echo "      - FB_USERNAME=${USERNAME}"
+            # bcrypt : "$" doublés pour docker-compose
+            [ -n "${FB_PASSWORD_HASH:-}" ] && echo "      - FB_PASSWORD=${FB_PASSWORD_HASH//\$/\$\$}"
+            [ "$USE_TRAEFIK" = true ] && echo "      - FB_BASE_URL=/files"
+            ;;
+    esac
+    echo "    volumes:"
+    case "$svc" in
+        qbittorrent|sonarr|radarr|readarr|bazarr)
+            echo "      - ${cfg}:/config"
+            echo "      - ${USER_DIR}:/data" ;;
+        homarr)
+            echo "      - ${cfg}:/app/data/configs"
+            echo "      - ${USER_DIR}/config/homarr-icons:/app/public/icons" ;;
+        filebrowser)
+            echo "      - ${USER_DIR}:/srv"
+            echo "      - ${cfg}:/config" ;;
+        prowlarr)
+            echo "      - ${cfg}:/config" ;;
+        overseerr)
+            echo "      - ${cfg}:/app/config" ;;
+        calibre)
+            echo "      - ${cfg}:/config"
+            echo "      - ${USER_DIR}/books:/books" ;;
+    esac
+    # Ports publiés : WebUI en mode direct ; port torrent (TCP+UDP) toujours
+    if [ "$USE_TRAEFIK" != true ] || [ "$svc" = qbittorrent ]; then
+        echo "    ports:"
+        [ "$USE_TRAEFIK" != true ] && echo "      - \"${port}:${inner}\""
+        if [ "$svc" = qbittorrent ]; then
+            echo "      - \"${tport}:${tport}\""
+            echo "      - \"${tport}:${tport}/udp\""
+        fi
+    fi
+    [ "$USE_TRAEFIK" = true ] && traefik_user_labels "$svc" "$USERNAME"
+    echo "    restart: unless-stopped"
+}
+
+# Commande docker compose disponible (v2 plugin ou v1 autonome)
+compose_cmd() {
+    if docker compose version >/dev/null 2>&1; then docker compose "$@"
+    elif command -v docker-compose >/dev/null 2>&1; then docker-compose "$@"
+    else return 127; fi
+}
+
+# Valide un fichier compose (interpolation via le .env de $INSTALL_DIR).
+# Retour 0 si valide ou si aucun outil compose n'est disponible pour vérifier.
+compose_validate() {
+    local out rc
+    out=$(compose_cmd -f "$1" --project-directory "$INSTALL_DIR" config -q 2>&1); rc=$?
+    [ "$rc" -eq 127 ] && return 0
+    [ "$rc" -eq 0 ] || echo "$out" >&2
+    return "$rc"
+}
+
+# Ajoute les services au docker-compose.yml de façon ATOMIQUE : écriture dans
+# une copie, validation, puis remplacement. Le fichier réel n'est jamais cassé.
+# $1=fichier compose ; $2.. = services
+compose_append_services() {
+    local file="$1" tmp s; shift
+    tmp="${file%.yml}.new.yml"
+    cp "$file" "$tmp" || return 1
+    for s in "$@"; do
+        service_block "$s" >> "$tmp" || { rm -f "$tmp"; return 1; }
+    done
+    if compose_validate "$tmp"; then
+        mv "$tmp" "$file"
+    else
+        rm -f "$tmp"
+        return 1
+    fi
+}
+
+# URL d'accès d'un service (affichage). $1=service
+service_url() {
+    if [ "$USE_TRAEFIK" = true ]; then
+        traefik_service_url "$1" "$USERNAME"
+    else
+        local ip; ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+        echo "http://${ip:-votre-serveur}:$(user_port "$USER_ID" "$1")"
+    fi
+}

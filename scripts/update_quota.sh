@@ -43,24 +43,31 @@ if ! [[ "$QUOTA_GB" =~ ^[0-9]+$ ]]; then
     error "Le quota doit être un nombre entier (en GB)"
 fi
 
-# Vérifier si les quotas sont activés
-if ! command -v setquota &>/dev/null; then
-    error "Les quotas ne sont pas installés sur ce système"
+# Charger la lib de quotas (quota PROJET par dossier)
+QUOTA_LIB="$(dirname "$0")/lib_quota.sh"
+[ -f "$QUOTA_LIB" ] || error "lib_quota.sh introuvable à côté de ce script"
+# shellcheck source=/dev/null
+source "$QUOTA_LIB"
+
+# Dossier et id de projet de l'utilisateur
+INSTALL_DIR="${INSTALL_DIR:-/opt/seedbox}"
+USER_DIR="$INSTALL_DIR/data/users/$USERNAME"
+PROJID=$(id -u "$USERNAME")
+
+[ -d "$USER_DIR" ] || error "Dossier utilisateur introuvable : $USER_DIR"
+
+# Les quotas doivent être actifs sur le système de fichiers
+if ! quota_project_active "$USER_DIR"; then
+    warn "Les quotas projet ne sont pas actifs sur le système de fichiers."
+    info "Activez-les d'abord : sudo $(dirname "$0")/enable_quotas.sh"
+    error "Quota non appliqué"
 fi
 
-# Afficher le quota actuel
-log "Quota actuel pour $USERNAME:"
-quota -v -u "$USERNAME" 2>/dev/null || info "Aucun quota défini"
-
-# Configurer le nouveau quota
-log "Configuration du nouveau quota: ${QUOTA_GB}GB..."
-QUOTA_KB=$((QUOTA_GB * 1024 * 1024))
-
-if setquota -u "$USERNAME" 0 "$QUOTA_KB" 0 0 / 2>/dev/null; then
-    log "${GREEN}✓${NC} Quota modifié avec succès !"
-    echo ""
-    info "Nouveau quota pour $USERNAME:"
-    quota -v -u "$USERNAME"
+# Appliquer le nouveau quota projet
+log "Application du quota projet ${QUOTA_GB}GB sur $USER_DIR (projet $PROJID)..."
+quota_register_project "$USERNAME" "$PROJID" "$USER_DIR"
+if quota_apply_project "$USER_DIR" "$PROJID" "$QUOTA_GB"; then
+    log "${GREEN}✓${NC} Quota modifié avec succès (${QUOTA_GB}GB) !"
 else
-    error "Impossible de configurer le quota"
+    error "Impossible de configurer le quota projet"
 fi

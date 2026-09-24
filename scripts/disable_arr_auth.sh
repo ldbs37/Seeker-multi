@@ -74,16 +74,19 @@ cp "$CONFIG_FILE" "${CONFIG_FILE}.bak"
 # Arrêter le conteneur pour modifier la config
 docker stop "$CONTAINER_NAME" >/dev/null 2>&1
 
-# Modifier le fichier de configuration
-# On cherche <AuthenticationMethod> et on le met à "None"
+# Modifier le fichier de configuration.
+# Depuis les *arr v4+ (Sonarr 4, Radarr 5/6, Prowlarr 2...), la valeur "None"
+# n'est plus acceptée : l'app la réinitialise au démarrage. Pour un accès
+# derrière un reverse-proxy qui gère l'authentification (Authelia/Traefik),
+# la bonne valeur est "External" (l'app délègue l'auth au proxy).
 if grep -q "<AuthenticationMethod>" "$CONFIG_FILE"; then
     # Remplacer la valeur existante
-    sed -i 's|<AuthenticationMethod>.*</AuthenticationMethod>|<AuthenticationMethod>None</AuthenticationMethod>|' "$CONFIG_FILE"
-    log "✓ AuthenticationMethod mis à 'None'"
+    sed -i 's|<AuthenticationMethod>.*</AuthenticationMethod>|<AuthenticationMethod>External</AuthenticationMethod>|' "$CONFIG_FILE"
+    log "✓ AuthenticationMethod mis à 'External' (auth déléguée au reverse-proxy)"
 else
     # Ajouter la ligne si elle n'existe pas (après la ligne Config)
-    sed -i '/<Config>/a\  <AuthenticationMethod>None</AuthenticationMethod>' "$CONFIG_FILE"
-    log "✓ AuthenticationMethod ajouté avec valeur 'None'"
+    sed -i '/<Config>/a\  <AuthenticationMethod>External</AuthenticationMethod>' "$CONFIG_FILE"
+    log "✓ AuthenticationMethod ajouté avec valeur 'External'"
 fi
 
 # Redémarrer le conteneur

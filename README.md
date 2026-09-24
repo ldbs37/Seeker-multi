@@ -51,7 +51,7 @@ Une solution **simple et efficace** de seedbox multi-utilisateurs avec authentif
 - **Authentification centralisée** - Authelia pour gestion des utilisateurs
 - **Protection fail2ban** - Contre les attaques par force brute
 - **Espaces utilisateurs isolés** - Chaque utilisateur dans son environnement
-- **Quotas par utilisateur** - Limitation de l'espace disque
+- **Quotas par utilisateur** - Limitation de l'espace disque via **quota projet** (limite le dossier de chaque utilisateur). Nécessite d'activer les quotas sur le système de fichiers : `sudo scripts/enable_quotas.sh` (voir note ci-dessous)
 - **Pare-feu UFW** - Configuré automatiquement
 
 ### 🌐 Modes d'Accès
@@ -196,12 +196,20 @@ sudo ./add_user.sh <username> <password> <email> [quota_gb] [--admin]
 
 **Exemples:**
 ```bash
-# Créer un utilisateur standard
-sudo ./add_user.sh john MySecurePass123 john@example.com 500
+# Créer un utilisateur standard (quota 500 Go)
+sudo ./add_user.sh john 'MySecurePass123' john@example.com 500
 
 # Créer un administrateur
-sudo ./add_user.sh admin AdminPass456 admin@example.com 1000 --admin
+sudo ./add_user.sh admin 'AdminPass4567' admin@example.com 1000 --admin
 ```
+
+**Règles :**
+- **Nom d'utilisateur** : minuscules et chiffres, commence par une lettre
+  (`^[a-z][a-z0-9]{0,31}$`) — il sert de sous-domaine et de nom de conteneur.
+- **Mot de passe** : 12 caractères minimum (exigence de Filebrowser, appliquée
+  partout pour un mot de passe unique sur tous les services).
+- **UID** : attribués à partir de 2001 ; chaque utilisateur reçoit un bloc de
+  20 ports à partir de 20000 (voir [Accès aux services](#-accès-aux-services)).
 
 **Services installés automatiquement :**
 - **Tous les utilisateurs** : qBittorrent + Homarr + Filebrowser
@@ -216,7 +224,47 @@ sudo ./remove_user.sh <username>
 
 # Suppression en gardant les données
 sudo ./remove_user.sh <username> --keep-data
+
+# Sans confirmation interactive (scripts)
+sudo ./remove_user.sh <username> --yes
 ```
+
+Le script retire les conteneurs **et** leurs blocs du `docker-compose.yml`, le
+compte Authelia, la règle de pare-feu du port torrent et le quota. Le dernier
+administrateur ne peut pas être supprimé.
+
+### Lister / retirer les services
+
+```bash
+sudo ./list_user_services.sh john        # état + URL de chaque service
+sudo ./add_user_service.sh john sonarr   # ajouter un service à john
+sudo ./remove_service.sh sonarr-john     # retirer un service d'un utilisateur
+sudo ./remove_service.sh portainer       # retirer un service système
+```
+
+Les données et configurations restent sur le disque après un retrait.
+
+### Quotas disque (activation préalable)
+
+Les quotas utilisent des **quotas projet** : chaque utilisateur a un dossier
+(`/opt/seedbox/data/users/<user>`) dont la taille est limitée, quel que soit le
+propriétaire des fichiers.
+
+⚠️ Les quotas Linux doivent d'abord être **activés sur le système de fichiers**
+(option de montage + `quotaon`). Ce n'est pas fait automatiquement à
+l'installation. Lancez une fois :
+
+```bash
+sudo ./enable_quotas.sh            # cible /opt/seedbox par défaut
+```
+
+- **ext4** : active la feature `project` + l'option `prjquota`.
+- **XFS** : ajoute l'option `pquota`.
+- Sur le système de fichiers **racine (`/`)**, un **redémarrage** est requis
+  pour que l'activation prenne effet.
+
+Tant que les quotas ne sont pas activés, `add_user.sh` crée les utilisateurs
+normalement mais **sans appliquer** de limite (un avertissement s'affiche).
 
 ### Modifier un quota
 
@@ -229,6 +277,61 @@ sudo ./update_quota.sh <username> <quota_gb>
 sudo ./update_quota.sh john 1000  # 1TB
 ```
 
+### Mises à jour (système / Docker / module)
+
+Les images Docker sont **épinglées** à l'installation (stabilité et
+reproductibilité, pas de rupture surprise). Pour mettre à jour **quand vous le
+décidez**, utilisez le module dédié — via le menu (**Maintenance → Mises à
+jour**) ou directement :
+
+```bash
+sudo ./update.sh              # menu interactif
+sudo ./update.sh --system     # système : apt update && upgrade
+sudo ./update.sh --docker     # re-pull des tags épinglés + redéploiement
+sudo ./update.sh --bump       # changer la version d'une image (choix + tag)
+sudo ./update.sh --seedbox    # met à jour scripts + menu depuis le dépôt git
+sudo ./update.sh --all        # système + re-pull Docker + module
+sudo ./update.sh --check      # vérification complète du système (healthcheck)
+```
+
+Après chaque mise à jour Docker, un **healthcheck complet** est lancé
+automatiquement (état de tous les conteneurs, Traefik, Authelia, réseau,
+pare-feu, espace disque, quotas). Il est aussi disponible seul :
+
+```bash
+sudo ./healthcheck.sh          # rapport complet (menu : Monitoring → Vérification complète)
+sudo ./healthcheck.sh --quiet  # n'affiche que les avertissements/erreurs
+```
+Code de sortie `0` si aucun problème critique, `1` sinon.
+
+### Sauvegarde & restauration de la configuration
+
+Sauvegarde **complète de la config** (Authelia + base utilisateurs, `.env`,
+`docker-compose.yml`, `traefik/` + certificats, configs système et
+par-utilisateur, mappings de quotas) — **hors** téléchargements, médias et
+caches. Menu : **Maintenance → Créer une sauvegarde / Restaurer**.
+
+```bash
+sudo ./backup.sh                 # sauvegarde horodatée dans /var/backups/seedbox
+sudo ./restore.sh                # liste les sauvegardes et restaure celle choisie
+sudo ./restore.sh <archive.tar.gz>
+```
+
+- **Retour en arrière** : `restore.sh` arrête la stack, restaure les fichiers,
+  redémarre et lance le healthcheck.
+- **Filet de sécurité** : avant toute restauration, un **snapshot** de la
+  config actuelle est créé (la commande pour annuler la restauration est
+  affichée à la fin).
+- **Snapshot automatique** : `update.sh` crée une sauvegarde de la config
+  **avant** chaque mise à jour Docker/module → on peut toujours revenir à
+  l'état précédent en cas de problème.
+
+- **Changer une version** (`--bump`) : liste les images, vous choisissez la
+  nouvelle version ; le `docker-compose.yml` est **sauvegardé** avant
+  modification, et **restauré automatiquement** si le déploiement échoue.
+- **Module seedbox** (`--seedbox`) : met à jour uniquement les scripts de
+  gestion et le menu (ni `docker-compose.yml`, ni `.env`, ni données touchés).
+
 ### Modifier un mot de passe
 
 ```bash
@@ -238,7 +341,7 @@ sudo ./update_password.sh <username> [nouveau_mot_de_passe]
 **Si le mot de passe n'est pas fourni, il sera demandé de manière sécurisée.**
 
 **Ce qui est mis à jour automatiquement :**
-- ✅ **Mot de passe système Linux** (SSH, console)
+- ✅ **Mot de passe du compte système** (compte de service sans accès SSH : les fichiers se gèrent via Filebrowser)
 - ✅ **Mot de passe Authelia** (authentification centralisée)
 - ✅ **Mot de passe Jellyfin** (si configuré avec clé API)
 - ✅ **Mot de passe qBittorrent** (hash PBKDF2 dans fichier config)
@@ -256,8 +359,8 @@ sudo ./update_password.sh <username> [nouveau_mot_de_passe]
 # Mode interactif (mot de passe demandé de façon sécurisée)
 sudo ./update_password.sh john
 
-# Mode direct (moins sécurisé)
-sudo ./update_password.sh john NewSecurePass789
+# Mode direct (moins sécurisé : visible dans l'historique du shell)
+sudo ./update_password.sh john 'NewSecurePass789'
 ```
 
 ## 🔧 Services Optionnels
@@ -283,15 +386,25 @@ sudo ./add_service.sh <service_name>
 | Watchtower | `sudo ./add_service.sh watchtower` | Mises à jour automatiques | - |
 | Duplicati | `sudo ./add_service.sh duplicati` | Système de backup | 8200 |
 
-### 🚀 Gestion de Services par les Utilisateurs (API)
+Les ports admin (tous sauf Plex et Jellyfin) écoutent uniquement en local :
+voir [Accès aux services](#-accès-aux-services).
 
-Les utilisateurs peuvent installer leurs propres services depuis Homarr via l'API sécurisée.
+Pour retirer un service système : `sudo ./remove_service.sh <service>`.
 
-Voir [HOMARR_INTEGRATION.md](docs/HOMARR_INTEGRATION.md) pour :
-- Configuration de l'API
-- Intégration avec Homarr
-- Interface web de gestion des services
-- Sécurité et authentification JWT
+### 🧩 API libre-service des utilisateurs (mode Traefik)
+
+Chaque utilisateur peut ajouter ou retirer lui-même ses services optionnels
+(Sonarr, Radarr, Readarr, Bazarr, Prowlarr, Overseerr, Calibre-Web) depuis
+`https://<utilisateur>.votre-domaine.com/seedbox-api/`, lien affiché sur son
+tableau de bord Homarr. Activation (désactivée par défaut) :
+
+```bash
+sudo ./setup_api.sh            # ou menu → Traefik & SSO → API libre-service
+sudo ./setup_api.sh --disable
+```
+
+Protégée par Authelia (chaque utilisateur ne gère que ses services), sans
+accès Docker : voir [HOMARR_INTEGRATION.md](docs/HOMARR_INTEGRATION.md).
 
 ## 📁 Structure des Dossiers
 
@@ -299,55 +412,87 @@ Voir [HOMARR_INTEGRATION.md](docs/HOMARR_INTEGRATION.md) pour :
 /opt/seedbox/
 ├── data/
 │   └── users/
-│       ├── user1/
-│       │   ├── downloads/
-│       │   ├── tv/
-│       │   ├── movies/
-│       │   └── books/
+│       ├── user1/            # monté sur /data (qBittorrent, *arr)
+│       │   ├── downloads/        #   téléchargements qBittorrent
+│       │   ├── tv/               #   bibliothèque Sonarr
+│       │   ├── movies/           #   bibliothèque Radarr
+│       │   ├── books/            #   Readarr / Calibre-Web
+│       │   └── config/           #   qbittorrent, homarr, filebrowser
 │       └── user2/
 │           └── ...
-├── scripts/
-│   ├── add_user.sh
-│   ├── remove_user.sh
-│   ├── update_quota.sh
-│   └── add_service.sh
+├── sonarr/<user>/ radarr/<user>/ …   # configuration des *arr
+├── scripts/                          # scripts de gestion + lib_*.sh
 ├── authelia/
+├── backups/                          # snapshots de configuration (backup.sh)
 ├── docker-compose.yml
 └── .env
 ```
+
+**Pas de doublon d'espace disque :** qBittorrent et les *arr voient le même
+dossier sous le **même** montage `/data`. Sonarr/Radarr importent donc par
+**hardlink** (un seul fichier sur le disque, visible à la fois dans
+`downloads/` pour le seed et dans `tv/`/`movies/` pour la bibliothèque).
+Dans Sonarr/Radarr, gardez *Settings → Media Management → Use Hardlinks
+instead of Copy* activé et choisissez `/data/tv` (ou `/data/movies`,
+`/data/books`) comme dossier racine. Filebrowser et Jellyfin affichent la
+taille des deux entrées, mais le quota ne compte le fichier qu'une fois.
 
 ## 🌐 Accès aux Services
 
 ### Mode Port Direct (HTTP)
 
-#### Services Système (accès administrateur)
-- **Authelia:** `http://votre-serveur:9091`
+#### Services Système
+
+Publics (serveurs média) :
 - **Plex:** `http://votre-serveur:32400/web`
 - **Jellyfin:** `http://votre-serveur:8096`
-- **Portainer:** `http://votre-serveur:9000`
-- **FlareSolverr:** `http://votre-serveur:8191`
-- **Scrutiny:** `http://votre-serveur:8080`
-- **Uptime Kuma:** `http://votre-serveur:3001`
-- **Dashdot:** `http://votre-serveur:3002`
-- **Tautulli:** `http://votre-serveur:8181`
-- **Duplicati:** `http://votre-serveur:8200`
+
+Admin — **écoute locale uniquement** (`127.0.0.1`), car ces services n'ont pas
+d'authentification propre en mode direct :
+
+| Service | Port local |
+|---------|-----------|
+| Authelia | 9091 |
+| Portainer | 9000 |
+| FlareSolverr | 8191 |
+| Scrutiny | 8080 |
+| Uptime Kuma | 3001 |
+| Dashdot | 3002 |
+| Tautulli | 8181 |
+| Duplicati | 8200 |
+
+Accès depuis votre poste via un tunnel SSH, par exemple pour Portainer :
+
+```bash
+ssh -L 9000:127.0.0.1:9000 admin@votre-serveur
+# puis ouvrez http://localhost:9000
+```
+
+(Pour les exposer malgré tout : `ADMIN_BIND=0.0.0.0` dans `/opt/seedbox/.env`
+puis `docker compose up -d` — déconseillé.)
 
 #### Services Utilisateur
 
-Chaque utilisateur obtient des ports uniques calculés automatiquement :
+Chaque utilisateur reçoit un bloc de 20 ports sans collision possible :
+`20000 + (UID − 2001) × 20 + décalage`.
 
-| Service | Formule de port | Exemple (User 1) |
-|---------|-----------------|------------------|
-| qBittorrent | 8080 + (UID-1000)*10 | 8090 |
-| Sonarr | 8989 + (UID-1000) | 8990 |
-| Radarr | 7878 + (UID-1000) | 7879 |
-| Readarr | 8787 + (UID-1000) | 8788 |
-| Bazarr | 6767 + (UID-1000) | 6768 |
-| Prowlarr | 9696 + (UID-1000) | 9697 |
-| Overseerr | 5055 + (UID-1000) | 5056 |
-| Homarr | 7575 + (UID-1000) | 7576 |
-| Calibre | 8083 + (UID-1000) | 8084 |
-| Filebrowser | 8081 + (UID-1000) | 8082 |
+| Service | Décalage | 1er utilisateur (UID 2001) | 2e utilisateur (UID 2002) |
+|---------|----------|---------------------------|---------------------------|
+| qBittorrent (WebUI) | 0 | 20000 | 20020 |
+| Homarr | 1 | 20001 | 20021 |
+| Filebrowser | 2 | 20002 | 20022 |
+| Sonarr | 3 | 20003 | 20023 |
+| Radarr | 4 | 20004 | 20024 |
+| Readarr | 5 | 20005 | 20025 |
+| Bazarr | 6 | 20006 | 20026 |
+| Prowlarr | 7 | 20007 | 20027 |
+| Overseerr | 8 | 20008 | 20028 |
+| Calibre-Web | 9 | 20009 | 20029 |
+| **Port torrent entrant** (TCP+UDP) | 10 | 20010 | 20030 |
+
+Le port torrent est publié et ouvert dans le pare-feu **dans les deux modes**
+(indispensable pour être connectable). `list_user_services.sh <user>` affiche
+les adresses exactes.
 
 ### Mode Traefik + SSL (HTTPS) 🆕
 
@@ -365,6 +510,9 @@ Avec Traefik activé, tous les services sont accessibles via HTTPS avec SSL auto
 - **Tautulli:** `https://tautulli.votre-domaine.com`
 - **Duplicati:** `https://duplicati.votre-domaine.com`
 
+Traefik, Portainer, Scrutiny, Dashdot, Tautulli, Uptime Kuma et Duplicati sont
+**réservés aux administrateurs** (groupe `admins` d'Authelia).
+
 #### Services Utilisateur (exemple pour user `john`)
 - **qBittorrent:** `https://john.votre-domaine.com/qbittorrent`
 - **Homarr:** `https://john.votre-domaine.com`
@@ -374,22 +522,22 @@ Avec Traefik activé, tous les services sont accessibles via HTTPS avec SSL auto
 - **Readarr:** `https://john.votre-domaine.com/readarr`
 - **Bazarr:** `https://john.votre-domaine.com/bazarr`
 - **Prowlarr:** `https://john.votre-domaine.com/prowlarr`
-- **Overseerr:** `https://john.votre-domaine.com/overseerr`
+- **Overseerr:** `https://overseerr-john.votre-domaine.com` (sous-domaine dédié : Overseerr ne gère pas les sous-chemins)
 - **Calibre:** `https://john.votre-domaine.com/calibre`
 
 #### 🔐 Connexion SSO (Mode Traefik)
 1. Connectez-vous sur `https://auth.votre-domaine.com`
-2. Une fois authentifié, accédez à **tous les services** sans re-login
-3. Session unique pour toute l'infrastructure
+2. Une fois authentifié, accédez à **vos services** sans re-login
+3. Chaque utilisateur n'accède qu'à `https://<son-nom>.votre-domaine.com` et
+   `https://overseerr-<son-nom>.votre-domaine.com` ; Plex et Jellyfin gardent
+   leur propre connexion (applis TV/mobiles)
 
 ## 🔧 Maintenance
 
-### Mettre à jour tous les conteneurs
-```bash
-cd /opt/seedbox
-docker-compose pull
-docker-compose up -d
-```
+### Mettre à jour
+Utilisez le module de mise à jour (snapshot + vérification automatiques) :
+voir [Mises à jour](#mises-à-jour-système--docker--module) ou
+`sudo ./menu.sh` → Maintenance.
 
 ### Vérifier les logs d'un service
 ```bash
@@ -400,8 +548,11 @@ docker logs qbittorrent-john
 
 ### Vérifier l'utilisation du quota
 ```bash
-sudo quota -v -u <username>
+# Quotas projet (un projet par dossier utilisateur)
+sudo repquota -P /opt/seedbox     # ext4
+sudo xfs_quota -x -c 'report -p -h' /opt/seedbox   # XFS
 ```
+(ou `sudo ./menu.sh` → Gestion des utilisateurs → quotas)
 
 ### Redémarrer un service
 ```bash
@@ -433,17 +584,17 @@ docker restart <service-username>
 │                                 │
 │  ┌─────────────┐  ┌──────────┐ │
 │  │  Authelia   │  │  Plex    │ │
-│  │  Port 9091  │  │  32400   │ │
+│  │  127.0.0.1  │  │  32400   │ │
 │  └─────────────┘  └──────────┘ │
 │                                 │
 │  ┌─────────────────────────────┐│
 │  │   Services User 1           ││
-│  │   Ports: 8090, 8990...      ││
+│  │   Ports: 20000-20019        ││
 │  └─────────────────────────────┘│
 │                                 │
 │  ┌─────────────────────────────┐│
 │  │   Services User 2           ││
-│  │   Ports: 8100, 8991...      ││
+│  │   Ports: 20020-20039        ││
 │  └─────────────────────────────┘│
 └─────────────────────────────────┘
 ```
@@ -534,7 +685,9 @@ sudo ./setup_traefik.sh votre-domaine.com votre@email.com
 - Configurez d'abord le DNS wildcard `*.votre-domaine.com` → IP serveur
 - Ouvrez les ports 80/443 dans le firewall
 - Les **nouveaux utilisateurs** créés après installation Traefik auront automatiquement les labels
-- Les **utilisateurs existants** nécessitent une régénération des labels :
+- Les **services existants** doivent ensuite être migrés (reconstruction du
+  `docker-compose.yml` en mode Traefik, snapshot préalable, retour arrière
+  automatique en cas d'échec) :
   ```bash
   sudo ./scripts/generate_traefik_labels.sh
   ```

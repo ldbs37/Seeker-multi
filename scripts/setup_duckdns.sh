@@ -39,7 +39,7 @@ fi
 get_server_ip() {
     log "Détection de l'IP publique du serveur..."
 
-    SERVER_IP=$(curl -s ifconfig.me || curl -s icanhazip.com || curl -s ipecho.net/plain)
+    SERVER_IP=$(curl -4 -fs ifconfig.me || curl -4 -fs icanhazip.com || curl -4 -fs ipecho.net/plain)
 
     if [ -z "$SERVER_IP" ]; then
         error "Impossible de détecter l'IP publique du serveur"
@@ -64,7 +64,7 @@ prompt_duckdns_info() {
     echo "  3. Copiez votre token en haut de la page"
     echo ""
 
-    read -p "Votre token DuckDNS: " DUCKDNS_TOKEN
+    read -r -p "Votre token DuckDNS: " DUCKDNS_TOKEN
 
     if [ -z "$DUCKDNS_TOKEN" ]; then
         error "Le token DuckDNS est requis"
@@ -75,7 +75,7 @@ prompt_duckdns_info() {
     info "Votre domaine complet sera: <subdomain>.duckdns.org"
     echo ""
 
-    read -p "Nom du sous-domaine: " DUCKDNS_SUBDOMAIN
+    read -r -p "Nom du sous-domaine: " DUCKDNS_SUBDOMAIN
 
     if [ -z "$DUCKDNS_SUBDOMAIN" ]; then
         error "Le nom de sous-domaine est requis"
@@ -98,7 +98,8 @@ update_duckdns_ip() {
         log "Mise à jour de l'IP sur DuckDNS..."
     fi
 
-    local response=$(curl -s "https://www.duckdns.org/update?domains=$DUCKDNS_SUBDOMAIN&token=$DUCKDNS_TOKEN&ip=$SERVER_IP")
+    local response
+    response=$(curl -s "https://www.duckdns.org/update?domains=$DUCKDNS_SUBDOMAIN&token=$DUCKDNS_TOKEN&ip=$SERVER_IP")
 
     if [ "$response" = "OK" ]; then
         if [ "$show_output" = "true" ]; then
@@ -131,7 +132,7 @@ create_update_script() {
 
 DUCKDNS_TOKEN="DUCKDNS_TOKEN_PLACEHOLDER"
 DUCKDNS_SUBDOMAIN="DUCKDNS_SUBDOMAIN_PLACEHOLDER"
-SERVER_IP=$(curl -s ifconfig.me || curl -s icanhazip.com || curl -s ipecho.net/plain)
+SERVER_IP=$(curl -4 -fs ifconfig.me || curl -4 -fs icanhazip.com || curl -4 -fs ipecho.net/plain)
 
 curl -s "https://www.duckdns.org/update?domains=$DUCKDNS_SUBDOMAIN&token=$DUCKDNS_TOKEN&ip=$SERVER_IP" > /dev/null
 EOF
@@ -140,7 +141,7 @@ EOF
     sed -i "s/DUCKDNS_TOKEN_PLACEHOLDER/$DUCKDNS_TOKEN/" "$update_script"
     sed -i "s/DUCKDNS_SUBDOMAIN_PLACEHOLDER/$DUCKDNS_SUBDOMAIN/" "$update_script"
 
-    chmod +x "$update_script"
+    chmod 700 "$update_script"   # contient le jeton DuckDNS : lisible par root uniquement
 
     success "Script de mise à jour créé: $update_script"
 }
@@ -235,7 +236,7 @@ sleep 30
 
 echo ""
 
-if ./scripts/check_dns.sh "$DUCKDNS_DOMAIN" 2>/dev/null; then
+if "$(dirname "$0")/check_dns.sh" "$DUCKDNS_DOMAIN" 2>/dev/null; then
     echo ""
     success "Configuration DuckDNS terminée avec succès !"
     echo ""
@@ -259,6 +260,6 @@ else
     info "Actions à faire:"
     echo "  1. Attendez 5-10 minutes pour la propagation DNS"
     echo "  2. Testez manuellement: ping $DUCKDNS_DOMAIN"
-    echo "  3. Vérifiez avec: ./scripts/check_dns.sh $DUCKDNS_DOMAIN"
+    echo "  3. Vérifiez avec: $(dirname "$0")/check_dns.sh $DUCKDNS_DOMAIN"
     echo "  4. Si OK, installez Traefik: sudo ./scripts/setup_traefik.sh $DUCKDNS_DOMAIN"
 fi
