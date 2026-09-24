@@ -260,10 +260,13 @@ l'installation. Lancez une fois :
 sudo ./enable_quotas.sh            # cible /opt/seedbox par défaut
 ```
 
-- **ext4** : active la feature `project` + l'option `prjquota`.
-- **XFS** : ajoute l'option `pquota`.
-- Sur le système de fichiers **racine (`/`)**, un **redémarrage** est requis
-  pour que l'activation prenne effet.
+- **ext4** : fonctionnalités `project` + `quota` et option `prjquota`. Ces
+  fonctionnalités ne s'activent que **disque démonté** : sur la partition
+  **racine**, le script affiche la commande à lancer en **mode rescue**
+  (`e2fsck -f /dev/sdXN && tune2fs -O project,quota -Q prjquota /dev/sdXN`)
+  sans rien modifier ; relancez-le ensuite, les quotas s'activent sans autre
+  redémarrage.
+- **XFS** : option `pquota` (sur la racine : `rootflags=pquota` dans GRUB).
 
 Tant que les quotas ne sont pas activés, `add_user.sh` crée les utilisateurs
 normalement mais **sans appliquer** de limite (un avertissement s'affiche).
