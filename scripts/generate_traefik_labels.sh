@@ -84,6 +84,8 @@ cp "$DOCKER_COMPOSE_FILE" "${DOCKER_COMPOSE_FILE}.pre-migration"
 cp "$ENV_FILE" "${ENV_FILE}.pre-migration"
 AUTHELIA_CFG="$INSTALL_DIR/authelia/configuration.yml"
 [ -f "$AUTHELIA_CFG" ] && cp -p "$AUTHELIA_CFG" "${AUTHELIA_CFG}.pre-migration"
+AUTHELIA_DB="$INSTALL_DIR/authelia/users_database.yml"
+[ -f "$AUTHELIA_DB" ] && cp -p "$AUTHELIA_DB" "${AUTHELIA_DB}.pre-migration"
 
 #######################
 # Construction du nouveau compose
@@ -93,6 +95,8 @@ generate_docker_compose "$TMP"           # services système + .env (USE_TRAEFIK
 # Homarr partagé : secrets (.env, avant la validation) et client OIDC Authelia
 AUTHELIA_CHANGED=false
 if homarr_prepare; then AUTHELIA_CHANGED=true; fi
+# Groupes personnels u-<user> (droits sur les tableaux de bord Homarr)
+authelia_ensure_user_groups "$INSTALL_DIR/authelia/users_database.yml" && AUTHELIA_CHANGED=true
 compose_extract_blocks "${DOCKER_COMPOSE_FILE}.pre-migration" traefik >> "$TMP"
 # shellcheck disable=SC2034  # lue par les bibliothèques sourcées
 FB_PASSWORD_HASH=""
@@ -107,6 +111,7 @@ if ! compose_validate "$TMP"; then
     rm -f "$TMP"
     cp "${ENV_FILE}.pre-migration" "$ENV_FILE"
     [ -f "${AUTHELIA_CFG}.pre-migration" ] && cp -p "${AUTHELIA_CFG}.pre-migration" "$AUTHELIA_CFG"
+    [ -f "${AUTHELIA_DB}.pre-migration" ] && cp -p "${AUTHELIA_DB}.pre-migration" "$AUTHELIA_DB"
     error "Le compose généré est invalide — aucune modification appliquée"
 fi
 
@@ -148,6 +153,7 @@ if ! compose_cmd up -d --remove-orphans; then
     cp "${DOCKER_COMPOSE_FILE}.pre-migration" "$DOCKER_COMPOSE_FILE"
     cp "${ENV_FILE}.pre-migration" "$ENV_FILE"
     [ -f "${AUTHELIA_CFG}.pre-migration" ] && cp -p "${AUTHELIA_CFG}.pre-migration" "$AUTHELIA_CFG"
+    [ -f "${AUTHELIA_DB}.pre-migration" ] && cp -p "${AUTHELIA_DB}.pre-migration" "$AUTHELIA_DB"
     compose_cmd up -d --remove-orphans || true
     error "Migration annulée (configuration restaurée)"
 fi

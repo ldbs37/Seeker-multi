@@ -83,6 +83,31 @@ EOF
     return 0
 }
 
+# Groupe personnel « u-<user> » de chaque compte seedbox dans la base Authelia
+# (transmis à Homarr à la connexion : droits sur son tableau de bord).
+# $1 = users_database.yml. Retour 0 si le fichier a été modifié.
+authelia_ensure_user_groups() {
+    local db="$1" tmp
+    [ -f "$db" ] || return 1
+    tmp="$db.tmp"
+    awk '
+        # Bloc utilisateur : "  nom:" ; ajoute "      - u-nom" sous "    groups:"
+        /^  [a-z][a-z0-9]*:[[:space:]]*$/ { user = $1; sub(/:$/, "", user); has = 0 }
+        /^    groups:/                     { ingroups = 1; print; next }
+        ingroups && /^      - /            { if ($2 == "u-" user) has = 1; print; next }
+        ingroups                           { if (!has && user != "") print "      - u-" user; ingroups = 0; changed = 1 }
+        { print }
+        END {
+            if (ingroups && !has && user != "") { print "      - u-" user; changed = 1 }
+            exit !changed
+        }
+    ' "$db" > "$tmp" || { rm -f "$tmp"; return 1; }
+    if ! cmp -s "$db" "$tmp"; then
+        cat "$tmp" > "$db"; rm -f "$tmp"; return 0
+    fi
+    rm -f "$tmp"; return 1
+}
+
 # Prépare Homarr partagé (secrets + OIDC Authelia). À appeler en mode Traefik,
 # après la génération du .env et de la configuration Authelia.
 # Retour 0 si la configuration Authelia a changé (redémarrage nécessaire).

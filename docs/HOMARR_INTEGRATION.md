@@ -37,12 +37,17 @@ sur Authelia, Homarr ne redemande rien.
    (enregistre le jeton dans `.env` et prépare tous les utilisateurs).
 
 Ensuite, c'est automatique : ajout d'un utilisateur ou d'un service → tuile
-ajoutée ; suppression d'un utilisateur → tableau de bord et applis retirés.
-Idempotent (relançable sans doublon, personnalisations conservées). Les
-tableaux de bord sont visibles des utilisateurs connectés (l'API de Homarr
-ne permet pas de droits par utilisateur), mais chaque lien reste réservé à
-son propriétaire par Authelia. Retirer un service laisse sa tuile (à
-supprimer à la main).
+ajoutée ; suppression d'un utilisateur → tableau de bord, applis et groupe
+retirés. Idempotent (relançable sans doublon, personnalisations conservées).
+Retirer un service laisse sa tuile (à supprimer à la main).
+
+**Cloisonnement** : chaque tableau de bord est **privé**, réservé au groupe
+personnel `u-<user>`. Ce groupe est ajouté au compte Authelia (add_user.sh ;
+migration pour les comptes existants), transmis à Homarr à chaque connexion
+(OIDC, groupes synchronisés par nom), et reçoit le droit de **modifier** son
+tableau de bord, qui devient aussi sa page d'accueil. Les administrateurs
+(groupe `admins`) voient tout. Un utilisateur connecté avant la création de
+son groupe doit se reconnecter une fois.
 
 ### Mode port direct : Homarr 0.16 par utilisateur
 

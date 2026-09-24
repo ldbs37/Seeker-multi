@@ -231,6 +231,8 @@ log "Ajout de l'utilisateur à Authelia..."
     echo "    email: \"${EMAIL}\""
     echo "    groups:"
     echo "      - users"
+    # Groupe personnel : droits sur son tableau de bord Homarr (homarr_provision.sh)
+    echo "      - u-${USERNAME}"
     [ "$IS_ADMIN" = true ] && echo "      - admins"
 } >> "$AUTHELIA_CONFIG_DIR/users_database.yml"
 
