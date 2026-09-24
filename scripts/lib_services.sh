@@ -137,6 +137,17 @@ service_block() {
             echo "      - \"${tport}:${tport}/udp\""
         fi
     fi
+    if [ "$svc" = homarr ]; then
+        # Le HEALTHCHECK de l'image teste localhost, mais Next.js n'écoute que
+        # sur l'IP du conteneur ($HOSTNAME) : conteneur « unhealthy » à tort,
+        # donc ignoré par Traefik (404). Test sur le nom du conteneur.
+        echo "    healthcheck:"
+        echo "      test: [\"CMD-SHELL\", \"wget -q --spider http://\$\$(hostname):7575 || exit 1\"]"
+        echo "      interval: 30s"
+        echo "      timeout: 5s"
+        echo "      retries: 3"
+        echo "      start_period: 30s"
+    fi
     [ "$USE_TRAEFIK" = true ] && traefik_user_labels "$svc" "$USERNAME"
     echo "    restart: unless-stopped"
 }
