@@ -404,6 +404,11 @@ ${admin_domains}
 ${admin_domains}
       policy: deny
 
+    # Racine du domaine : redirection vers le tableau de bord de l'utilisateur
+    # connecté (conteneur "home") ; tout utilisateur authentifié
+    - domain: '${DOMAIN}'
+      policy: one_factor
+
     # Espaces utilisateurs ISOLÉS : chaque utilisateur n'accède qu'à SES
     # sous-domaines. Le groupe nommé (?P<User>…) doit correspondre au nom de
     # l'utilisateur connecté, sinon la règle ne s'applique pas (→ deny).
@@ -423,6 +428,9 @@ session:
   cookies:
     - domain: '${DOMAIN}'
       authelia_url: 'https://auth.${DOMAIN}'
+      # Après une connexion directe sur auth.<domaine> : accueil, qui renvoie
+      # chacun vers son tableau de bord
+      default_redirection_url: 'https://${DOMAIN}'
 
 storage:
   encryption_key: '${encryption_key}'

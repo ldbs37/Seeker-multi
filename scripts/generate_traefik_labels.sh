@@ -146,6 +146,13 @@ for u in "${!DONE_USERS[@]}"; do
     "$SCRIPT_DIR/configure_homarr.sh" "$u" >/dev/null 2>&1 || warn "Homarr de $u non régénéré"
 done
 
+# Accueil https://<domaine> → tableau de bord (configurations Authelia antérieures)
+if authelia_ensure_home "$INSTALL_DIR/authelia/configuration.yml" "$DOMAIN"; then
+    docker restart authelia >/dev/null 2>&1 \
+        && log "✓ Authelia : redirection vers le tableau de bord après connexion" \
+        || warn "Redémarrez Authelia : docker restart authelia"
+fi
+
 log "${GREEN}✓${NC} Migration terminée"
 info "Portail SSO : https://auth.$DOMAIN"
 for u in "${!DONE_USERS[@]}"; do info "   $u : https://$u.$DOMAIN"; done
