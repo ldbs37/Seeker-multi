@@ -74,6 +74,9 @@ fi
 
 USER_ID=$(id -u "$USERNAME")
 
+# Homarr partagé : tableau de bord et applis de l'utilisateur
+[ -x "$SCRIPT_DIR/homarr_provision.sh" ] && { "$SCRIPT_DIR/homarr_provision.sh" --remove "$USERNAME" >/dev/null 2>&1 || true; }
+
 # 1) Arrêt et suppression des conteneurs de l'utilisateur
 log "Arrêt des services..."
 for s in $USER_SERVICES; do

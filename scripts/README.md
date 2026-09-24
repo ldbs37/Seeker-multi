@@ -90,6 +90,14 @@ sudo ./add_service.sh <plex|jellyfin|portainer|scrutiny|uptime-kuma|dashdot|taut
 Reconstruit la partie système du `docker-compose.yml` (validation avant
 application). Portainer et Jellyfin : compte admin créé automatiquement.
 
+### `homarr_provision.sh` (mode Traefik)
+```bash
+sudo ./homarr_provision.sh --set-key '<jeton>'   # une fois (jeton créé dans Homarr)
+sudo ./homarr_provision.sh <user> | --all | --remove <user>
+```
+Tableau de bord Homarr partagé de chaque utilisateur (`https://<domaine>/boards/<user>`),
+une tuile par service ; appelé automatiquement par add_user/add_user_service/remove_user.
+
 ### `setup_api.sh` (mode Traefik)
 ```bash
 sudo ./setup_api.sh [--refresh|--disable]

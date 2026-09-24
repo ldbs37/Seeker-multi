@@ -267,6 +267,9 @@ compose_cmd up -d
 # Authelia relit sa base utilisateurs au redémarrage
 docker restart authelia >/dev/null 2>&1 || warn "Redémarrez Authelia pour activer le compte : docker restart authelia"
 
+# Homarr partagé (mode Traefik) : tableau de bord de l'utilisateur
+[ "$USE_TRAEFIK" = true ] && { "$SCRIPT_DIR/homarr_provision.sh" "$USERNAME" || true; }
+
 #######################
 # Résumé
 #######################

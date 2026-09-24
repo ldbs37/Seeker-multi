@@ -28,10 +28,9 @@ ne s'activent que **disque démonté** → passage par le **mode rescue**.
 `enable_quotas.sh` revérifie tout avant d'agir : si l'étape rescue n'a pas été
 faite, il réaffiche la procédure sans modifier `/etc/fstab`.
 
-## 2. Homarr 1.0 : tableaux de bord automatiques par utilisateur
+## 2. Homarr 1.0 : intégrations (widgets)
 
-Homarr partagé (https://ldbs.ovh) + connexion unique Authelia en place. Reste
-à créer automatiquement le tableau de bord de chaque utilisateur (tuiles de
-ses services) via l'API REST de Homarr (`POST /api/apps`, `/api/boards`,
-`/api/boards/items`) : nécessite une clé d'API créée une fois par l'admin
-(Homarr → Gestion → Clés d'API), format des appels à valider sur l'instance.
+Les tuiles sont créées automatiquement (`homarr_provision.sh`). Reste possible :
+brancher les intégrations (qBittorrent, Sonarr, Radarr… : téléchargements en
+cours, calendrier) avec les adresses internes (`http://sonarr-<user>:8989/sonarr`…)
+et les clés d'API des *arr (lisibles dans leur config.xml).

@@ -23,6 +23,27 @@ sur Authelia, Homarr ne redemande rien.
 - Les anciens Homarr individuels sont retirés par la migration (leurs fichiers
   restent dans `data/users/<user>/config/homarr`).
 
+#### Tableaux de bord préconfigurés
+
+`scripts/homarr_provision.sh` crée pour chaque utilisateur un tableau de bord
+**`https://votre-domaine.com/boards/<user>`** — où renvoie
+`https://<user>.votre-domaine.com/` — avec une tuile par service installé
+(qBittorrent, Fichiers, Sonarr, Radarr, Seerr…). Il passe par l'API de Homarr :
+
+1. Une fois, l'admin crée un jeton : `https://votre-domaine.com/manage/tools/api`
+   → onglet **Authentification** → **Créer un jeton API** (le copier : il
+   n'est affiché qu'une fois).
+2. `sudo /opt/seedbox/scripts/homarr_provision.sh --set-key '<jeton>'`
+   (enregistre le jeton dans `.env` et prépare tous les utilisateurs).
+
+Ensuite, c'est automatique : ajout d'un utilisateur ou d'un service → tuile
+ajoutée ; suppression d'un utilisateur → tableau de bord et applis retirés.
+Idempotent (relançable sans doublon, personnalisations conservées). Les
+tableaux de bord sont visibles des utilisateurs connectés (l'API de Homarr
+ne permet pas de droits par utilisateur), mais chaque lien reste réservé à
+son propriétaire par Authelia. Retirer un service laisse sa tuile (à
+supprimer à la main).
+
 ### Mode port direct : Homarr 0.16 par utilisateur
 
 Sans Authelia devant les services, pas de connexion unique possible : chaque

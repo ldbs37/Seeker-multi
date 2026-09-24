@@ -94,9 +94,10 @@ EOF
 
 # Homarr 1.x partagé (mode Traefik) sur https://<domaine>, connexion unique
 # via Authelia (OIDC, voir lib_homarr.sh). Authelia y redirige après une
-# connexion directe (default_redirection_url) ; https://<user>.<domaine>/ y
-# renvoie aussi (routeur de priorité minimale : les autres routeurs du même
-# hôte — /qbittorrent, /files… — et les sous-domaines nommés restent prioritaires).
+# connexion directe (default_redirection_url) ; https://<user>.<domaine>/
+# renvoie au tableau de bord de l'utilisateur (routeur de priorité minimale :
+# les autres routeurs du même hôte — /qbittorrent, /files… — et les
+# sous-domaines nommés restent prioritaires).
 _block_homarr() {
     [ "$USE_TRAEFIK" = "true" ] || return 0
     local re
@@ -139,8 +140,10 @@ EOF
     echo "      - \"traefik.http.routers.user-root.tls=true\""
     echo "      - \"traefik.http.routers.user-root.service=homarr\""
     echo "      - \"traefik.http.routers.user-root.middlewares=user-root-redirect\""
-    echo "      - \"traefik.http.middlewares.user-root-redirect.redirectregex.regex=.*\""
-    echo "      - \"traefik.http.middlewares.user-root-redirect.redirectregex.replacement=https://${DOMAIN}/\""
+    # https://<user>.<domaine>/ → https://<domaine>/boards/<user> (tableau de
+    # bord créé par homarr_provision.sh) ; "$$" : docker-compose
+    echo "      - \"traefik.http.middlewares.user-root-redirect.redirectregex.regex=^https?://([a-z][a-z0-9]{0,31})\\\\.[^/]+/?\$\$\""
+    echo "      - \"traefik.http.middlewares.user-root-redirect.redirectregex.replacement=https://${DOMAIN}/boards/\$\${1}\""
     echo "    restart: unless-stopped"
 }
 

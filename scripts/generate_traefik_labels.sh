@@ -171,4 +171,7 @@ info "Portail SSO : https://auth.$DOMAIN"
 for u in "${!DONE_USERS[@]}"; do info "   $u : https://$u.$DOMAIN"; done
 info "Les certificats Let's Encrypt sont obtenus au premier accès (DNS *.${DOMAIN} requis)."
 
+# Homarr partagé : tableaux de bord des utilisateurs (si la clé d'API est définie)
+[ -x "$SCRIPT_DIR/homarr_provision.sh" ] && { "$SCRIPT_DIR/homarr_provision.sh" --all || true; }
+
 [ -x "$SCRIPT_DIR/healthcheck.sh" ] && { echo ""; "$SCRIPT_DIR/healthcheck.sh" --quiet || true; }
