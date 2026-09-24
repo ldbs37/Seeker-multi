@@ -48,6 +48,8 @@ fi
 source "$SOURCE_DIR/scripts/lib_compose_base.sh"
 # shellcheck source=scripts/lib_autoconfig.sh
 source "$SOURCE_DIR/scripts/lib_autoconfig.sh"
+# shellcheck source=scripts/lib_password.sh
+source "$SOURCE_DIR/scripts/lib_password.sh"
 
 # Tableau pour stocker les utilisateurs
 declare -a INITIAL_USERS INITIAL_PASSWORDS INITIAL_EMAILS INITIAL_QUOTAS
@@ -91,14 +93,6 @@ validate_username() {
     local username=$1
     if [[ ! "$username" =~ ^[a-z][a-z0-9]{0,31}$ ]]; then
         error "Nom d'utilisateur invalide: $username (lettres minuscules et chiffres uniquement, commence par une lettre, 32 max)"
-    fi
-}
-
-# Validation de mot de passe
-validate_password() {
-    local password=$1
-    if [ ${#password} -lt 12 ]; then
-        error "Le mot de passe doit contenir au moins 12 caractères"
     fi
 }
 
@@ -782,10 +776,14 @@ configure_installation() {
             break
         done
 
+        # Le premier utilisateur est administrateur : règle renforcée
+        local is_admin=false reason
+        [ ${#INITIAL_USERS[@]} -eq 0 ] && is_admin=true
+        info "Mot de passe : $(password_policy "$is_admin")"
         while true; do
-            read -r -s -p "Mot de passe (min 12 caractères): " password
+            read -r -s -p "Mot de passe: " password
             echo
-            if [ ${#password} -ge 12 ]; then
+            if reason=$(password_check "$password" "$is_admin"); then
                 read -r -s -p "Confirmez: " password_confirm
                 echo
                 if [ "$password" = "$password_confirm" ]; then
@@ -793,7 +791,7 @@ configure_installation() {
                 fi
                 warn "Les mots de passe ne correspondent pas"
             else
-                warn "Mot de passe trop court"
+                warn "Mot de passe refusé : $reason"
             fi
         done
 

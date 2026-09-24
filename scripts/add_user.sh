@@ -38,7 +38,7 @@ AUTHELIA_IMAGE="authelia/authelia:4.39.28"
 IS_ADMIN=false
 
 # Bibliothèques partagées
-for lib in lib_ports lib_traefik lib_qbittorrent lib_services lib_quota; do
+for lib in lib_ports lib_traefik lib_qbittorrent lib_services lib_quota lib_password; do
     [ -f "$SCRIPT_DIR/$lib.sh" ] || error "$lib.sh introuvable dans $SCRIPT_DIR"
     # shellcheck source=/dev/null
     source "$SCRIPT_DIR/$lib.sh"
@@ -87,7 +87,8 @@ fi
 log "Validation des données..."
 [[ "$USERNAME" =~ ^[a-z][a-z0-9]{0,31}$ ]] \
     || error "Nom d'utilisateur invalide: $USERNAME (lettres minuscules et chiffres uniquement, commence par une lettre, 32 max)"
-[ ${#PASSWORD} -ge 12 ] || error "Le mot de passe doit contenir au moins 12 caractères"
+PW_REASON=$(password_check "$PASSWORD" "$IS_ADMIN") \
+    || error "Mot de passe refusé : $PW_REASON ($(password_policy "$IS_ADMIN"))"
 [[ "$EMAIL" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]] || error "Format d'email invalide: $EMAIL"
 
 if id "$USERNAME" &>/dev/null || getent group "$USERNAME" >/dev/null; then

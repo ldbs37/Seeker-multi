@@ -197,17 +197,19 @@ sudo ./add_user.sh <username> <password> <email> [quota_gb] [--admin]
 **Exemples:**
 ```bash
 # Créer un utilisateur standard (quota 500 Go)
-sudo ./add_user.sh john 'MySecurePass123' john@example.com 500
+sudo ./add_user.sh john 'Seedbox!2026x' john@example.com 500
 
 # Créer un administrateur
-sudo ./add_user.sh admin 'AdminPass4567' admin@example.com 1000 --admin
+sudo ./add_user.sh admin 'Admin!Seedbox42' admin@example.com 1000 --admin
 ```
 
 **Règles :**
 - **Nom d'utilisateur** : minuscules et chiffres, commence par une lettre
   (`^[a-z][a-z0-9]{0,31}$`) — il sert de sous-domaine et de nom de conteneur.
-- **Mot de passe** : 12 caractères minimum (exigence de Filebrowser, appliquée
-  partout pour un mot de passe unique sur tous les services).
+- **Mot de passe** : 12 caractères minimum, dont 1 majuscule et 1 caractère
+  spécial ; le même mot de passe sert à tous les
+  services (Linux, Authelia, qBittorrent, Filebrowser, Jellyfin). Le compte
+  admin de Portainer, distinct, demande aussi 12 caractères minimum.
 - **UID** : attribués à partir de 2001 ; chaque utilisateur reçoit un bloc de
   20 ports à partir de 20000 (voir [Accès aux services](#-accès-aux-services)).
 
