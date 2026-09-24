@@ -90,6 +90,11 @@ service_block() {
     echo "      - PGID=${USER_ID}"
     echo "      - TZ=${TZ}"
     case "$svc" in
+        homarr)
+            # Pas de fenêtre « migrez vers Homarr 1.0 » (réécriture complète,
+            # migration manuelle ; la 0.16 reste pleinement fonctionnelle)
+            echo "      - DISABLE_UPGRADE_MODAL=true"
+            ;;
         qbittorrent)
             # WebUI : port interne = port publié en mode direct
             if [ "$USE_TRAEFIK" = true ]; then echo "      - WEBUI_PORT=8080"

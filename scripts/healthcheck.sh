@@ -27,7 +27,7 @@ PASS=0; WARN=0; FAIL=0
 ok()   { PASS=$((PASS+1)); $QUIET || echo -e "  ${GREEN}[OK]${NC}   $1"; }
 wn()   { WARN=$((WARN+1)); echo -e "  ${YELLOW}[WARN]${NC} $1"; }
 ko()   { FAIL=$((FAIL+1)); echo -e "  ${RED}[FAIL]${NC} $1"; }
-head() { $QUIET || echo -e "\n${BLUE}== $1 ==${NC}"; }
+section() { $QUIET || echo -e "\n${BLUE}== $1 ==${NC}"; }
 
 compose() {
     if command -v docker-compose >/dev/null 2>&1; then docker-compose "$@"
@@ -37,7 +37,7 @@ compose() {
 #######################
 # 1) Docker
 #######################
-head "Docker"
+section "Docker"
 if command -v docker >/dev/null 2>&1; then
     if docker info >/dev/null 2>&1; then ok "Daemon Docker actif"
     else ko "Daemon Docker injoignable (droits ? service arrêté ?)"; fi
@@ -48,7 +48,7 @@ fi
 #######################
 # 2) Validité du docker-compose
 #######################
-head "Configuration Docker Compose"
+section "Configuration Docker Compose"
 if [ -f "$COMPOSE" ]; then
     if ( cd "$INSTALL_DIR" && compose config -q >/dev/null 2>&1 ); then
         ok "docker-compose.yml valide"
@@ -62,7 +62,7 @@ fi
 #######################
 # 3) État des conteneurs
 #######################
-head "Conteneurs"
+section "Conteneurs"
 if [ -f "$COMPOSE" ] && docker info >/dev/null 2>&1; then
     mapfile -t SERVICES < <(cd "$INSTALL_DIR" && compose config --services 2>/dev/null | sort)
     if [ "${#SERVICES[@]}" -eq 0 ]; then
@@ -103,7 +103,7 @@ fi
 #######################
 # 4) Mode Traefik (si activé)
 #######################
-head "Traefik / réseau"
+section "Traefik / réseau"
 USE_TRAEFIK=false
 [ -f "$ENV_FILE" ] && grep -q '^USE_TRAEFIK=true' "$ENV_FILE" && USE_TRAEFIK=true
 if [ "$USE_TRAEFIK" = true ]; then
@@ -124,7 +124,7 @@ fi
 #######################
 # 5) Authelia
 #######################
-head "Authelia (SSO)"
+section "Authelia (SSO)"
 if docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^authelia$'; then
     ok "Conteneur Authelia en cours"
     if curl -fs -m 5 http://localhost:9091/api/health >/dev/null 2>&1 \
@@ -145,7 +145,7 @@ fi
 #######################
 # 6) Sécurité (UFW / fail2ban)
 #######################
-head "Sécurité"
+section "Sécurité"
 if command -v ufw >/dev/null 2>&1; then
     ufw status 2>/dev/null | grep -qi "Status: active" && ok "Pare-feu UFW actif" || wn "UFW installé mais inactif"
 else
@@ -161,7 +161,7 @@ fi
 #######################
 # 7) Espace disque
 #######################
-head "Espace disque"
+section "Espace disque"
 avail_gb=$(df -BG --output=avail "$INSTALL_DIR" 2>/dev/null | tail -1 | tr -dc '0-9')
 use_pct=$(df --output=pcent "$INSTALL_DIR" 2>/dev/null | tail -1 | tr -dc '0-9')
 if [ -n "${avail_gb:-}" ]; then
@@ -175,7 +175,7 @@ fi
 #######################
 # 8) Quotas (informatif)
 #######################
-head "Quotas"
+section "Quotas"
 QUOTA_LIB="$(dirname "$0")/lib_quota.sh"
 if [ -f "$QUOTA_LIB" ]; then
     # shellcheck source=/dev/null
