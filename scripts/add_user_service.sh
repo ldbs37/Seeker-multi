@@ -81,6 +81,9 @@ case "$SERVICE" in
         # Services de base créés par add_user.sh avec les identifiants de
         # l'utilisateur (ici, le mot de passe n'est pas connu).
         error "$SERVICE est un service de base, installé par add_user.sh" ;;
+    homarr)
+        [ "$USE_TRAEFIK" = true ] \
+            && error "Mode Traefik : le tableau de bord est le Homarr partagé (https://$DOMAIN)" ;;
 esac
 
 log "Ajout du service $SERVICE pour l'utilisateur $USERNAME..."

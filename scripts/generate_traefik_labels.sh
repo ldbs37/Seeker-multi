@@ -28,7 +28,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DOCKER_COMPOSE_FILE="$INSTALL_DIR/docker-compose.yml"
 ENV_FILE="$INSTALL_DIR/.env"
 
-for lib in lib_ports lib_traefik lib_qbittorrent lib_services lib_compose_base; do
+for lib in lib_ports lib_traefik lib_qbittorrent lib_services lib_compose_base lib_homarr; do
     [ -f "$SCRIPT_DIR/$lib.sh" ] || error "$lib.sh introuvable dans $SCRIPT_DIR"
     # shellcheck source=/dev/null
     source "$SCRIPT_DIR/$lib.sh"
@@ -54,11 +54,14 @@ log "Migration vers Traefik pour le domaine $DOMAIN..."
 #######################
 mapfile -t NAMES < <(compose_service_names "$DOCKER_COMPOSE_FILE")
 detect_system_services "$DOCKER_COMPOSE_FILE"
-USER_ENTRIES=(); CUSTOM=()
+USER_ENTRIES=(); CUSTOM=(); DROPPED=()
 for n in "${NAMES[@]}"; do
     [[ " $SYSTEM_SERVICES traefik " == *" $n "* ]] && continue
     svc=${n%-*}; usr=${n##*-}
     if [[ "$n" == *-* ]] && [[ " $USER_SERVICES " == *" $svc "* ]] && id "$usr" &>/dev/null; then
+        # Mode Traefik : Homarr partagé ; les Homarr individuels sont retirés
+        # (leurs fichiers restent dans data/users/<user>/config/homarr)
+        [ "$svc" = homarr ] && { DROPPED+=("$n"); continue; }
         USER_ENTRIES+=("$svc:$usr")
     else
         CUSTOM+=("$n")
@@ -79,12 +82,17 @@ fi
     && log "✓ Snapshot de configuration créé (restore.sh pour revenir en arrière)"
 cp "$DOCKER_COMPOSE_FILE" "${DOCKER_COMPOSE_FILE}.pre-migration"
 cp "$ENV_FILE" "${ENV_FILE}.pre-migration"
+AUTHELIA_CFG="$INSTALL_DIR/authelia/configuration.yml"
+[ -f "$AUTHELIA_CFG" ] && cp -p "$AUTHELIA_CFG" "${AUTHELIA_CFG}.pre-migration"
 
 #######################
 # Construction du nouveau compose
 #######################
 TMP="${DOCKER_COMPOSE_FILE%.yml}.new.yml"
 generate_docker_compose "$TMP"           # services système + .env (USE_TRAEFIK=true)
+# Homarr partagé : secrets (.env, avant la validation) et client OIDC Authelia
+AUTHELIA_CHANGED=false
+if homarr_prepare; then AUTHELIA_CHANGED=true; fi
 compose_extract_blocks "${DOCKER_COMPOSE_FILE}.pre-migration" traefik >> "$TMP"
 # shellcheck disable=SC2034  # lue par les bibliothèques sourcées
 FB_PASSWORD_HASH=""
@@ -98,6 +106,7 @@ done
 if ! compose_validate "$TMP"; then
     rm -f "$TMP"
     cp "${ENV_FILE}.pre-migration" "$ENV_FILE"
+    [ -f "${AUTHELIA_CFG}.pre-migration" ] && cp -p "${AUTHELIA_CFG}.pre-migration" "$AUTHELIA_CFG"
     error "Le compose généré est invalide — aucune modification appliquée"
 fi
 
@@ -138,6 +147,7 @@ if ! compose_cmd up -d --remove-orphans; then
     warn "Échec du démarrage — restauration de la configuration précédente"
     cp "${DOCKER_COMPOSE_FILE}.pre-migration" "$DOCKER_COMPOSE_FILE"
     cp "${ENV_FILE}.pre-migration" "$ENV_FILE"
+    [ -f "${AUTHELIA_CFG}.pre-migration" ] && cp -p "${AUTHELIA_CFG}.pre-migration" "$AUTHELIA_CFG"
     compose_cmd up -d --remove-orphans || true
     error "Migration annulée (configuration restaurée)"
 fi
@@ -146,12 +156,15 @@ for u in "${!DONE_USERS[@]}"; do
     "$SCRIPT_DIR/configure_homarr.sh" "$u" >/dev/null 2>&1 || warn "Homarr de $u non régénéré"
 done
 
-# Accueil https://<domaine> → tableau de bord (configurations Authelia antérieures)
-if authelia_ensure_home "$INSTALL_DIR/authelia/configuration.yml" "$DOMAIN"; then
+# Accueil https://<domaine> (Homarr partagé) : règle d'accès + redirection
+# après connexion (configurations Authelia antérieures), client OIDC
+authelia_ensure_home "$INSTALL_DIR/authelia/configuration.yml" "$DOMAIN" && AUTHELIA_CHANGED=true
+if [ "$AUTHELIA_CHANGED" = true ]; then
     docker restart authelia >/dev/null 2>&1 \
-        && log "✓ Authelia : redirection vers le tableau de bord après connexion" \
+        && log "✓ Authelia : connexion unique Homarr + redirection vers le tableau de bord" \
         || warn "Redémarrez Authelia : docker restart authelia"
 fi
+[ ${#DROPPED[@]} -gt 0 ] && info "Homarr individuels retirés (remplacés par https://$DOMAIN) : ${DROPPED[*]}"
 
 log "${GREEN}✓${NC} Migration terminée"
 info "Portail SSO : https://auth.$DOMAIN"

@@ -34,7 +34,7 @@ NAME=$1
 grep -q "^  ${NAME}:" "$DOCKER_COMPOSE_FILE" || error "Service '$NAME' absent du docker-compose.yml"
 
 case "$NAME" in
-    authelia|flaresolverr|traefik|home)
+    authelia|flaresolverr|traefik|homarr)
         error "$NAME est un composant indispensable de la seedbox" ;;
     qbittorrent-*|homarr-*|filebrowser-*)
         error "Service de base d'un utilisateur : utilisez remove_user.sh pour supprimer l'utilisateur" ;;

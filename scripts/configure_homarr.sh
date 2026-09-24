@@ -44,6 +44,12 @@ USER_ID=$(id -u "$USERNAME")
 USER_DIR="$INSTALL_DIR/data/users/$USERNAME"
 traefik_detect "$INSTALL_DIR/.env"
 
+# Mode Traefik : Homarr partagé (https://<domaine>, lib_homarr.sh), pas de
+# Homarr 0.16 individuel à configurer
+if [ "$USE_TRAEFIK" = true ] && ! grep -q "^  homarr-${USERNAME}:" "$DOCKER_COMPOSE_FILE" 2>/dev/null; then
+    exit 0
+fi
+
 HOMARR_CONFIG_DIR="$USER_DIR/config/homarr"
 mkdir -p "$HOMARR_CONFIG_DIR"
 log "Configuration de Homarr pour $USERNAME..."

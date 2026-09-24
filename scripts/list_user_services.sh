@@ -33,6 +33,8 @@ echo ""
 echo -e "${BLUE}Services de ${USERNAME} (UID ${USER_ID}) :${NC}"
 MISSING=()
 for s in $USER_SERVICES; do
+    # Mode Traefik : tableau de bord = Homarr partagé (affiché plus bas)
+    [ "$s" = homarr ] && [ "$USE_TRAEFIK" = true ] && continue
     name="${s}-${USERNAME}"
     if grep -q "^  ${name}:" "$DOCKER_COMPOSE_FILE" 2>/dev/null; then
         status=$(docker ps -a --filter "name=^${name}$" --format '{{.Status}}' 2>/dev/null)
@@ -47,6 +49,7 @@ for s in $USER_SERVICES; do
     fi
 done
 echo ""
+[ "$USE_TRAEFIK" = true ] && info "Tableau de bord (Homarr partagé) : https://$DOMAIN"
 info "Port torrent entrant : $(user_port "$USER_ID" torrent) (TCP/UDP)"
 if [ ${#MISSING[@]} -gt 0 ]; then
     info "Services installables : ${MISSING[*]}"

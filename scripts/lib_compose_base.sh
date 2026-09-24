@@ -15,7 +15,7 @@
 # ADMIN_BIND=0.0.0.0 dans .env pour les exposer (déconseillé : pas d'auth).
 #######################
 
-SYSTEM_SERVICES="authelia home plex flaresolverr scrutiny uptime-kuma watchtower duplicati jellyfin dashdot tautulli portainer"
+SYSTEM_SERVICES="authelia homarr plex flaresolverr scrutiny uptime-kuma watchtower duplicati jellyfin dashdot tautulli portainer"
 
 # Variable INSTALL_* correspondant à un service système optionnel
 system_service_flag() {
@@ -92,48 +92,56 @@ EOF
     echo "    restart: unless-stopped"
 }
 
-# Accueil (mode Traefik) : https://<domaine>/ → tableau de bord de
-# l'utilisateur connecté (https://<user>.<domaine>). Authelia y redirige après
-# une connexion directe (default_redirection_url). L'identité vient de
-# l'en-tête Remote-User posé par Traefik depuis la réponse d'Authelia.
-_block_home() {
+# Homarr 1.x partagé (mode Traefik) sur https://<domaine>, connexion unique
+# via Authelia (OIDC, voir lib_homarr.sh). Authelia y redirige après une
+# connexion directe (default_redirection_url) ; https://<user>.<domaine>/ y
+# renvoie aussi (routeur de priorité minimale : les autres routeurs du même
+# hôte — /qbittorrent, /files… — et les sous-domaines nommés restent prioritaires).
+_block_homarr() {
     [ "$USE_TRAEFIK" = "true" ] || return 0
+    local re
+    # Regex Go : "\." doublé pour YAML, "$$" pour docker-compose
+    re='^[a-z][a-z0-9]{0,31}\\.'"$(printf '%s' "$DOMAIN" | sed 's/\./\\\\./g')"'$$'
     cat << 'EOF'
 
-  home:
-    image: nginx:1.30.5-alpine
-    container_name: home
+  homarr:
+    image: ghcr.io/homarr-labs/homarr:v1.77.2
+    container_name: homarr
+    environment:
+      - PUID=${ADMIN_UID}
+      - PGID=${ADMIN_GID}
+      - TZ=${TZ}
+      - SECRET_ENCRYPTION_KEY=${HOMARR_SECRET_KEY}
+      - AUTH_PROVIDERS=oidc
+      - AUTH_OIDC_ISSUER=https://auth.${DOMAIN}
+      - AUTH_OIDC_CLIENT_ID=homarr
+      - AUTH_OIDC_CLIENT_SECRET=${HOMARR_OIDC_SECRET}
+      - AUTH_OIDC_CLIENT_NAME=Authelia
+      - AUTH_OIDC_AUTO_LOGIN=true
+      - AUTH_LOGOUT_REDIRECT_URL=https://auth.${DOMAIN}/logout
     volumes:
-      - ./home/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./homarr/appdata:/appdata
 EOF
     echo "    networks:"
     echo "      - traefik_proxy"
     echo "    labels:"
     echo "      - \"traefik.enable=true\""
     echo "      - \"traefik.docker.network=traefik_proxy\""
-    echo "      - \"traefik.http.routers.home.rule=Host(\`${DOMAIN}\`)\""
-    echo "      - \"traefik.http.routers.home.entrypoints=websecure\""
-    echo "      - \"traefik.http.routers.home.tls.certresolver=letsencrypt\""
-    echo "      - \"traefik.http.routers.home.middlewares=authelia@docker\""
-    echo "      - \"traefik.http.services.home.loadbalancer.server.port=80\""
+    echo "      - \"traefik.http.routers.homarr.rule=Host(\`${DOMAIN}\`)\""
+    echo "      - \"traefik.http.routers.homarr.entrypoints=websecure\""
+    echo "      - \"traefik.http.routers.homarr.tls.certresolver=letsencrypt\""
+    echo "      - \"traefik.http.routers.homarr.middlewares=authelia@docker\""
+    echo "      - \"traefik.http.routers.homarr.service=homarr\""
+    echo "      - \"traefik.http.services.homarr.loadbalancer.server.port=7575\""
+    echo "      - \"traefik.http.routers.user-root.rule=HostRegexp(\`${re}\`) && Path(\`/\`)\""
+    echo "      - \"traefik.http.routers.user-root.priority=1\""
+    echo "      - \"traefik.http.routers.user-root.entrypoints=websecure\""
+    echo "      - \"traefik.http.routers.user-root.tls=true\""
+    echo "      - \"traefik.http.routers.user-root.service=homarr\""
+    echo "      - \"traefik.http.routers.user-root.middlewares=user-root-redirect\""
+    echo "      - \"traefik.http.middlewares.user-root-redirect.redirectregex.regex=.*\""
+    echo "      - \"traefik.http.middlewares.user-root-redirect.redirectregex.replacement=https://${DOMAIN}/\""
     echo "    restart: unless-stopped"
-}
-
-# Configuration nginx de l'accueil (redirection vers le sous-domaine de
-# l'utilisateur ; nom vérifié : jamais de redirection vers un domaine tiers)
-_home_nginx_conf() {
-    cat << EOF
-server {
-    listen 80;
-    server_tokens off;
-    location / {
-        if (\$http_remote_user ~ "^[a-z][a-z0-9]{0,31}\$") {
-            return 302 https://\$http_remote_user.${DOMAIN}/;
-        }
-        return 403;
-    }
-}
-EOF
 }
 
 # Ajoute à une configuration Authelia existante (installations antérieures)
@@ -157,6 +165,9 @@ if ac and not re.search(r"^\s*- domain: '" + re.escape(dom) + r"'\s*$", ac.group
     rule = (f"    # Racine du domaine : redirection vers le tableau de bord\n"
             f"    - domain: '{dom}'\n      policy: one_factor\n\n")
     s = re.sub(r"^    - domain_regex:", lambda m: rule + m.group(0), s, count=1, flags=re.M)
+# Sessions trop courtes des anciennes installations (1 h / 5 min d'inactivité)
+s = s.replace("  expiration: 1h\n  inactivity: 5m\n",
+              "  expiration: 12h\n  inactivity: 2h\n  remember_me: 1M\n", 1)
 if s != orig:
     open(path, "w").write(s)
     sys.exit(0)
@@ -364,10 +375,7 @@ EOF
 # Crée les dossiers de données des services système sélectionnés
 _system_dirs() {
     mkdir -p "$INSTALL_DIR/authelia" "$INSTALL_DIR/data/users"
-    if [ "$USE_TRAEFIK" = "true" ]; then
-        mkdir -p "$INSTALL_DIR/home"
-        _home_nginx_conf > "$INSTALL_DIR/home/default.conf"
-    fi
+    [ "$USE_TRAEFIK" = "true" ] && mkdir -p "$INSTALL_DIR/homarr/appdata"
     [ "${INSTALL_PLEX:-false}" = true ]        && mkdir -p "$INSTALL_DIR/plex"
     [ "${INSTALL_SCRUTINY:-false}" = true ]    && mkdir -p "$INSTALL_DIR/scrutiny/config" "$INSTALL_DIR/scrutiny/influxdb"
     [ "${INSTALL_UPTIME_KUMA:-false}" = true ] && mkdir -p "$INSTALL_DIR/uptime-kuma"
@@ -389,7 +397,7 @@ compose_base_content() {
     fi
     echo "services:"
     _block_authelia
-    _block_home
+    _block_homarr
     [ "${INSTALL_PLEX:-false}" = true ]        && _block_plex
     _block_flaresolverr
     [ "${INSTALL_SCRUTINY:-false}" = true ]    && _block_scrutiny

@@ -50,6 +50,8 @@ source "$SOURCE_DIR/scripts/lib_compose_base.sh"
 source "$SOURCE_DIR/scripts/lib_autoconfig.sh"
 # shellcheck source=scripts/lib_password.sh
 source "$SOURCE_DIR/scripts/lib_password.sh"
+# shellcheck source=scripts/lib_homarr.sh
+source "$SOURCE_DIR/scripts/lib_homarr.sh"
 
 # Tableau pour stocker les utilisateurs
 declare -a INITIAL_USERS INITIAL_PASSWORDS INITIAL_EMAILS INITIAL_QUOTAS
@@ -423,8 +425,11 @@ ${admin_domains}
 session:
   name: authelia_session
   secret: '${session_secret}'
-  expiration: 1h
-  inactivity: 5m
+  # Reconnexion au plus toutes les 12 h, ou après 2 h d'inactivité
+  # (« Se souvenir de moi » : 1 mois)
+  expiration: 12h
+  inactivity: 2h
+  remember_me: 1M
   cookies:
     - domain: '${DOMAIN}'
       authelia_url: 'https://auth.${DOMAIN}'
@@ -927,6 +932,13 @@ main() {
     # Configurer Traefik si activé : crée le réseau traefik_proxy (requis par
     # les services utilisateurs) et ajoute le conteneur Traefik au compose.
     setup_traefik_if_enabled
+    # Homarr partagé + connexion unique : secrets (.env) et client OIDC dans
+    # la configuration Authelia (avant son premier démarrage)
+    if [ "$USE_TRAEFIK" = "true" ]; then
+        local hrc=0
+        homarr_prepare || hrc=$?
+        [ "$hrc" -ge 2 ] && warn "Connexion unique Homarr non configurée (relancez generate_traefik_labels.sh)"
+    fi
     show_progress 8 10 "Installation"
 
     # Créer les utilisateurs avec add_user.sh (le premier = administrateur ;
@@ -967,7 +979,10 @@ main() {
                 echo "  - $s : https://${sub}.$DOMAIN"
             done
         fi
-        info "👥 Chaque utilisateur : https://<utilisateur>.$DOMAIN (tableau de bord Homarr)"
+        info "🏠 Tableau de bord (Homarr, connexion unique) : https://$DOMAIN"
+        echo "     1re visite de l'administrateur : terminer l'assistant Homarr et"
+        echo "     indiquer le groupe administrateur « admins »"
+        info "👥 Chaque utilisateur : https://<utilisateur>.$DOMAIN renvoie au tableau de bord"
         echo "     qBittorrent …/qbittorrent · Filebrowser …/files · Sonarr …/sonarr · Radarr …/radarr"
         echo "     (qBittorrent et Filebrowser redemandent les identifiants de la seedbox)"
         info "⏳ Certificats Let's Encrypt obtenus au premier accès (DNS *.${DOMAIN} requis)"

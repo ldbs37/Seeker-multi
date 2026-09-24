@@ -168,7 +168,13 @@ else
     info "Mode non interactif : services de base uniquement"
 fi
 # Dédoublonnage en conservant l'ordre
-SERVICES_TO_INSTALL=(qbittorrent homarr filebrowser)
+# Tableau de bord : Homarr partagé (https://<domaine>) en mode Traefik,
+# Homarr 0.16 individuel en mode port direct
+if [ "$USE_TRAEFIK" = true ]; then
+    SERVICES_TO_INSTALL=(qbittorrent filebrowser)
+else
+    SERVICES_TO_INSTALL=(qbittorrent homarr filebrowser)
+fi
 for s in "${EXTRA_SERVICES[@]}"; do
     [[ " ${SERVICES_TO_INSTALL[*]} " == *" $s "* ]] || SERVICES_TO_INSTALL+=("$s")
 done
@@ -286,6 +292,7 @@ for s in "${SERVICES_TO_INSTALL[@]}"; do
 done
 echo ""
 if [ "$USE_TRAEFIK" = true ]; then
+    info "🏠 Tableau de bord : https://$DOMAIN (connexion unique Authelia)"
     info "💡 Connexion : identifiez-vous sur https://auth.$DOMAIN (SSO)."
     info "   qBittorrent et Filebrowser demandent ensuite les mêmes identifiants."
 else

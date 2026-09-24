@@ -2,13 +2,32 @@
 
 ## Tableau de bord Homarr
 
-Chaque utilisateur a son Homarr (`https://<user>.votre-domaine.com/` en mode
-Traefik, port `20001`+ en mode direct) généré par `configure_homarr.sh` : il
-liste automatiquement ses services et est régénéré à chaque ajout/retrait.
+### Mode Traefik : Homarr 1.x partagé + connexion unique
 
-```bash
-sudo ./scripts/configure_homarr.sh <user>   # régénération manuelle
-```
+Un seul Homarr (`ghcr.io/homarr-labs/homarr`) sur **https://votre-domaine.com**,
+avec connexion **automatique** via Authelia (OIDC) : on se connecte une fois
+sur Authelia, Homarr ne redemande rien.
+
+- Après une connexion directe sur `https://auth.votre-domaine.com`, Authelia
+  renvoie vers le tableau de bord ; `https://<user>.votre-domaine.com/` aussi.
+- **Première visite de l'administrateur** : terminer l'assistant de Homarr et
+  indiquer **`admins`** comme groupe administrateur (les groupes viennent
+  d'Authelia).
+- Chaque utilisateur est créé dans Homarr à sa première connexion.
+- Mise en place (automatique à l'installation et par
+  `generate_traefik_labels.sh`) : `scripts/lib_homarr.sh` ajoute au `.env`
+  `HOMARR_SECRET_KEY` et `HOMARR_OIDC_SECRET`, et à la configuration Authelia
+  le fournisseur OIDC et le client `homarr` (avec une `claims_policy` qui met
+  groupes, nom et email dans l'id_token — Authelia 4.39 ne le fait plus par
+  défaut). Données : `/opt/seedbox/homarr/appdata`.
+- Les anciens Homarr individuels sont retirés par la migration (leurs fichiers
+  restent dans `data/users/<user>/config/homarr`).
+
+### Mode port direct : Homarr 0.16 par utilisateur
+
+Sans Authelia devant les services, pas de connexion unique possible : chaque
+utilisateur garde son Homarr 0.16 (port `20001`+), dont la configuration est
+générée par `configure_homarr.sh` (une tuile par service).
 
 ## API libre-service (mode Traefik)
 
