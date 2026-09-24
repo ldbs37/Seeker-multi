@@ -165,6 +165,13 @@ if ac and not re.search(r"^\s*- domain: '" + re.escape(dom) + r"'\s*$", ac.group
     rule = (f"    # Racine du domaine : redirection vers le tableau de bord\n"
             f"    - domain: '{dom}'\n      policy: one_factor\n\n")
     s = re.sub(r"^    - domain_regex:", lambda m: rule + m.group(0), s, count=1, flags=re.M)
+# Contrôle d'accès par session uniquement (pas de défi HTTP Basic)
+if not re.search(r"^  endpoints:", s, re.M):
+    s = re.sub(r"^(server:\n  address: [^\n]*\n)",
+               lambda m: m.group(1) + "  endpoints:\n    authz:\n      forward-auth:\n"
+               "        implementation: 'ForwardAuth'\n        authn_strategies:\n"
+               "          - name: 'CookieSession'\n",
+               s, count=1, flags=re.M)
 # Sessions trop courtes des anciennes installations (1 h / 5 min d'inactivité)
 s = s.replace("  expiration: 1h\n  inactivity: 5m\n",
               "  expiration: 12h\n  inactivity: 2h\n  remember_me: 1M\n", 1)

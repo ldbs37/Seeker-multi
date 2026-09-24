@@ -379,6 +379,15 @@ configure_authelia() {
 ---
 server:
   address: 'tcp://0.0.0.0:9091/'
+  # Contrôle d'accès par session (cookie) uniquement : un identifiant HTTP
+  # Basic mémorisé par le navigateur provoquait sinon un défi Basic (fenêtre
+  # de connexion) et des boucles de redirection
+  endpoints:
+    authz:
+      forward-auth:
+        implementation: 'ForwardAuth'
+        authn_strategies:
+          - name: 'CookieSession'
 
 log:
   level: info
