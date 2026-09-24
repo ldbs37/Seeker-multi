@@ -20,13 +20,10 @@ INSTALL_DIR="/opt/seedbox"
 TZ="Europe/Paris"
 DEFAULT_QUOTA="500" # En GB
 
-# Variables Docker
-DOCKER_NETWORK="seedbox_network"
-
-# Variables des UID/GID de base
+# UID/GID des services système (Plex, Jellyfin, Duplicati…). Les comptes
+# utilisateurs de la seedbox ont leur propre plage (voir scripts/lib_ports.sh).
 ADMIN_UID="1000"
 ADMIN_GID="1000"
-START_UID="1001"
 
 # Couleurs pour les messages
 RED='\033[0;31m'
@@ -42,8 +39,18 @@ error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 warn() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 
+# Génération du docker-compose.yml (définitions partagées des services système)
+SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ ! -f "$SOURCE_DIR/scripts/lib_compose_base.sh" ]; then
+    error "scripts/lib_compose_base.sh introuvable : lancez install.sh depuis le dépôt cloné"
+fi
+# shellcheck source=scripts/lib_compose_base.sh
+source "$SOURCE_DIR/scripts/lib_compose_base.sh"
+# shellcheck source=scripts/lib_autoconfig.sh
+source "$SOURCE_DIR/scripts/lib_autoconfig.sh"
+
 # Tableau pour stocker les utilisateurs
-declare -a INITIAL_USERS
+declare -a INITIAL_USERS INITIAL_PASSWORDS INITIAL_EMAILS INITIAL_QUOTAS
 
 # Services optionnels
 INSTALL_PLEX=false
@@ -82,16 +89,16 @@ validate_email() {
 # Validation de nom d'utilisateur
 validate_username() {
     local username=$1
-    if [[ ! "$username" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
-        error "Nom d'utilisateur invalide: $username"
+    if [[ ! "$username" =~ ^[a-z][a-z0-9]{0,31}$ ]]; then
+        error "Nom d'utilisateur invalide: $username (lettres minuscules et chiffres uniquement, commence par une lettre, 32 max)"
     fi
 }
 
 # Validation de mot de passe
 validate_password() {
     local password=$1
-    if [ ${#password} -lt 8 ]; then
-        error "Le mot de passe doit contenir au moins 8 caractères"
+    if [ ${#password} -lt 12 ]; then
+        error "Le mot de passe doit contenir au moins 12 caractères"
     fi
 }
 
@@ -105,8 +112,10 @@ check_command() {
 
 # Test de connexion internet
 check_internet() {
-    if ! ping -c 1 8.8.8.8 &>/dev/null; then
-        error "Pas de connexion Internet"
+    # HTTPS plutôt que ping (souvent absent des images minimales, ICMP filtré)
+    if ! curl -fsS -m 10 -o /dev/null https://get.docker.com 2>/dev/null \
+       && ! wget -q -T 10 -O /dev/null https://get.docker.com 2>/dev/null; then
+        error "Pas de connexion Internet (https://get.docker.com injoignable)"
     fi
 }
 
@@ -120,11 +129,9 @@ show_progress() {
     local completed=$((width * current / total))
     local remaining=$((width - completed))
 
-    printf "\r%s [%s%s] %d%%" \
-        "$prefix" \
-        "$(printf '#%.0s' $(seq 1 "$completed" 2>/dev/null || echo))" \
-        "$(printf ' %.0s' $(seq 1 "$remaining" 2>/dev/null || echo))" \
-        "$percentage"
+    local bar
+    printf -v bar '%*s' "$completed" ''; bar=${bar// /#}
+    printf "\r%s [%s%*s] %d%%" "$prefix" "$bar" "$remaining" '' "$percentage"
 
     if [ "$current" -eq "$total" ]; then
         echo
@@ -153,11 +160,12 @@ check_system() {
         error "Espace disque insuffisant : ${available_space}G disponible, 20G requis"
     fi
 
-    # Vérification RAM (minimum 4GB)
-    local available_ram
-    available_ram=$(free -g | awk '/^Mem:/{print $2}')
-    if [ "${available_ram}" -lt 4 ]; then
-        error "RAM insuffisante : ${available_ram}G disponible, 4G requis"
+    # Vérification RAM (4 Go minimum). En Mo : un serveur de 4 Go en affiche
+    # ~3800 (le noyau en réserve une partie) — `free -g` arrondissait à 3.
+    local total_ram_mb
+    total_ram_mb=$(awk '/^MemTotal:/{print int($2/1024)}' /proc/meminfo)
+    if [ "${total_ram_mb}" -lt 3500 ]; then
+        error "RAM insuffisante : ${total_ram_mb} Mo, 4 Go requis"
     fi
 
     # Vérification du système de fichiers
@@ -168,7 +176,7 @@ check_system() {
         warn "Les quotas fonctionnent mieux sur ext4 ou xfs"
         warn "Des problèmes peuvent survenir avec btrfs ou zfs"
         echo ""
-        read -p "Continuer malgré tout ? (o/N): " confirm
+        read -r -p "Continuer malgré tout ? (o/N): " confirm
         [[ ! $confirm =~ ^[oO]$ ]] && error "Installation annulée"
     fi
 
@@ -196,11 +204,30 @@ install_dependencies() {
         ufw \
         wget \
         unzip \
-        netcat \
         apache2-utils \
-        bc
+        bc \
+        dnsutils \
+        python3 \
+        openssl
 
     log "✓ Dépendances installées"
+}
+
+# Garantit une commande `docker-compose` (utilisée par les scripts et le menu),
+# que Docker ait été installé par ce script ou préinstallé.
+ensure_docker_compose() {
+    command -v docker-compose &>/dev/null && return 0
+    if docker compose version &>/dev/null; then
+        # Plugin Compose v2 présent : simple relais
+        printf '#!/bin/sh\nexec docker compose "$@"\n' > /usr/local/bin/docker-compose
+    else
+        local v="v2.29.7"
+        curl -fL "https://github.com/docker/compose/releases/download/${v}/docker-compose-linux-$(uname -m)" \
+            -o /usr/local/bin/docker-compose || error "Téléchargement de Docker Compose impossible"
+    fi
+    chmod +x /usr/local/bin/docker-compose
+    docker-compose version &>/dev/null || error "docker-compose inutilisable"
+    log "✓ Docker Compose disponible"
 }
 
 install_docker() {
@@ -208,30 +235,32 @@ install_docker() {
 
     if command -v docker &>/dev/null; then
         log "Docker déjà installé"
-        return
+    else
+        # Installation via le script officiel (inclut le plugin Compose v2)
+        curl -fsSL https://get.docker.com -o get-docker.sh
+        sh get-docker.sh
+        rm -f get-docker.sh
+        log "✓ Docker installé"
     fi
 
-    # Installation via le script officiel
-    curl -fsSL https://get.docker.com -o get-docker.sh
-    sh get-docker.sh
-    rm get-docker.sh
-
-    # Installation de Docker Compose
-    DOCKER_COMPOSE_VERSION="v2.29.7"
-    curl -L "https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-    chmod +x /usr/local/bin/docker-compose
-    ln -sf /usr/local/bin/docker-compose /usr/bin/docker-compose
-
-    # Démarrage
-    systemctl start docker
-    systemctl enable docker
-
-    log "✓ Docker installé"
+    systemctl enable --now docker
+    ensure_docker_compose
 }
 
 #######################
 # Configuration système
 #######################
+
+# Ports SSH en service : port de la session courante + configuration sshd
+detect_ssh_ports() {
+    local ports=""
+    [ -n "${SSH_CONNECTION:-}" ] && ports="$(echo "$SSH_CONNECTION" | awk '{print $4}')"
+    if command -v sshd &>/dev/null; then
+        ports="$ports $(sshd -T 2>/dev/null | awk '$1=="port"{print $2}')"
+    fi
+    ports="$ports 22"
+    echo "$ports" | tr ' ' '\n' | grep -E '^[0-9]+$' | sort -un | tr '\n' ' '
+}
 
 setup_system() {
     log "Configuration du système..."
@@ -239,15 +268,18 @@ setup_system() {
     # Fuseau horaire
     timedatectl set-timezone "$TZ" 2>/dev/null || warn "Impossible de configurer le fuseau horaire"
 
-    # Pare-feu
+    # Pare-feu. On autorise le(s) port(s) SSH RÉELLEMENT utilisés AVANT
+    # d'activer UFW, sinon un SSH sur un port non standard serait coupé.
+    SSH_PORTS=$(detect_ssh_ports)
     if command -v ufw &>/dev/null; then
         ufw default deny incoming
         ufw default allow outgoing
-        ufw allow ssh
+        local p
+        for p in $SSH_PORTS; do ufw allow "$p/tcp" comment 'SSH'; done
         ufw allow 80/tcp
         ufw allow 443/tcp
-        ufw allow 32400/tcp  # Plex
         echo "y" | ufw enable 2>/dev/null || true
+        log "✓ Pare-feu actif (SSH autorisé sur : $SSH_PORTS)"
     fi
 
     # Fail2ban
@@ -255,7 +287,7 @@ setup_system() {
         cp /etc/fail2ban/jail.local /etc/fail2ban/jail.local.bak
     fi
 
-    cat > /etc/fail2ban/jail.local << 'EOF'
+    cat > /etc/fail2ban/jail.local << EOF
 [DEFAULT]
 bantime = 1h
 findtime = 10m
@@ -266,6 +298,7 @@ maxretry = 3
 [sshd]
 enabled = true
 backend = systemd
+port = $(echo "$SSH_PORTS" | xargs | tr ' ' ',')
 EOF
 
     systemctl enable fail2ban 2>/dev/null || true
@@ -297,21 +330,21 @@ prepare_directories() {
     mkdir -p "$INSTALL_DIR/scripts"
 
     # Copier les scripts de gestion
-    if [ -d "$(dirname "$0")/scripts" ]; then
-        cp -r "$(dirname "$0")/scripts/"* "$INSTALL_DIR/scripts/"
+    if [ -d "$SOURCE_DIR/scripts" ]; then
+        cp -r "$SOURCE_DIR/scripts/"* "$INSTALL_DIR/scripts/"
         chmod +x "$INSTALL_DIR/scripts/"*.sh
     fi
 
     # Copier le menu interactif
-    if [ -f "$(dirname "$0")/menu.sh" ]; then
-        cp "$(dirname "$0")/menu.sh" "$INSTALL_DIR/menu.sh"
+    if [ -f "$SOURCE_DIR/menu.sh" ]; then
+        cp "$SOURCE_DIR/menu.sh" "$INSTALL_DIR/menu.sh"
         chmod +x "$INSTALL_DIR/menu.sh"
     fi
 
     # Enregistrer la source (chemin + dépôt git) pour la mise à jour du module
     # seedbox via scripts/update.sh --seedbox.
     local src_dir
-    src_dir=$(cd "$(dirname "$0")" && pwd)
+    src_dir="$SOURCE_DIR"
     {
         echo "path=$src_dir"
         echo "url=$(git -C "$src_dir" remote get-url origin 2>/dev/null || echo '')"
@@ -328,18 +361,35 @@ configure_authelia() {
     log "Configuration d'Authelia..."
 
     local config_dir="$INSTALL_DIR/authelia"
-    local encryption_key=$(openssl rand -hex 64)
-    local session_secret=$(openssl rand -hex 32)
+    local encryption_key session_secret jwt_secret
+    encryption_key=$(openssl rand -hex 64)
+    session_secret=$(openssl rand -hex 32)
+    jwt_secret=$(openssl rand -hex 32)
 
-    # Configuration principale
+    # Sous-domaines réservés aux administrateurs (identiques aux routeurs
+    # Traefik générés). Listés deux fois ci-dessous : autorisation des admins,
+    # puis refus explicite pour les autres (dans Authelia, une règle dont le
+    # "subject" ne correspond pas est ignorée : sans ce deny, un utilisateur
+    # standard tomberait sur la règle "*.domaine" et accéderait à Portainer…).
+    local admin_domains="" d
+    for d in traefik portainer scrutiny dashdot tautulli uptime duplicati; do
+        admin_domains+="        - \"${d}.${DOMAIN}\""$'\n'
+    done
+    admin_domains=${admin_domains%$'\n'}
+
+    # Configuration principale (format Authelia 4.38+ : server.address,
+    # session.cookies, identity_validation — validé avec authelia validate-config)
     cat > "$config_dir/configuration.yml" << EOF
 ---
 server:
-  host: 0.0.0.0
-  port: 9091
+  address: 'tcp://0.0.0.0:9091/'
 
 log:
   level: info
+
+identity_validation:
+  reset_password:
+    jwt_secret: '${jwt_secret}'
 
 authentication_backend:
   file:
@@ -350,33 +400,40 @@ access_control:
   rules:
     # Services système - Accès réservé aux administrateurs
     - domain:
-        - "portainer.${DOMAIN}"
-        - "scrutiny.${DOMAIN}"
-        - "dashdot.${DOMAIN}"
-        - "tautulli.${DOMAIN}"
-        - "uptime-kuma.${DOMAIN}"
-        - "duplicati.${DOMAIN}"
-        - "watchtower.${DOMAIN}"
+${admin_domains}
       policy: one_factor
       subject:
         - "group:admins"
 
-    # Services utilisateur - Accès à tous les utilisateurs authentifiés
+    # ... et refusé à tous les autres (indispensable, voir commentaire)
     - domain:
-        - "*.${DOMAIN}"
+${admin_domains}
+      policy: deny
+
+    # Espaces utilisateurs ISOLÉS : chaque utilisateur n'accède qu'à SES
+    # sous-domaines. Le groupe nommé (?P<User>…) doit correspondre au nom de
+    # l'utilisateur connecté, sinon la règle ne s'applique pas (→ deny).
+    #   <user>.domaine            : Homarr, qBittorrent, Filebrowser, *arr…
+    #   <service>-<user>.domaine  : services en sous-domaine (ex. Overseerr)
+    # (noms d'utilisateur limités à [a-z0-9] : pas d'ambiguïté possible)
+    - domain_regex:
+        - '^(?P<User>[a-z0-9]+)\.${DOMAIN//./\\.}$'
+        - '^overseerr-(?P<User>[a-z0-9]+)\.${DOMAIN//./\\.}$'
       policy: one_factor
 
 session:
   name: authelia_session
-  secret: ${session_secret}
-  expiration: 3600
-  inactivity: 300
-  domain: ${DOMAIN}
+  secret: '${session_secret}'
+  expiration: 1h
+  inactivity: 5m
+  cookies:
+    - domain: '${DOMAIN}'
+      authelia_url: 'https://auth.${DOMAIN}'
 
 storage:
+  encryption_key: '${encryption_key}'
   local:
     path: /config/db.sqlite3
-  encryption_key: ${encryption_key}
 
 notifier:
   filesystem:
@@ -402,17 +459,11 @@ setup_traefik_if_enabled() {
     if [ "$USE_TRAEFIK" = "true" ]; then
         log "Configuration de Traefik..."
 
-        # Créer le fichier .env avec le domaine
-        cat > "$INSTALL_DIR/.env" << EOF
-DOMAIN=$DOMAIN
-TZ=$TZ
-ADMIN_UID=$ADMIN_UID
-ADMIN_GID=$ADMIN_GID
-EOF
+        # Le .env complet (dont USE_TRAEFIK) est déjà écrit par
+        # generate_docker_compose : on ne l'écrase pas ici.
 
-        log "✓ Fichier .env créé avec DOMAIN=$DOMAIN"
-
-        # Appeler le script setup_traefik.sh
+        # Appeler le script setup_traefik.sh (ajoute le service Traefik au
+        # docker-compose.yml généré, crée le réseau et la config statique)
         if [ -f "$INSTALL_DIR/scripts/setup_traefik.sh" ]; then
             log "Installation de Traefik..."
             "$INSTALL_DIR/scripts/setup_traefik.sh" "$DOMAIN" "$EMAIL"
@@ -430,326 +481,9 @@ EOF
 # Génération du docker-compose.yml
 #######################
 
-# Ajoute réseau + labels Traefik à la fin du dernier service écrit.
-# $1 = nom routeur/service, $2 = sous-domaine, $3 = port interne,
-# $4 = protéger avec Authelia SSO (true/false, défaut true)
-append_traefik_system() {
-    [ "$USE_TRAEFIK" = "true" ] || return 0
-    local name=$1 sub=$2 port=$3 protect=${4:-true}
-    local f="$INSTALL_DIR/docker-compose.yml"
-    {
-        echo "    networks:"
-        echo "      - traefik_proxy"
-        echo "    labels:"
-        echo "      - \"traefik.enable=true\""
-        echo "      - \"traefik.http.routers.${name}.rule=Host(\`${sub}.${DOMAIN}\`)\""
-        echo "      - \"traefik.http.routers.${name}.entrypoints=websecure\""
-        echo "      - \"traefik.http.routers.${name}.tls.certresolver=letsencrypt\""
-        echo "      - \"traefik.http.services.${name}.loadbalancer.server.port=${port}\""
-        if [ "$protect" = "true" ]; then
-            echo "      - \"traefik.http.routers.${name}.middlewares=authelia@docker\""
-        fi
-    } >> "$f"
-}
-
-# Attache un service au réseau traefik_proxy SANS routage public
-# (ex: backend interne accessible par les conteneurs *arr via son nom d'hôte).
-append_traefik_network_only() {
-    [ "$USE_TRAEFIK" = "true" ] || return 0
-    {
-        echo "    networks:"
-        echo "      - traefik_proxy"
-    } >> "$INSTALL_DIR/docker-compose.yml"
-}
-
-generate_docker_compose() {
-    log "Génération de la configuration Docker..."
-
-    local compose_file="$INSTALL_DIR/docker-compose.yml"
-
-    if [ "$USE_TRAEFIK" = "true" ]; then
-        # Mode Traefik : Authelia est routé par Traefik et publie le middleware
-        # forward-auth "authelia@docker" référencé par les services utilisateurs.
-        # Heredoc NON quoté : ${DOMAIN} est injecté maintenant, \${TZ} reste
-        # une variable interpolée par docker-compose, \` protège les backticks.
-        cat > "$compose_file" << EOF
-networks:
-  traefik_proxy:
-    external: true
-
-services:
-  authelia:
-    image: authelia/authelia:4.39.28
-    container_name: authelia
-    volumes:
-      - ./authelia:/config
-    environment:
-      - TZ=\${TZ}
-    networks:
-      - traefik_proxy
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.authelia.rule=Host(\`auth.${DOMAIN}\`)"
-      - "traefik.http.routers.authelia.entrypoints=websecure"
-      - "traefik.http.routers.authelia.tls.certresolver=letsencrypt"
-      - "traefik.http.middlewares.authelia.forwardauth.address=http://authelia:9091/api/verify?rd=https://auth.${DOMAIN}"
-      - "traefik.http.middlewares.authelia.forwardauth.trustForwardHeader=true"
-      - "traefik.http.middlewares.authelia.forwardauth.authResponseHeaders=Remote-User,Remote-Groups,Remote-Name,Remote-Email"
-    restart: unless-stopped
-EOF
-    else
-        # Mode port direct : Authelia publie son port 9091 sur l'hôte.
-        cat > "$compose_file" << 'EOF'
-services:
-  authelia:
-    image: authelia/authelia:4.39.28
-    container_name: authelia
-    volumes:
-      - ./authelia:/config
-    environment:
-      - TZ=${TZ}
-    ports:
-      - "9091:9091"
-    restart: unless-stopped
-EOF
-    fi
-
-    # Plex optionnel
-    if [ "$INSTALL_PLEX" = true ]; then
-        cat >> "$compose_file" << 'EOF'
-
-  plex:
-    image: linuxserver/plex:1.43.4
-    container_name: plex
-    network_mode: host
-    environment:
-      - PUID=${ADMIN_UID}
-      - PGID=${ADMIN_GID}
-      - TZ=${TZ}
-      - VERSION=docker
-    volumes:
-      - ./plex:/config
-      - ./data:/data
-    restart: unless-stopped
-EOF
-        mkdir -p "$INSTALL_DIR/plex"
-        # Plex utilise network_mode: host (découverte DLNA/GDM) et reste donc
-        # accessible via http://IP:32400 même en mode Traefik.
-        [ "$USE_TRAEFIK" = "true" ] && warn "Plex reste en mode hôte (port 32400), non routé par Traefik"
-    fi
-
-    cat >> "$compose_file" << 'EOF'
-
-  flaresolverr:
-    image: ghcr.io/flaresolverr/flaresolverr:v3.5.2
-    container_name: flaresolverr
-    environment:
-      - LOG_LEVEL=info
-      - TZ=${TZ}
-    ports:
-      - "8191:8191"
-    restart: unless-stopped
-EOF
-    # Backend interne : joint au réseau pour être joignable par les *arr,
-    # pas de routage public.
-    append_traefik_network_only
-
-    # Ajouter les services optionnels
-    if [ "$INSTALL_SCRUTINY" = true ]; then
-        cat >> "$compose_file" << 'EOF'
-
-  scrutiny:
-    image: ghcr.io/analogj/scrutiny:master-omnibus
-    container_name: scrutiny
-    privileged: true
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./scrutiny/config:/opt/scrutiny/config
-      - ./scrutiny/influxdb:/opt/scrutiny/influxdb
-      - /run/udev:/run/udev:ro
-    cap_add:
-      - SYS_RAWIO
-      - SYS_ADMIN
-    environment:
-      - TZ=${TZ}
-    restart: unless-stopped
-EOF
-        mkdir -p "$INSTALL_DIR/scrutiny/config"
-        mkdir -p "$INSTALL_DIR/scrutiny/influxdb"
-        append_traefik_system "scrutiny" "scrutiny" "8080" "true"
-    fi
-
-    if [ "$INSTALL_UPTIME_KUMA" = true ]; then
-        cat >> "$compose_file" << 'EOF'
-
-  uptime-kuma:
-    image: louislam/uptime-kuma:2.5.5
-    container_name: uptime-kuma
-    volumes:
-      - ./uptime-kuma:/app/data
-    ports:
-      - "3001:3001"
-    environment:
-      - TZ=${TZ}
-    restart: unless-stopped
-EOF
-        mkdir -p "$INSTALL_DIR/uptime-kuma"
-        append_traefik_system "uptime-kuma" "uptime" "3001" "true"
-    fi
-
-    if [ "$INSTALL_WATCHTOWER" = true ]; then
-        cat >> "$compose_file" << 'EOF'
-
-  watchtower:
-    image: containrrr/watchtower:1.7.1
-    container_name: watchtower
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-      - WATCHTOWER_SCHEDULE=0 0 4 * * *
-      - WATCHTOWER_CLEANUP=true
-      - TZ=${TZ}
-    restart: unless-stopped
-EOF
-    fi
-
-    if [ "$INSTALL_DUPLICATI" = true ]; then
-        cat >> "$compose_file" << 'EOF'
-
-  duplicati:
-    image: linuxserver/duplicati:2.4.0
-    container_name: duplicati
-    environment:
-      - PUID=${ADMIN_UID}
-      - PGID=${ADMIN_GID}
-      - TZ=${TZ}
-    volumes:
-      - ./duplicati/config:/config
-      - ./data:/source:ro
-    ports:
-      - "8200:8200"
-    restart: unless-stopped
-EOF
-        mkdir -p "$INSTALL_DIR/duplicati/config"
-        append_traefik_system "duplicati" "duplicati" "8200" "true"
-    fi
-
-    if [ "$INSTALL_JELLYFIN" = true ]; then
-        cat >> "$compose_file" << 'EOF'
-
-  jellyfin:
-    image: jellyfin/jellyfin:10.11.11
-    container_name: jellyfin
-    environment:
-      - PUID=${ADMIN_UID}
-      - PGID=${ADMIN_GID}
-      - TZ=${TZ}
-    volumes:
-      - ./jellyfin/config:/config
-      - ./jellyfin/cache:/cache
-      - ./data:/media:ro
-    ports:
-      - "8096:8096"
-      - "8920:8920"
-      - "7359:7359/udp"
-      - "1900:1900/udp"
-    restart: unless-stopped
-EOF
-        mkdir -p "$INSTALL_DIR/jellyfin/config"
-        mkdir -p "$INSTALL_DIR/jellyfin/cache"
-        # Jellyfin gère sa propre authentification (clients/apps) : routé mais
-        # NON protégé par Authelia pour ne pas casser les applications.
-        append_traefik_system "jellyfin" "jellyfin" "8096" "false"
-    fi
-
-    if [ "$INSTALL_DASHDOT" = true ]; then
-        cat >> "$compose_file" << 'EOF'
-
-  dashdot:
-    image: mauricenino/dashdot:6.3.4
-    container_name: dashdot
-    privileged: true
-    ports:
-      - "3002:3001"
-    volumes:
-      - ./dashdot:/data
-      - /:/mnt/host:ro
-    environment:
-      - TZ=${TZ}
-      - DASHDOT_ENABLE_CPU_TEMPS=true
-    restart: unless-stopped
-EOF
-        mkdir -p "$INSTALL_DIR/dashdot"
-        append_traefik_system "dashdot" "dashdot" "3001" "true"
-    fi
-
-    if [ "$INSTALL_TAUTULLI" = true ]; then
-        cat >> "$compose_file" << 'EOF'
-
-  tautulli:
-    image: linuxserver/tautulli:2.18.1
-    container_name: tautulli
-    environment:
-      - PUID=${ADMIN_UID}
-      - PGID=${ADMIN_GID}
-      - TZ=${TZ}
-    volumes:
-      - ./tautulli:/config
-    ports:
-      - "8181:8181"
-    restart: unless-stopped
-EOF
-        mkdir -p "$INSTALL_DIR/tautulli"
-        append_traefik_system "tautulli" "tautulli" "8181" "true"
-    fi
-
-    if [ "$INSTALL_PORTAINER" = true ]; then
-        cat >> "$compose_file" << 'EOF'
-
-  portainer:
-    image: portainer/portainer-ce:2.45.1
-    container_name: portainer
-    ports:
-      - "9000:9000"
-      - "8000:8000"
-    volumes:
-      - ./portainer:/data
-      - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-      - TZ=${TZ}
-    restart: unless-stopped
-EOF
-        mkdir -p "$INSTALL_DIR/portainer"
-        append_traefik_system "portainer" "portainer" "9000" "true"
-    fi
-
-    # Durcissement (mode Traefik) : les UI d'administration et le backend
-    # flaresolverr ne doivent PAS rester joignables en direct par IP:port
-    # (Docker publie les ports en contournant UFW), ce qui court-circuiterait
-    # le SSO Authelia. On restreint leurs ports publiés à la boucle locale
-    # (127.0.0.1) ; Traefik les atteint via le réseau Docker interne.
-    # Jellyfin (média, non protégé par le SSO) et Plex (mode hôte) sont laissés
-    # intacts pour préserver la découverte LAN et les applications natives.
-    if [ "$USE_TRAEFIK" = "true" ]; then
-        for map in "8080:8080" "3001:3001" "8200:8200" "3002:3001" \
-                   "8181:8181" "9000:9000" "8000:8000" "8191:8191"; do
-            sed -i "s|      - \"${map}\"|      - \"127.0.0.1:${map}\"|g" "$compose_file"
-        done
-        log "✓ Ports des services admin restreints à 127.0.0.1 (accès via Traefik/SSO)"
-    fi
-
-    # Créer le fichier .env (USE_TRAEFIK = flag explicite lu par add_user.sh)
-    cat > "$INSTALL_DIR/.env" << EOF
-TZ=$TZ
-DOMAIN=$DOMAIN
-ADMIN_UID=$ADMIN_UID
-ADMIN_GID=$ADMIN_GID
-USE_TRAEFIK=$USE_TRAEFIK
-EOF
-
-    log "✓ Configuration Docker générée"
-}
+# generate_docker_compose et les définitions des services système sont dans
+# scripts/lib_compose_base.sh (partagées avec add_service.sh et la migration
+# vers Traefik).
 
 #######################
 # Configuration interactive
@@ -762,7 +496,7 @@ configure_installation() {
 
     # Configuration du domaine
     while true; do
-        read -p "Nom de domaine (ex: exemple.com): " input_domain
+        read -r -p "Nom de domaine (ex: exemple.com): " input_domain
         if [[ "$input_domain" =~ ^[a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9]\.[a-zA-Z]{2,}$ ]]; then
             DOMAIN=$input_domain
             break
@@ -772,7 +506,7 @@ configure_installation() {
     done
 
     while true; do
-        read -p "Email administrateur: " input_email
+        read -r -p "Email administrateur: " input_email
         if validate_email "$input_email" 2>/dev/null; then
             EMAIL=$input_email
             break
@@ -787,7 +521,7 @@ configure_installation() {
     echo "  - Port direct : Services accessibles via http://IP:PORT (simple, pas de SSL)"
     echo "  - Traefik + SSL : Services accessibles via https://user.${DOMAIN}/service (sécurisé, nécessite DNS)"
     echo ""
-    read -p "Utiliser Traefik avec SSL automatique ? (o/N): " input
+    read -r -p "Utiliser Traefik avec SSL automatique ? (o/N): " input
     if [[ $input =~ ^[oO]$ ]]; then
         USE_TRAEFIK=true
         info "Mode Traefik activé"
@@ -796,7 +530,7 @@ configure_installation() {
         echo -e "${BLUE}=== Configuration DNS ===${NC}"
         echo "Traefik nécessite un DNS wildcard pointant vers ce serveur."
         echo ""
-        read -p "Avez-vous déjà un nom de domaine (ex: monseedbox.com) ? (o/N): " has_domain
+        read -r -p "Avez-vous déjà un nom de domaine (ex: monseedbox.com) ? (o/N): " has_domain
 
         if [[ $has_domain =~ ^[oO]$ ]]; then
             # L'utilisateur a un domaine
@@ -807,14 +541,13 @@ configure_installation() {
             echo "  2. Autre provider (configuration manuelle)"
             echo "  3. Je l'ai déjà configuré"
             echo ""
-            read -p "Votre choix [1/2/3]: " dns_choice
+            read -r -p "Votre choix [1/2/3]: " dns_choice
 
             case $dns_choice in
                 1)
                     info "Configuration Cloudflare automatique"
                     if [ -f "$INSTALL_DIR/scripts/setup_cloudflare.sh" ]; then
-                        "$INSTALL_DIR/scripts/setup_cloudflare.sh"
-                        if [ $? -eq 0 ]; then
+                        if "$INSTALL_DIR/scripts/setup_cloudflare.sh" "$DOMAIN"; then
                             info "✓ DNS Cloudflare configuré avec succès"
                         else
                             warn "La configuration Cloudflare a échoué"
@@ -836,7 +569,7 @@ configure_installation() {
                     echo ""
                     info "Documentation complète: $INSTALL_DIR/docs/DNS_SETUP.md"
                     echo ""
-                    read -p "DNS configuré et prêt ? (o/N): " dns_ready
+                    read -r -p "DNS configuré et prêt ? (o/N): " dns_ready
                     if [[ ! $dns_ready =~ ^[oO]$ ]]; then
                         warn "Traefik désactivé. Configurez le DNS puis exécutez:"
                         warn "  sudo $INSTALL_DIR/scripts/check_dns.sh $DOMAIN"
@@ -856,7 +589,7 @@ configure_installation() {
                         fi
                     else
                         warn "Impossible de vérifier le DNS automatiquement"
-                        read -p "Continuer quand même ? (o/N): " force_continue
+                        read -r -p "Continuer quand même ? (o/N): " force_continue
                         if [[ ! $force_continue =~ ^[oO]$ ]]; then
                             USE_TRAEFIK=false
                         fi
@@ -877,12 +610,11 @@ configure_installation() {
             echo "  ✓ Mise à jour automatique de l'IP"
             echo "  ✓ Compatible Let's Encrypt SSL"
             echo ""
-            read -p "Configurer DuckDNS automatiquement ? (o/N): " setup_duckdns
+            read -r -p "Configurer DuckDNS automatiquement ? (o/N): " setup_duckdns
 
             if [[ $setup_duckdns =~ ^[oO]$ ]]; then
                 if [ -f "$INSTALL_DIR/scripts/setup_duckdns.sh" ]; then
-                    "$INSTALL_DIR/scripts/setup_duckdns.sh"
-                    if [ $? -eq 0 ]; then
+                    if "$INSTALL_DIR/scripts/setup_duckdns.sh"; then
                         # Lire le domaine depuis .env
                         if [ -f "$INSTALL_DIR/.env" ] && grep -q "^DOMAIN=" "$INSTALL_DIR/.env"; then
                             DOMAIN=$(grep "^DOMAIN=" "$INSTALL_DIR/.env" | cut -d'=' -f2)
@@ -911,7 +643,7 @@ configure_installation() {
         if [ "$USE_TRAEFIK" = "true" ]; then
             echo ""
             warn "⚠️  Vérifiez que les ports 80 et 443 sont ouverts dans votre firewall"
-            read -p "Ports 80/443 ouverts ? (o/N): " ports_open
+            read -r -p "Ports 80/443 ouverts ? (o/N): " ports_open
             if [[ ! $ports_open =~ ^[oO]$ ]]; then
                 warn "Ouvrez les ports puis réinstallez Traefik avec:"
                 warn "  sudo $INSTALL_DIR/scripts/setup_traefik.sh $DOMAIN $EMAIL"
@@ -926,23 +658,23 @@ configure_installation() {
 
     # Services optionnels
     echo -e "\n${BLUE}=== Services de streaming ===${NC}"
-    read -p "Installer Plex (serveur de streaming) ? (o/N): " input
+    read -r -p "Installer Plex (serveur de streaming) ? (o/N): " input
     [[ $input =~ ^[oO]$ ]] && INSTALL_PLEX=true
 
-    read -p "Installer Jellyfin (alternative open-source à Plex) ? (o/N): " input
+    read -r -p "Installer Jellyfin (alternative open-source à Plex) ? (o/N): " input
     if [[ $input =~ ^[oO]$ ]]; then
         INSTALL_JELLYFIN=true
 
         # Configurer les identifiants Jellyfin
         echo -e "\n${BLUE}Configuration Jellyfin:${NC}"
-        read -p "Nom d'utilisateur admin [admin]: " JELLYFIN_USER
+        read -r -p "Nom d'utilisateur admin [admin]: " JELLYFIN_USER
         JELLYFIN_USER=${JELLYFIN_USER:-"admin"}
 
         while true; do
-            read -s -p "Mot de passe admin (min 8 caractères): " JELLYFIN_PASSWORD
+            read -r -s -p "Mot de passe admin (min 8 caractères): " JELLYFIN_PASSWORD
             echo
             if [ ${#JELLYFIN_PASSWORD} -ge 8 ]; then
-                read -s -p "Confirmez le mot de passe: " JELLYFIN_PASSWORD_CONFIRM
+                read -r -s -p "Confirmez le mot de passe: " JELLYFIN_PASSWORD_CONFIRM
                 echo
                 if [ "$JELLYFIN_PASSWORD" = "$JELLYFIN_PASSWORD_CONFIRM" ]; then
                     break
@@ -962,7 +694,7 @@ configure_installation() {
         warn "    Plex et Jellyfin utilisent tous deux le port UDP 1900 (UPnP/DLNA)"
         warn "    Il est fortement recommandé de n'installer qu'un seul service de streaming"
         echo ""
-        read -p "Voulez-vous annuler l'installation de Jellyfin ? (O/n): " confirm
+        read -r -p "Voulez-vous annuler l'installation de Jellyfin ? (O/n): " confirm
         if [[ ! $confirm =~ ^[nN]$ ]]; then
             INSTALL_JELLYFIN=false
             JELLYFIN_USER=""
@@ -974,33 +706,33 @@ configure_installation() {
     fi
 
     echo -e "\n${BLUE}=== Dashboards & Monitoring ===${NC}"
-    read -p "Installer Dashdot (monitoring système élégant) ? (o/N): " input
+    read -r -p "Installer Dashdot (monitoring système élégant) ? (o/N): " input
     [[ $input =~ ^[oO]$ ]] && INSTALL_DASHDOT=true
 
-    read -p "Installer Scrutiny (monitoring disques S.M.A.R.T.) ? (o/N): " input
+    read -r -p "Installer Scrutiny (monitoring disques S.M.A.R.T.) ? (o/N): " input
     [[ $input =~ ^[oO]$ ]] && INSTALL_SCRUTINY=true
 
-    read -p "Installer Uptime Kuma (monitoring uptime) ? (o/N): " input
+    read -r -p "Installer Uptime Kuma (monitoring uptime) ? (o/N): " input
     [[ $input =~ ^[oO]$ ]] && INSTALL_UPTIME_KUMA=true
 
-    read -p "Installer Tautulli (statistiques Plex) ? (o/N): " input
+    read -r -p "Installer Tautulli (statistiques Plex) ? (o/N): " input
     [[ $input =~ ^[oO]$ ]] && INSTALL_TAUTULLI=true
 
     echo -e "\n${BLUE}=== Gestion & Organisation ===${NC}"
-    read -p "Installer Portainer (gestion Docker web) ? (o/N): " input
+    read -r -p "Installer Portainer (gestion Docker web) ? (o/N): " input
     if [[ $input =~ ^[oO]$ ]]; then
         INSTALL_PORTAINER=true
 
         # Configurer les identifiants Portainer
         echo -e "\n${BLUE}Configuration Portainer:${NC}"
-        read -p "Nom d'utilisateur admin [admin]: " PORTAINER_USER
+        read -r -p "Nom d'utilisateur admin [admin]: " PORTAINER_USER
         PORTAINER_USER=${PORTAINER_USER:-"admin"}
 
         while true; do
-            read -s -p "Mot de passe admin (min 12 caractères): " PORTAINER_PASSWORD
+            read -r -s -p "Mot de passe admin (min 12 caractères): " PORTAINER_PASSWORD
             echo
             if [ ${#PORTAINER_PASSWORD} -ge 12 ]; then
-                read -s -p "Confirmez le mot de passe: " PORTAINER_PASSWORD_CONFIRM
+                read -r -s -p "Confirmez le mot de passe: " PORTAINER_PASSWORD_CONFIRM
                 echo
                 if [ "$PORTAINER_PASSWORD" = "$PORTAINER_PASSWORD_CONFIRM" ]; then
                     break
@@ -1014,57 +746,80 @@ configure_installation() {
     fi
 
     echo -e "\n${BLUE}=== Maintenance ===${NC}"
-    read -p "Installer Watchtower (mises à jour auto) ? (o/N): " input
+    read -r -p "Installer Watchtower (mises à jour auto) ? (o/N): " input
     [[ $input =~ ^[oO]$ ]] && INSTALL_WATCHTOWER=true
 
-    read -p "Installer Duplicati (backups) ? (o/N): " input
+    read -r -p "Installer Duplicati (backups) ? (o/N): " input
     [[ $input =~ ^[oO]$ ]] && INSTALL_DUPLICATI=true
 
     # Utilisateurs initiaux
     echo -e "\n${BLUE}=== Utilisateurs initiaux ===${NC}"
-    INITIAL_USERS=()
+    info "Le premier utilisateur sera l'ADMINISTRATEUR (obligatoire : Authelia"
+    info "ne démarre pas sans au moins un compte)."
+    info "Noms : lettres minuscules et chiffres uniquement (ex: alice, bob2)."
+    # Tableaux parallèles (et non "nom:mdp:…" : un ':' dans le mot de passe
+    # décalerait tous les champs à la relecture).
+    INITIAL_USERS=(); INITIAL_PASSWORDS=(); INITIAL_EMAILS=(); INITIAL_QUOTAS=()
+    local username password password_confirm email quota add_user u dup
     while true; do
-        read -p "Ajouter un utilisateur ? (O/n): " add_user
-        if [[ $add_user =~ ^[nN]$ ]]; then
-            break
+        if [ ${#INITIAL_USERS[@]} -gt 0 ]; then
+            read -r -p "Ajouter un autre utilisateur ? (o/N): " add_user
+            [[ $add_user =~ ^[oO]$ ]] || break
         fi
 
-        read -p "Nom d'utilisateur: " username
-        validate_username "$username"
+        while true; do
+            read -r -p "Nom d'utilisateur: " username
+            if [[ ! "$username" =~ ^[a-z][a-z0-9]{0,31}$ ]]; then
+                warn "Nom invalide (lettres minuscules et chiffres, commence par une lettre)"
+                continue
+            fi
+            dup=false
+            for u in "${INITIAL_USERS[@]}"; do [ "$u" = "$username" ] && dup=true; done
+            if $dup || id "$username" &>/dev/null; then
+                warn "L'utilisateur '$username' existe déjà"
+                continue
+            fi
+            break
+        done
 
         while true; do
-            read -s -p "Mot de passe: " password
+            read -r -s -p "Mot de passe (min 12 caractères): " password
             echo
-            if [ ${#password} -ge 8 ]; then
-                read -s -p "Confirmez: " password_confirm
+            if [ ${#password} -ge 12 ]; then
+                read -r -s -p "Confirmez: " password_confirm
                 echo
                 if [ "$password" = "$password_confirm" ]; then
                     break
                 fi
+                warn "Les mots de passe ne correspondent pas"
+            else
+                warn "Mot de passe trop court"
             fi
-            warn "Mot de passe invalide"
         done
 
-        read -p "Email: " email
-        validate_email "$email"
+        while true; do
+            read -r -p "Email: " email
+            [[ "$email" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]] && break
+            warn "Format d'email invalide"
+        done
 
-        read -p "Quota (GB) [500]: " quota
-        quota=${quota:-500}
+        while true; do
+            read -r -p "Quota (GB) [${DEFAULT_QUOTA}]: " quota
+            quota=${quota:-$DEFAULT_QUOTA}
+            [[ "$quota" =~ ^[1-9][0-9]*$ ]] && break
+            warn "Le quota doit être un nombre entier positif"
+        done
 
-        INITIAL_USERS+=("$username:$password:$email:$quota")
+        INITIAL_USERS+=("$username"); INITIAL_PASSWORDS+=("$password")
+        INITIAL_EMAILS+=("$email");   INITIAL_QUOTAS+=("$quota")
     done
 
     # Récapitulatif
     echo -e "\n${BLUE}=== Récapitulatif ===${NC}"
     echo "Domaine: $DOMAIN"
     echo "Email: $EMAIL"
-    if [ ${#INITIAL_USERS[@]} -gt 0 ]; then
-        IFS=':' read -r username _ _ _ <<< "${INITIAL_USERS[0]}"
-        echo "Premier utilisateur (Admin): $username"
-        echo "Utilisateurs totaux: ${#INITIAL_USERS[@]}"
-    else
-        echo "Utilisateurs: Aucun (à créer après installation)"
-    fi
+    echo "Premier utilisateur (Admin): ${INITIAL_USERS[0]}"
+    echo "Utilisateurs totaux: ${#INITIAL_USERS[@]} (${INITIAL_USERS[*]})"
     echo "Services optionnels:"
     [ "$INSTALL_PLEX" = true ] && echo "  ✓ Plex"
     [ "$INSTALL_JELLYFIN" = true ] && echo "  ✓ Jellyfin"
@@ -1077,7 +832,7 @@ configure_installation() {
     [ "$INSTALL_DUPLICATI" = true ] && echo "  ✓ Duplicati"
     echo "Utilisateurs: ${#INITIAL_USERS[@]}"
 
-    read -p "Continuer l'installation ? (o/N): " confirm
+    read -r -p "Continuer l'installation ? (o/N): " confirm
     if [[ ! $confirm =~ ^[oO]$ ]]; then
         error "Installation annulée"
     fi
@@ -1098,90 +853,22 @@ configure_installation() {
 deploy_services() {
     log "Démarrage des services..."
 
-    cd "$INSTALL_DIR"
+    cd "$INSTALL_DIR" || error "Répertoire $INSTALL_DIR introuvable"
     docker-compose pull
     docker-compose up -d
 
-    # Attendre le démarrage
-    sleep 10
-
-    # Configuration automatique de Portainer si installé
+    # Comptes administrateur Portainer / Jellyfin (API, avec attente)
     if [ "$INSTALL_PORTAINER" = true ] && [ -n "$PORTAINER_USER" ] && [ -n "$PORTAINER_PASSWORD" ]; then
-        log "Configuration automatique de Portainer..."
-
-        # Attendre que Portainer soit prêt (max 60 secondes)
-        RETRY_COUNT=0
-        MAX_RETRIES=30
-        while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            if curl -s http://localhost:9000/api/status >/dev/null 2>&1; then
-                break
-            fi
-            sleep 2
-            RETRY_COUNT=$((RETRY_COUNT + 1))
-        done
-
-        if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
-            warn "Portainer n'est pas encore prêt, la configuration sera à faire manuellement"
-        else
-            # Créer le compte admin via l'API (on juge sur le code HTTP)
-            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:9000/api/users/admin/init \
-                -H "Content-Type: application/json" \
-                -d "{\"Username\":\"$PORTAINER_USER\",\"Password\":\"$PORTAINER_PASSWORD\"}" || echo "000")
-
-            case "$HTTP_CODE" in
-                200|204)
-                    log "✓ Compte administrateur Portainer créé automatiquement" ;;
-                409)
-                    info "Portainer : un administrateur existe déjà (rien à faire)" ;;
-                *)
-                    warn "Création admin Portainer échouée (HTTP $HTTP_CODE)"
-                    info "Créez-le manuellement sur http://<votre-serveur>:9000 (dans les minutes suivant le 1er démarrage : Portainer verrouille l'init passé un délai de sécurité)" ;;
-            esac
-        fi
+        autoconfig_portainer "$PORTAINER_USER" "$PORTAINER_PASSWORD" || true
+    fi
+    if [ "$INSTALL_JELLYFIN" = true ] && [ -n "$JELLYFIN_USER" ] && [ -n "$JELLYFIN_PASSWORD" ]; then
+        autoconfig_jellyfin "$JELLYFIN_USER" "$JELLYFIN_PASSWORD" || true
     fi
 
-    # Configuration automatique de Jellyfin si installé
-    if [ "$INSTALL_JELLYFIN" = true ] && [ -n "$JELLYFIN_USER" ] && [ -n "$JELLYFIN_PASSWORD" ]; then
-        log "Configuration automatique de Jellyfin..."
-
-        # Attendre que Jellyfin soit prêt (max 60 secondes)
-        RETRY_COUNT=0
-        MAX_RETRIES=30
-        while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            if curl -s http://localhost:8096/health >/dev/null 2>&1; then
-                break
-            fi
-            sleep 2
-            RETRY_COUNT=$((RETRY_COUNT + 1))
-        done
-
-        if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
-            warn "Jellyfin n'est pas encore prêt, la configuration sera à faire manuellement"
-        else
-            # Assistant de démarrage Jellyfin : l'ordre des appels est imposé
-            # (Configuration → User → RemoteAccess → Complete), sinon le wizard
-            # peut refuser de se terminer.
-            curl -s -X POST http://localhost:8096/Startup/Configuration \
-                -H "Content-Type: application/json" \
-                -d '{"UICulture":"fr-FR","MetadataCountryCode":"FR","PreferredMetadataLanguage":"fr"}' >/dev/null 2>&1 || true
-            # GET obligatoire avant le POST User (récupère l'utilisateur par défaut)
-            curl -s http://localhost:8096/Startup/User >/dev/null 2>&1 || true
-            USER_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:8096/Startup/User \
-                -H "Content-Type: application/json" \
-                -d "{\"Name\":\"$JELLYFIN_USER\",\"Password\":\"$JELLYFIN_PASSWORD\"}" || echo "000")
-            curl -s -X POST http://localhost:8096/Startup/RemoteAccess \
-                -H "Content-Type: application/json" \
-                -d '{"EnableRemoteAccess":true,"EnableAutomaticPortMapping":false}' >/dev/null 2>&1 || true
-            curl -s -X POST http://localhost:8096/Startup/Complete >/dev/null 2>&1 || true
-
-            case "$USER_CODE" in
-                200|204)
-                    log "✓ Compte administrateur Jellyfin créé automatiquement" ;;
-                *)
-                    warn "Création admin Jellyfin échouée (HTTP $USER_CODE)"
-                    info "Terminez l'assistant manuellement sur http://<votre-serveur>:8096" ;;
-            esac
-        fi
+    # Plex tourne en réseau hôte : le pare-feu s'applique à lui (contrairement
+    # aux ports publiés par Docker)
+    if [ "$INSTALL_PLEX" = true ] && command -v ufw &>/dev/null; then
+        ufw allow 32400/tcp comment 'Plex' >/dev/null 2>&1 || true
     fi
 
     log "✓ Services démarrés"
@@ -1223,35 +910,30 @@ main() {
     configure_authelia
     show_progress 7 10 "Installation"
 
-    # Configurer Traefik si activé (avant génération du compose pour que le
-    # réseau traefik_proxy et le .env existent)
-    setup_traefik_if_enabled
-
-    # Générer le docker-compose.yml de base (Authelia + services système)
-    # AVANT la création des utilisateurs : add_user.sh y ajoute (>>) les
-    # services par-utilisateur. Générer après écraserait ces ajouts.
+    # Générer le docker-compose.yml de base (Authelia + services système) et
+    # le .env. Doit précéder :
+    #  - setup_traefik.sh, qui AJOUTE (>>) le service Traefik au compose ;
+    #  - add_user.sh, qui AJOUTE (>>) les services par-utilisateur.
+    # (generate_docker_compose fait un `cat >` : l'appeler après écraserait
+    #  ces ajouts.)
     generate_docker_compose
+
+    # Configurer Traefik si activé : crée le réseau traefik_proxy (requis par
+    # les services utilisateurs) et ajoute le conteneur Traefik au compose.
+    setup_traefik_if_enabled
     show_progress 8 10 "Installation"
 
-    # Créer les utilisateurs avec add_user.sh
-    if [ ${#INITIAL_USERS[@]} -gt 0 ]; then
-        log "Création des utilisateurs..."
-
-        # Le premier utilisateur est l'administrateur
-        IFS=':' read -r username password email quota <<< "${INITIAL_USERS[0]}"
-        log "Création de l'utilisateur administrateur: $username"
-        "$INSTALL_DIR/scripts/add_user.sh" "$username" "$password" "$email" "$quota" --admin
-
-        # Les utilisateurs suivants sont standard
-        for ((i=1; i<${#INITIAL_USERS[@]}; i++)); do
-            IFS=':' read -r username password email quota <<< "${INITIAL_USERS[$i]}"
-            log "Création de l'utilisateur: $username"
-            "$INSTALL_DIR/scripts/add_user.sh" "$username" "$password" "$email" "$quota"
-        done
-    else
-        warn "Aucun utilisateur créé pendant l'installation"
-        info "Vous devrez créer des utilisateurs manuellement après l'installation"
-    fi
+    # Créer les utilisateurs avec add_user.sh (le premier = administrateur ;
+    # configure_installation garantit qu'il y en a au moins un)
+    log "Création des utilisateurs..."
+    local i admin_flag
+    for ((i=0; i<${#INITIAL_USERS[@]}; i++)); do
+        admin_flag=""
+        [ "$i" -eq 0 ] && admin_flag="--admin"
+        log "Création de l'utilisateur ${INITIAL_USERS[$i]}${admin_flag:+ (administrateur)}"
+        "$INSTALL_DIR/scripts/add_user.sh" "${INITIAL_USERS[$i]}" "${INITIAL_PASSWORDS[$i]}" \
+            "${INITIAL_EMAILS[$i]}" "${INITIAL_QUOTAS[$i]}" $admin_flag
+    done
     show_progress 9 10 "Installation"
 
     deploy_services
@@ -1262,49 +944,42 @@ main() {
     echo -e "${GREEN}║     Installation terminée avec succès !   ║${NC}"
     echo -e "${GREEN}╚════════════════════════════════════════════╝${NC}\n"
 
+    # Services système (administrateurs)
+    local adm=() s sub port
+    for s in dashdot scrutiny uptime-kuma tautulli portainer duplicati; do
+        grep -q "^  ${s}:" "$INSTALL_DIR/docker-compose.yml" && adm+=("$s")
+    done
     if [ "$USE_TRAEFIK" = "true" ]; then
-        info "🌐 Services accessibles (HTTPS avec SSL automatique):"
-        echo "  - Authelia (SSO): https://auth.$DOMAIN"
-        echo "  - Traefik Dashboard: https://traefik.$DOMAIN"
-        [ "$INSTALL_PLEX" = true ] && echo "  - Plex: https://plex.$DOMAIN"
-        [ "$INSTALL_JELLYFIN" = true ] && echo "  - Jellyfin: https://jellyfin.$DOMAIN"
-        [ "$INSTALL_DASHDOT" = true ] && echo "  - Dashdot: https://dashdot.$DOMAIN"
-        [ "$INSTALL_SCRUTINY" = true ] && echo "  - Scrutiny: https://scrutiny.$DOMAIN"
-        [ "$INSTALL_UPTIME_KUMA" = true ] && echo "  - Uptime Kuma: https://uptime.$DOMAIN"
-        [ "$INSTALL_TAUTULLI" = true ] && echo "  - Tautulli: https://tautulli.$DOMAIN"
-        if [ "$INSTALL_PORTAINER" = true ]; then
-            echo "  - Portainer: https://portainer.$DOMAIN"
-            [ -n "$PORTAINER_USER" ] && echo "    Utilisateur: $PORTAINER_USER"
+        info "🔐 Portail de connexion (SSO) : https://auth.$DOMAIN"
+        [ "$INSTALL_JELLYFIN" = true ] && echo "  - Jellyfin : https://jellyfin.$DOMAIN"
+        [ "$INSTALL_PLEX" = true ]     && echo "  - Plex     : http://<ip-du-serveur>:32400/web"
+        if [ ${#adm[@]} -gt 0 ]; then
+            info "🛠️  Administration (groupe admins, via SSO) :"
+            echo "  - Traefik : https://traefik.$DOMAIN"
+            for s in "${adm[@]}"; do
+                sub=$s; [ "$s" = uptime-kuma ] && sub=uptime
+                echo "  - $s : https://${sub}.$DOMAIN"
+            done
         fi
-        [ "$INSTALL_DUPLICATI" = true ] && echo "  - Duplicati: https://duplicati.$DOMAIN"
-
-        echo ""
-        info "👥 Services utilisateurs (exemple pour 'user1'):"
-        echo "  - qBittorrent: https://user1.$DOMAIN/qbittorrent"
-        echo "  - Homarr: https://user1.$DOMAIN"
-        echo "  - Filebrowser: https://user1.$DOMAIN/files"
-        echo "  - Sonarr: https://user1.$DOMAIN/sonarr"
-        echo "  - Radarr: https://user1.$DOMAIN/radarr"
-
-        echo ""
-        info "🔐 Connexion:"
-        echo "  1. Connectez-vous sur https://auth.$DOMAIN"
-        echo "  2. Accédez à tous les services sans re-login (SSO)"
+        info "👥 Chaque utilisateur : https://<utilisateur>.$DOMAIN (tableau de bord Homarr)"
+        echo "     qBittorrent …/qbittorrent · Filebrowser …/files · Sonarr …/sonarr · Radarr …/radarr"
+        echo "     (qBittorrent et Filebrowser redemandent les identifiants de la seedbox)"
+        info "⏳ Certificats Let's Encrypt obtenus au premier accès (DNS *.${DOMAIN} requis)"
     else
-        info "Services disponibles:"
-        echo "  - Authelia (auth): http://votre-serveur:9091"
-        [ "$INSTALL_PLEX" = true ] && echo "  - Plex: http://votre-serveur:32400/web"
-        [ "$INSTALL_JELLYFIN" = true ] && echo "  - Jellyfin: http://votre-serveur:8096"
-        [ "$INSTALL_DASHDOT" = true ] && echo "  - Dashdot: http://votre-serveur:3002"
-        [ "$INSTALL_SCRUTINY" = true ] && echo "  - Scrutiny: http://votre-serveur:8080"
-        [ "$INSTALL_UPTIME_KUMA" = true ] && echo "  - Uptime Kuma: http://votre-serveur:3001"
-        [ "$INSTALL_TAUTULLI" = true ] && echo "  - Tautulli: http://votre-serveur:8181"
-        if [ "$INSTALL_PORTAINER" = true ]; then
-            echo "  - Portainer: http://votre-serveur:9000"
-            [ -n "$PORTAINER_USER" ] && echo "    Utilisateur: $PORTAINER_USER"
+        [ "$INSTALL_JELLYFIN" = true ] && echo "  - Jellyfin : http://<ip-du-serveur>:8096"
+        [ "$INSTALL_PLEX" = true ]     && echo "  - Plex     : http://<ip-du-serveur>:32400/web"
+        info "👥 Adresses des services de chaque utilisateur : sudo $INSTALL_DIR/scripts/list_user_services.sh <utilisateur>"
+        if [ ${#adm[@]} -gt 0 ]; then
+            info "🛠️  Administration : ports LOCAUX uniquement (sécurité, pas d'authentification)."
+            echo "     Accès par tunnel SSH, par ex. :"
+            for s in "${adm[@]}"; do
+                port=$(grep -A12 "^  ${s}:" "$INSTALL_DIR/docker-compose.yml" | grep -oE ':[0-9]+:[0-9]+"' | head -1 | cut -d: -f2)
+                echo "  - $s : ssh -L ${port}:localhost:${port} <compte>@<serveur>  puis  http://localhost:${port}"
+            done
         fi
-        [ "$INSTALL_DUPLICATI" = true ] && echo "  - Duplicati: http://votre-serveur:8200"
     fi
+    [ "$INSTALL_PORTAINER" = true ] && [ -n "$PORTAINER_USER" ] && echo "  (Portainer : utilisateur $PORTAINER_USER)"
+    echo ""
 
     echo -e "\n${YELLOW}Prochaines étapes:${NC}"
     echo ""
@@ -1316,7 +991,7 @@ main() {
     echo ""
     echo "1. Ajouter des utilisateurs:"
     echo "   cd $INSTALL_DIR/scripts"
-    echo "   sudo ./add_user.sh <username> <password> <email> [quota]"
+    echo "   sudo ./add_user.sh <username> <password> <email> [quota] [--admin]"
     echo ""
     echo "2. Installer des services optionnels:"
     echo "   sudo ./add_service.sh <service_name>"
@@ -1324,7 +999,10 @@ main() {
     echo "3. Gérer les quotas:"
     echo "   sudo ./update_quota.sh <username> <quota_gb>"
     echo ""
-    echo -e "${BLUE}📚 Documentation complète: $INSTALL_DIR/../docs/${NC}"
+    echo "4. Vérifier l'état de la seedbox:"
+    echo "   sudo ./healthcheck.sh"
+    echo ""
+    echo -e "${BLUE}📚 Documentation : dossier docs/ du dépôt ($SOURCE_DIR/docs)${NC}"
 
     log "Installation terminée !"
 }

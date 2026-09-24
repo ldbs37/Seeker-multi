@@ -135,10 +135,9 @@ fi
 # 4. Sauvegarder docker-compose.yml
 #######################
 
-if [ -f "$DOCKER_COMPOSE_FILE" ]; then
-    cp "$DOCKER_COMPOSE_FILE" "${DOCKER_COMPOSE_FILE}.pre-traefik-backup"
-    log "✓ Sauvegarde de docker-compose.yml créée"
-fi
+[ -f "$DOCKER_COMPOSE_FILE" ] || error "docker-compose.yml introuvable ($DOCKER_COMPOSE_FILE) — lancez d'abord l'installation"
+cp "$DOCKER_COMPOSE_FILE" "${DOCKER_COMPOSE_FILE}.pre-traefik-backup"
+log "✓ Sauvegarde de docker-compose.yml créée"
 
 #######################
 # 5. Ajouter Traefik au docker-compose.yml
@@ -146,8 +145,8 @@ fi
 
 log "Ajout de Traefik au docker-compose.yml..."
 
-# Vérifier si Traefik existe déjà
-if grep -q "traefik:" "$DOCKER_COMPOSE_FILE"; then
+# Vérifier si Traefik existe déjà (clé de service exacte, pas "traefik_proxy:")
+if grep -q "^  traefik:" "$DOCKER_COMPOSE_FILE"; then
     warn "Traefik existe déjà dans docker-compose.yml, ignoré"
 else
     # Ajouter le service Traefik
@@ -179,7 +178,7 @@ else
       - "traefik.http.routers.dashboard.service=api@internal"
       - "traefik.http.routers.dashboard.middlewares=authelia@docker"
     environment:
-      - TZ=Europe/Paris
+      - TZ=\${TZ:-Europe/Paris}
 EOF
 
     log "✓ Traefik ajouté au docker-compose.yml"
@@ -197,30 +196,30 @@ if [ -f "$AUTHELIA_CONFIG" ]; then
     # Sauvegarder
     cp "$AUTHELIA_CONFIG" "${AUTHELIA_CONFIG}.pre-traefik-backup"
 
-    # Mettre à jour le domaine de session
-    sed -i "s/domain: .*/domain: $DOMAIN/" "$AUTHELIA_CONFIG"
-
-    log "✓ Configuration Authelia mise à jour"
+    # Si le domaine a changé depuis l'installation, remplacer l'ancien domaine
+    # partout (cookie de session, authelia_url, règles d'accès et regex).
+    OLD_DOMAIN=""
+    [ -f "$INSTALL_DIR/.env" ] && OLD_DOMAIN=$(grep '^DOMAIN=' "$INSTALL_DIR/.env" | cut -d'=' -f2)
+    if [ -n "$OLD_DOMAIN" ] && [ "$OLD_DOMAIN" != "$DOMAIN" ]; then
+        old_lit=$(printf '%s' "$OLD_DOMAIN" | sed 's/[.[\*^$/]/\\&/g')      # ancien, littéral
+        old_re=$(printf '%s' "$OLD_DOMAIN" | sed 's/\./\\\\\\./g')           # ancien, forme regex (a\.b)
+        new_re=$(printf '%s' "$DOMAIN" | sed 's/\./\\\\./g')
+        sed -i "s/${old_re}/${new_re}/g; s/${old_lit}/${DOMAIN}/g" "$AUTHELIA_CONFIG"
+        log "✓ Domaine Authelia mis à jour : $OLD_DOMAIN -> $DOMAIN"
+    else
+        log "✓ Configuration Authelia déjà alignée sur $DOMAIN"
+    fi
 fi
 
-# Ajouter les labels Authelia si pas déjà présents
-if ! grep -q "traefik.http.middlewares.authelia.forwardauth" "$DOCKER_COMPOSE_FILE"; then
-    log "Ajout des labels Authelia pour Forward Auth..."
-
-    # Trouver la section authelia et ajouter les labels
-    sed -i '/authelia:/,/^  [a-z]/ {
-        /^  [a-z]/i\    labels:\
-      - "traefik.enable=true"\
-      - "traefik.http.routers.authelia.rule=Host(\`auth.'$DOMAIN'\`)"\
-      - "traefik.http.routers.authelia.entrypoints=websecure"\
-      - "traefik.http.routers.authelia.tls.certresolver=letsencrypt"\
-      - "traefik.http.services.authelia.loadbalancer.server.port=9091"\
-      - "traefik.http.middlewares.authelia.forwardauth.address=http://authelia:9091/api/verify?rd=https://auth.'$DOMAIN'"\
-      - "traefik.http.middlewares.authelia.forwardauth.trustForwardHeader=true"\
-      - "traefik.http.middlewares.authelia.forwardauth.authResponseHeaders=Remote-User,Remote-Groups,Remote-Name,Remote-Email"
-    }' "$DOCKER_COMPOSE_FILE"
-
-    log "✓ Labels Authelia ajoutés"
+# Les services existants (dont Authelia et son middleware forward-auth) sont
+# câblés à Traefik par generate_traefik_labels.sh (migration). À l'installation
+# en mode Traefik, ils le sont déjà via generate_docker_compose.
+if grep -q "traefik.http.middlewares.authelia.forwardauth" "$DOCKER_COMPOSE_FILE"; then
+    MIGRATION_NEEDED=false
+    log "✓ Services déjà configurés pour Traefik"
+else
+    MIGRATION_NEEDED=true
+    warn "Services existants non encore câblés à Traefik (migration requise)"
 fi
 
 #######################
@@ -229,13 +228,10 @@ fi
 
 log "Ajout du réseau traefik_proxy au docker-compose.yml..."
 
-if ! grep -q "traefik_proxy:" "$DOCKER_COMPOSE_FILE"; then
-    cat >> "$DOCKER_COMPOSE_FILE" << EOF
-
-networks:
-  traefik_proxy:
-    external: true
-EOF
+if ! grep -q "^  traefik_proxy:" "$DOCKER_COMPOSE_FILE"; then
+    # Inséré EN TÊTE (avant "services:") : les scripts ajoutent ensuite des
+    # services en fin de fichier (>>) ; un bloc networks: final les avalerait.
+    sed -i '0,/^services:/s//networks:\n  traefik_proxy:\n    external: true\n\nservices:/' "$DOCKER_COMPOSE_FILE"
     log "✓ Réseau ajouté au docker-compose.yml"
 else
     info "Réseau déjà présent dans docker-compose.yml"
@@ -293,15 +289,16 @@ info ""
 info "   1. Vérifier DNS :"
 info "      Assurez-vous que *.${DOMAIN} pointe vers ce serveur"
 info ""
-info "   2. Générer les labels pour les services existants :"
-info "      sudo ./generate_traefik_labels.sh"
+if [ "$MIGRATION_NEEDED" = true ]; then
+    info "   2. Migrer les services existants vers Traefik (labels, réseau,"
+    info "      SSO, ports restreints) puis redémarrer — tout est automatique :"
+    info "      sudo $INSTALL_DIR/scripts/generate_traefik_labels.sh"
+else
+    info "   2. Démarrer / redémarrer les services :"
+    info "      cd $INSTALL_DIR && docker compose up -d"
+fi
 info ""
-info "   3. Redémarrer les services :"
-info "      cd $INSTALL_DIR"
-info "      docker-compose down"
-info "      docker-compose up -d"
-info ""
-info "   4. Tester :"
+info "   3. Tester :"
 info "      curl https://auth.$DOMAIN"
 info ""
 info "💡 Pour ajouter de nouveaux services :"

@@ -1,396 +1,162 @@
 # Scripts de Gestion Seedbox
 
-Ce dossier contient les scripts de gestion pour votre installation seedbox multi-utilisateurs.
+Scripts de gestion de l'installation seedbox multi-utilisateurs
+(installés dans `/opt/seedbox/scripts`). Tous requièrent `sudo`.
+Le plus simple reste le menu : `sudo /opt/seedbox/menu.sh`.
 
-## 📋 Scripts disponibles
+## 👤 Utilisateurs
 
-### 👤 Gestion des utilisateurs
-
-#### `add_user.sh`
-Ajoute un nouvel utilisateur avec les services de base (qBittorrent, Homarr, Filebrowser).
-
-**Usage:**
+### `add_user.sh`
 ```bash
-sudo ./add_user.sh <username> <password> <email> [quota_gb] [--with-services]
+sudo ./add_user.sh <username> <password> <email> [quota_gb] [--admin]
+```
+Crée le compte système (UID ≥ 2001), le compte Authelia, les dossiers, le
+quota projet et les services de base **qBittorrent + Homarr + Filebrowser**,
+tous avec les mêmes identifiants. En terminal interactif, propose ensuite les
+services optionnels.
+
+- `username` : `^[a-z][a-z0-9]{0,31}$` (sert de sous-domaine et de nom de conteneur)
+- `password` : 12 caractères minimum
+- `quota_gb` : 500 par défaut, 0 = illimité (quotas à activer avant, voir `enable_quotas.sh`)
+- `--admin` : membre du groupe `admins` d'Authelia (accès Traefik, Portainer…)
+
+```bash
+sudo ./add_user.sh john 'MySecurePass123' john@example.com 500
 ```
 
-**Services de base (toujours installés) :**
-- qBittorrent (client torrent)
-- Homarr (dashboard personnel)
-- Filebrowser (gestionnaire de fichiers)
-
-**Exemples:**
-```bash
-# Installation basique (services de base seulement)
-sudo ./add_user.sh john MySecurePass123 john@example.com 500
-
-# Installation interactive (propose l'installation des services optionnels)
-sudo ./add_user.sh john MySecurePass123 john@example.com 500 --with-services
-```
-
----
-
-#### `add_user_service.sh`
-Ajoute un service optionnel à un utilisateur existant.
-
-**Usage:**
+### `add_user_service.sh`
 ```bash
 sudo ./add_user_service.sh <username> <service>
 ```
+Services : `sonarr radarr readarr bazarr prowlarr overseerr calibre`.
+URL de base (mode Traefik) pré-configurée, tableau de bord Homarr mis à jour.
 
-**Services disponibles:**
-- `sonarr` - Gestion de séries TV
-- `radarr` - Gestion de films
-- `readarr` - Gestion de livres
-- `bazarr` - Gestion de sous-titres
-- `prowlarr` - Gestion d'indexeurs
-- `overseerr` - Système de requêtes
-- `calibre` - Bibliothèque ebooks
-
-**Exemples:**
-```bash
-# Ajouter Sonarr à l'utilisateur john
-sudo ./add_user_service.sh john sonarr
-
-# Ajouter Radarr
-sudo ./add_user_service.sh john radarr
-
-# Ajouter plusieurs services
-sudo ./add_user_service.sh john prowlarr
-sudo ./add_user_service.sh john overseerr
-```
-
----
-
-#### `list_user_services.sh`
-Liste tous les services d'un utilisateur (installés et disponibles).
-
-**Usage:**
-```bash
-sudo ./list_user_services.sh <username>
-```
-
-**Exemple:**
+### `list_user_services.sh`
 ```bash
 sudo ./list_user_services.sh john
 ```
-
-**Affichage:**
 ```
-Services installés:
-  ✓ qbittorrent - Port: 8090 - Running
-  ✓ homarr - Port: 7576 - Running
-  ✓ sonarr - Port: 8990 - Running
-
-Services disponibles (non installés):
-  ○ radarr - Port: 7879
-  ○ readarr - Port: 8788
-  ○ bazarr - Port: 6768
+Services de john (UID 2001) :
+  qbittorrent  ● actif  https://john.exemple.com/qbittorrent
+  homarr       ● actif  https://john.exemple.com
+  sonarr       ● actif  https://john.exemple.com/sonarr
+[INFO] Port torrent entrant : 20010 (TCP/UDP)
+[INFO] Services installables : radarr readarr …
 ```
 
----
-
-#### `remove_user.sh`
-Supprime un utilisateur et tous ses services.
-
-**Usage:**
+### `remove_user.sh`
 ```bash
-sudo ./remove_user.sh <username> [--keep-data]
+sudo ./remove_user.sh <username> [--keep-data] [--yes]
 ```
+Retire conteneurs, blocs du `docker-compose.yml`, compte Authelia, règle de
+pare-feu, quota et compte système. Refuse de supprimer le dernier administrateur.
 
-**Exemples:**
+### `remove_service.sh`
 ```bash
-# Suppression complète (données incluses)
-sudo ./remove_user.sh john
-
-# Suppression en conservant les données
-sudo ./remove_user.sh john --keep-data
+sudo ./remove_service.sh sonarr-john   # service d'un utilisateur
+sudo ./remove_service.sh portainer     # service système
 ```
+Les données restent sur le disque. Authelia, FlareSolverr, Traefik et les
+services de base d'un utilisateur ne peuvent pas être retirés ainsi.
 
----
-
-#### `update_quota.sh`
-Modifie le quota de stockage d'un utilisateur.
-
-**Usage:**
+### `update_password.sh`
 ```bash
-sudo ./update_quota.sh <username> <quota_gb>
+sudo ./update_password.sh <username> [nouveau_mot_de_passe]
 ```
+Met à jour : Linux, Authelia, qBittorrent, Filebrowser et Jellyfin (si clé API).
+Sans mot de passe en argument, il est demandé de façon masquée.
 
-**Exemple:**
+### `update_quota.sh` / `enable_quotas.sh`
 ```bash
-sudo ./update_quota.sh john 1000  # 1TB
+sudo ./enable_quotas.sh            # une fois (redémarrage si FS racine)
+sudo ./update_quota.sh john 1000   # 1 To ; 0 = illimité
 ```
+Quotas **projet** : la limite porte sur le dossier `data/users/<user>`.
 
----
+### `configure_homarr.sh`, `configure_jellyfin_user.sh`, `disable_arr_auth.sh`
+Régénère le tableau de bord Homarr d'un utilisateur ; crée/met à jour son
+compte Jellyfin (accès limité à ses bibliothèques) ; passe l'authentification
+d'un *arr en « External » (derrière Authelia).
 
-### 🔧 Gestion des services système
+## 🔧 Services système
 
-#### `add_service.sh`
-Installe un service système optionnel.
-
-**Usage:**
+### `add_service.sh`
 ```bash
-sudo ./add_service.sh <service_name>
+sudo ./add_service.sh <plex|jellyfin|portainer|scrutiny|uptime-kuma|dashdot|tautulli|watchtower|duplicati>
 ```
+Reconstruit la partie système du `docker-compose.yml` (validation avant
+application). Portainer et Jellyfin : compte admin créé automatiquement.
 
-**Services disponibles:**
+## 🌐 Accès distant
 
-| Service | Description | Port | Commande |
-|---------|-------------|------|----------|
-| `plex` | Serveur de streaming média | 32400 | `sudo ./add_service.sh plex` |
-| `jellyfin` | Alternative open-source à Plex | 8096 | `sudo ./add_service.sh jellyfin` |
-| `scrutiny` | Monitoring S.M.A.R.T. des disques | 8080 | `sudo ./add_service.sh scrutiny` |
-| `uptime-kuma` | Surveillance de disponibilité | 3001 | `sudo ./add_service.sh uptime-kuma` |
-| `watchtower` | Mises à jour automatiques | - | `sudo ./add_service.sh watchtower` |
-| `duplicati` | Système de backup | 8200 | `sudo ./add_service.sh duplicati` |
-
-**Exemples:**
-```bash
-# Installer Jellyfin (alternative à Plex)
-sudo ./add_service.sh jellyfin
-
-# Installer le monitoring des disques
-sudo ./add_service.sh scrutiny
-
-# Installer le système de backup
-sudo ./add_service.sh duplicati
-```
-
----
-
-## 🚀 Workflow recommandé
-
-### Ajouter un nouvel utilisateur
-
-**Option 1: Installation minimale (recommandée)**
-```bash
-# 1. Créer l'utilisateur avec services de base
-sudo ./add_user.sh alice SecurePass456 alice@example.com 750
-
-# 2. Ajouter les services dont l'utilisateur a besoin
-sudo ./add_user_service.sh alice sonarr
-sudo ./add_user_service.sh alice radarr
-sudo ./add_user_service.sh alice prowlarr
-```
-
-**Option 2: Installation interactive**
-```bash
-# Le script proposera d'installer chaque service optionnel
-sudo ./add_user.sh alice SecurePass456 alice@example.com 750 --with-services
-```
-
-### Vérifier les services d'un utilisateur
-
-```bash
-# Lister tous les services
-sudo ./list_user_services.sh alice
-
-# Vérifier les conteneurs Docker
-docker ps | grep alice
-```
-
-### Modifier la configuration
-
-```bash
-# Augmenter le quota
-sudo ./update_quota.sh alice 2000
-
-# Ajouter un nouveau service
-sudo ./add_user_service.sh alice overseerr
-```
-
----
-
-## 📊 Attribution des ports
-
-Chaque utilisateur obtient des ports uniques calculés depuis son UID:
-
-| Service | Formule | User1 (UID 1001) | User2 (UID 1002) |
-|---------|---------|------------------|------------------|
-| **Services de base** |||
-| qBittorrent | 8080 + (UID-1000)*10 | 8090 | 8100 |
-| Homarr | 7575 + (UID-1000) | 7576 | 7577 |
-| Filebrowser | 8081 + (UID-1000) | 8082 | 8083 |
-| **Services optionnels** |||
-| Sonarr | 8989 + (UID-1000) | 8990 | 8991 |
-| Radarr | 7878 + (UID-1000) | 7879 | 7880 |
-| Readarr | 8787 + (UID-1000) | 8788 | 8789 |
-| Bazarr | 6767 + (UID-1000) | 6768 | 6769 |
-| Prowlarr | 9696 + (UID-1000) | 9697 | 9698 |
-| Overseerr | 5055 + (UID-1000) | 5056 | 5057 |
-| Calibre | 8083 + (UID-1000) | 8084 | 8085 |
-
----
-
-## 🎯 Cas d'usage
-
-### Utilisateur basique (downloads seulement)
-
-```bash
-# Créer avec services de base uniquement
-sudo ./add_user.sh bob Password123 bob@mail.com 300
-
-# Bob obtient : qBittorrent, Homarr, Filebrowser
-```
-
-### Utilisateur séries TV
-
-```bash
-# Services de base + Sonarr + Prowlarr
-sudo ./add_user.sh alice Pass456 alice@mail.com 500
-sudo ./add_user_service.sh alice sonarr
-sudo ./add_user_service.sh alice prowlarr
-sudo ./add_user_service.sh alice bazarr
-```
-
-### Utilisateur complet (films + séries)
-
-```bash
-# Installation interactive
-sudo ./add_user.sh john Pass789 john@mail.com 1000 --with-services
-
-# Ou manuellement
-sudo ./add_user.sh john Pass789 john@mail.com 1000
-sudo ./add_user_service.sh john sonarr
-sudo ./add_user_service.sh john radarr
-sudo ./add_user_service.sh john prowlarr
-sudo ./add_user_service.sh john bazarr
-sudo ./add_user_service.sh john overseerr
-```
-
----
-
-## 🔐 Sécurité
-
-- Tous les scripts requièrent les privilèges root (`sudo`)
-- Les mots de passe sont hashés avec Argon2 pour Authelia
-- Chaque utilisateur a son propre UID/GID système
-- Les données sont isolées par utilisateur
-- Les quotas sont appliqués au niveau système
-
----
-
-## 🛠️ Dépannage
-
-### Vérifier les logs d'un service
-
-```bash
-docker logs <service-username>
-# Exemple:
-docker logs sonarr-john
-```
-
-### Redémarrer un service utilisateur
-
-```bash
-docker restart <service-username>
-# Exemple:
-docker restart radarr-alice
-```
-
-### Vérifier l'utilisation du quota
-
-```bash
-sudo quota -v -u <username>
-```
-
-### Service ne démarre pas
-
-```bash
-# Vérifier les logs
-docker logs <service-username>
-
-# Vérifier si le port est libre
-sudo netstat -tulpn | grep <port>
-
-# Redémarrer le service
-docker restart <service-username>
-```
-
----
-
-## 💡 Conseils
-
-### Optimisation de l'espace
-
-- Commencez toujours par les services de base
-- Ajoutez les services optionnels uniquement si nécessaire
-- Utilisez `list_user_services.sh` pour voir ce qui est installé
-
-### Performance
-
-- Les services de base (qBittorrent, Homarr, Filebrowser) sont légers
-- Sonarr/Radarr peuvent consommer plus de RAM avec de grandes bibliothèques
-- Prowlarr est recommandé si l'utilisateur utilise Sonarr/Radarr
-
-### Organisation
-
-- Créez d'abord l'utilisateur avec services de base
-- Testez l'accès et le fonctionnement
-- Ajoutez les services optionnels progressivement
-- Utilisez `list_user_services.sh` pour documenter la configuration
-
----
-
-## 📁 Structure des dossiers
-
-```
-/opt/seedbox/
-├── data/
-│   └── users/
-│       └── <username>/
-│           ├── downloads/
-│           ├── movies/
-│           ├── tv/
-│           └── books/
-├── qbittorrent/<username>/
-├── homarr/<username>/
-├── filebrowser/<username>/
-├── sonarr/<username>/       (optionnel)
-├── radarr/<username>/       (optionnel)
-├── readarr/<username>/      (optionnel)
-├── bazarr/<username>/       (optionnel)
-├── prowlarr/<username>/     (optionnel)
-├── overseerr/<username>/    (optionnel)
-├── calibre/<username>/      (optionnel)
-└── docker-compose.yml
-```
-
----
+| Script | Rôle |
+|--------|------|
+| `setup_traefik.sh <domaine> <email>` | Installe Traefik + Let's Encrypt |
+| `generate_traefik_labels.sh [--yes]` | Migre une installation « ports directs » vers Traefik + SSO (snapshot, validation, retour arrière auto) |
+| `setup_cloudflare.sh` / `setup_duckdns.sh` | Enregistrements DNS |
+| `check_dns.sh <domaine>` | Vérifie la résolution DNS (wildcard) |
 
 ## 🔄 Maintenance
 
-### Mettre à jour tous les conteneurs
+| Script | Rôle |
+|--------|------|
+| `update.sh [--system\|--docker\|--seedbox\|--all]` | Mises à jour (snapshot avant, healthcheck après, rollback du compose si échec) |
+| `healthcheck.sh [--quiet]` | Vérification complète (code retour 1 si échec) |
+| `backup.sh [--auto] [--label x]` | Snapshot de configuration dans `/opt/seedbox/backups` (données média exclues) |
+| `restore.sh [archive]` | Restauration (snapshot de sécurité préalable) |
 
-```bash
-cd /opt/seedbox
-docker-compose pull
-docker-compose up -d
+## 📊 Ports (mode port direct)
+
+Bloc de 20 ports par utilisateur : `20000 + (UID − 2001) × 20 + décalage`.
+
+| Service | Décalage | UID 2001 | UID 2002 |
+|---------|----------|----------|----------|
+| qBittorrent | 0 | 20000 | 20020 |
+| Homarr | 1 | 20001 | 20021 |
+| Filebrowser | 2 | 20002 | 20022 |
+| Sonarr | 3 | 20003 | 20023 |
+| Radarr | 4 | 20004 | 20024 |
+| Readarr | 5 | 20005 | 20025 |
+| Bazarr | 6 | 20006 | 20026 |
+| Prowlarr | 7 | 20007 | 20027 |
+| Overseerr | 8 | 20008 | 20028 |
+| Calibre-Web | 9 | 20009 | 20029 |
+| Port torrent (TCP+UDP, aussi en mode Traefik) | 10 | 20010 | 20030 |
+
+En mode Traefik, seules les URL `https://<user>.<domaine>/<service>` (et
+`https://overseerr-<user>.<domaine>`) sont utilisées.
+
+## 📁 Structure
+
+```
+/opt/seedbox/
+├── data/users/<user>/        # monté sur /data (qBittorrent + *arr)
+│   ├── downloads/ tv/ movies/ books/
+│   └── config/{qbittorrent,homarr,filebrowser}/
+├── sonarr/<user>/ radarr/<user>/ readarr/<user>/ bazarr/<user>/
+├── prowlarr/<user>/ overseerr/<user>/ calibre/<user>/
+├── authelia/  backups/  scripts/
+├── docker-compose.yml
+└── .env
 ```
 
-### Nettoyer les conteneurs arrêtés
+Montage `/data` unique ⇒ imports Sonarr/Radarr par **hardlink** : aucun
+doublon d'espace disque entre `downloads/` et la bibliothèque. Dans les *arr,
+utilisez `/data/tv`, `/data/movies` ou `/data/books` comme dossier racine et
+`qbittorrent-<user>` comme hôte du client torrent.
+
+## 🧱 Bibliothèques internes (`lib_*.sh`)
+
+Sourcées par les scripts, source unique de vérité :
+`lib_ports.sh` (UID/ports), `lib_services.sh` (blocs compose utilisateur),
+`lib_traefik.sh` (routage), `lib_compose_base.sh` (services système),
+`lib_qbittorrent.sh` (hash PBKDF2), `lib_autoconfig.sh` (Portainer/Jellyfin),
+`lib_quota.sh` (quotas projet).
+
+## 🛠️ Dépannage
 
 ```bash
-docker system prune -a
+docker logs sonarr-john              # logs d'un service
+docker restart radarr-alice          # redémarrage
+sudo ./healthcheck.sh                # diagnostic global
 ```
-
-### Vérifier l'espace disque par utilisateur
-
-```bash
-du -sh /opt/seedbox/data/users/*
-```
-
----
-
-## 📞 Support
-
-Pour toute question :
-- Consultez le README principal : `../README.md`
-- Vérifiez les logs : `docker-compose logs`
-- Testez avec `list_user_services.sh`
-
----
-
-**Version:** 2.1 (Services modulaires)
-**Dernière mise à jour:** 2025

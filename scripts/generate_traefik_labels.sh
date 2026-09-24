@@ -1,267 +1,154 @@
 #!/bin/bash
 
 #######################
-# Script de génération automatique des labels Traefik
-# Parcourt tous les conteneurs et ajoute les labels appropriés
-# Usage: ./generate_traefik_labels.sh
+# Migration d'une installation en mode "port direct" vers Traefik + SSO
+# Usage: ./generate_traefik_labels.sh [--yes]
+#
+# Prérequis : setup_traefik.sh <domaine> <email> déjà exécuté (réseau
+# traefik_proxy, config statique et service "traefik" dans le compose).
+#
+# Reconstruit docker-compose.yml en mode Traefik plutôt que de modifier le YAML
+# à la main : services système régénérés (labels, SSO, ports locaux), service
+# traefik conservé tel quel, services utilisateurs régénérés (routage par
+# chemin, sans ports publiés hormis le port torrent). Préconfigure les applis
+# (URL de base des *arr/Bazarr, reverse-proxy qBittorrent), sauvegarde la
+# configuration avant, valide avant d'appliquer, puis vérifie (healthcheck).
 #######################
 
 set -e
 
-# Couleurs
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
-
-# Fonctions
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
 log() { echo -e "${GREEN}[$(date +'%Y-%m-%d %H:%M:%S')]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 warn() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 
-# Configuration
 INSTALL_DIR="/opt/seedbox"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DOCKER_COMPOSE_FILE="$INSTALL_DIR/docker-compose.yml"
 ENV_FILE="$INSTALL_DIR/.env"
 
-# Vérification root
-if [[ $EUID -ne 0 ]]; then
-    error "Ce script doit être exécuté en tant que root"
-fi
+for lib in lib_ports lib_traefik lib_qbittorrent lib_services lib_compose_base; do
+    [ -f "$SCRIPT_DIR/$lib.sh" ] || error "$lib.sh introuvable dans $SCRIPT_DIR"
+    # shellcheck source=/dev/null
+    source "$SCRIPT_DIR/$lib.sh"
+done
 
-# Charger le domaine depuis .env
-if [ ! -f "$ENV_FILE" ] || ! grep -q "^DOMAIN=" "$ENV_FILE"; then
-    error "Domaine non configuré. Exécutez d'abord setup_traefik.sh"
-fi
+[[ $EUID -eq 0 ]] || error "Ce script doit être exécuté en tant que root"
+[ -f "$DOCKER_COMPOSE_FILE" ] || error "docker-compose.yml introuvable ($DOCKER_COMPOSE_FILE)"
+[ -f "$ENV_FILE" ] || error ".env introuvable ($ENV_FILE)"
+grep -q '^  traefik:' "$DOCKER_COMPOSE_FILE" \
+    || error "Service Traefik absent : exécutez d'abord setup_traefik.sh <domaine> <email>"
 
-DOMAIN=$(grep "^DOMAIN=" "$ENV_FILE" | cut -d'=' -f2)
+envget() { grep "^$1=" "$ENV_FILE" | cut -d'=' -f2; }
+DOMAIN=$(envget DOMAIN); TZ=$(envget TZ); ADMIN_UID=$(envget ADMIN_UID); ADMIN_GID=$(envget ADMIN_GID)
+TZ=${TZ:-Europe/Paris}; ADMIN_UID=${ADMIN_UID:-1000}; ADMIN_GID=${ADMIN_GID:-1000}
+[ -n "$DOMAIN" ] || error "DOMAIN absent du .env"
+# shellcheck disable=SC2034  # lue par les bibliothèques sourcées
+USE_TRAEFIK=true
 
-log "Génération des labels Traefik pour le domaine $DOMAIN..."
+log "Migration vers Traefik pour le domaine $DOMAIN..."
 
 #######################
-# Fonction pour générer les labels
+# Inventaire du compose actuel
 #######################
-
-generate_labels() {
-    local service_name=$1
-    local username=$2
-    local port=$3
-    local path=$4
-    local protect_with_authelia=${5:-true}
-
-    local labels=""
-
-    # Déterminer le sous-domaine
-    local subdomain
-    if [ -n "$username" ]; then
-        subdomain="${username}.${DOMAIN}"
+mapfile -t NAMES < <(compose_service_names "$DOCKER_COMPOSE_FILE")
+detect_system_services "$DOCKER_COMPOSE_FILE"
+USER_ENTRIES=(); CUSTOM=()
+for n in "${NAMES[@]}"; do
+    [[ " $SYSTEM_SERVICES traefik " == *" $n "* ]] && continue
+    svc=${n%-*}; usr=${n##*-}
+    if [[ "$n" == *-* ]] && [[ " $USER_SERVICES " == *" $svc "* ]] && id "$usr" &>/dev/null; then
+        USER_ENTRIES+=("$svc:$usr")
     else
-        subdomain="${service_name}.${DOMAIN}"
+        CUSTOM+=("$n")
     fi
+done
+info "Services utilisateurs : ${#USER_ENTRIES[@]} ; blocs personnalisés conservés : ${CUSTOM[*]:-aucun}"
 
-    # Labels de base
-    labels+="      - \"traefik.enable=true\"\n"
-    labels+="      - \"traefik.http.routers.${service_name}.rule=Host(\\\`${subdomain}\\\`)\""
-
-    # Ajouter le path si spécifié
-    if [ -n "$path" ]; then
-        labels+=" && PathPrefix(\\\`${path}\\\`)"
-    fi
-    labels+="\n"
-
-    labels+="      - \"traefik.http.routers.${service_name}.entrypoints=websecure\"\n"
-    labels+="      - \"traefik.http.routers.${service_name}.tls.certresolver=letsencrypt\"\n"
-    labels+="      - \"traefik.http.services.${service_name}.loadbalancer.server.port=${port}\"\n"
-
-    # Protection Authelia
-    if [ "$protect_with_authelia" = "true" ]; then
-        labels+="      - \"traefik.http.routers.${service_name}.middlewares=authelia@docker\"\n"
-    fi
-
-    echo -e "$labels"
-}
+if [ "${1:-}" != "--yes" ]; then
+    warn "Le docker-compose.yml va être reconstruit (sauvegarde automatique)."
+    read -r -p "Continuer ? (o/N): " c
+    [[ "$c" =~ ^[oO]$ ]] || { info "Annulé"; exit 0; }
+fi
 
 #######################
-# Sauvegarder docker-compose.yml
+# Sauvegardes
 #######################
-
-cp "$DOCKER_COMPOSE_FILE" "${DOCKER_COMPOSE_FILE}.pre-labels-backup"
-log "✓ Sauvegarde créée : ${DOCKER_COMPOSE_FILE}.pre-labels-backup"
+[ -x "$SCRIPT_DIR/backup.sh" ] && INSTALL_DIR="$INSTALL_DIR" "$SCRIPT_DIR/backup.sh" --auto --label pre-traefik >/dev/null 2>&1 \
+    && log "✓ Snapshot de configuration créé (restore.sh pour revenir en arrière)"
+cp "$DOCKER_COMPOSE_FILE" "${DOCKER_COMPOSE_FILE}.pre-migration"
+cp "$ENV_FILE" "${ENV_FILE}.pre-migration"
 
 #######################
-# Générer labels pour chaque type de service
+# Construction du nouveau compose
 #######################
+TMP="${DOCKER_COMPOSE_FILE%.yml}.new.yml"
+generate_docker_compose "$TMP"           # services système + .env (USE_TRAEFIK=true)
+compose_extract_blocks "${DOCKER_COMPOSE_FILE}.pre-migration" traefik >> "$TMP"
+# shellcheck disable=SC2034  # lue par les bibliothèques sourcées
+FB_PASSWORD_HASH=""
+for e in "${USER_ENTRIES[@]}"; do
+    svc=${e%%:*}; USERNAME=${e#*:}
+    USER_ID=$(id -u "$USERNAME"); USER_DIR="$INSTALL_DIR/data/users/$USERNAME"
+    service_block "$svc" >> "$TMP"
+done
+[ ${#CUSTOM[@]} -gt 0 ] && compose_extract_blocks "${DOCKER_COMPOSE_FILE}.pre-migration" "${CUSTOM[@]}" >> "$TMP"
 
-log "Analyse des services dans docker-compose.yml..."
+if ! compose_validate "$TMP"; then
+    rm -f "$TMP"
+    cp "${ENV_FILE}.pre-migration" "$ENV_FILE"
+    error "Le compose généré est invalide — aucune modification appliquée"
+fi
 
-# Créer un fichier temporaire pour le nouveau docker-compose
-TMP_FILE=$(mktemp)
+#######################
+# Application
+#######################
+log "Arrêt des services utilisateurs pour préconfiguration..."
+for e in "${USER_ENTRIES[@]}"; do
+    docker stop "${e%%:*}-${e#*:}" >/dev/null 2>&1 || true
+done
 
-# Fonction pour ajouter les labels à un service
-add_labels_to_service() {
-    local service_pattern=$1
-    local port=$2
-    local path=$3
-    local protect=$4
-
-    while IFS= read -r line; do
-        echo "$line" >> "$TMP_FILE"
-
-        # Si on trouve un service correspondant
-        if echo "$line" | grep -q "^  ${service_pattern}:"; then
-            local service_name=$(echo "$line" | sed 's/://g' | xargs)
-            local username=""
-
-            # Extraire le username du nom du service (format: service-username)
-            if [[ $service_name == *"-"* ]]; then
-                username=$(echo "$service_name" | cut -d'-' -f2-)
-            fi
-
-            # Vérifier si le service a déjà des labels
-            if ! grep -A 20 "^  ${service_pattern}:" "$DOCKER_COMPOSE_FILE" | grep -q "traefik.enable"; then
-                log "   Ajout labels pour $service_name..."
-
-                # Attendre la section labels ou l'ajouter
-                local in_service=true
-                local labels_added=false
-
-                while $in_service && IFS= read -r next_line; do
-                    # Si on arrive à un nouveau service, ajouter les labels avant
-                    if echo "$next_line" | grep -q "^  [a-z]"; then
-                        if [ "$labels_added" = "false" ]; then
-                            echo "    labels:" >> "$TMP_FILE"
-                            generate_labels "$service_name" "$username" "$port" "$path" "$protect" >> "$TMP_FILE"
-                        fi
-                        echo "$next_line" >> "$TMP_FILE"
-                        in_service=false
-                    else
-                        echo "$next_line" >> "$TMP_FILE"
-                    fi
-                done
-            fi
-        fi
-    done < "$DOCKER_COMPOSE_FILE"
-}
-
-# Lire le fichier ligne par ligne et traiter les services
-while IFS= read -r line; do
-    echo "$line" >> "$TMP_FILE"
-
-    # Détecter et ajouter les labels pour chaque type de service
-    case "$line" in
-        *"  qbittorrent-"*)
-            service_name=$(echo "$line" | sed 's/://g' | xargs)
-            username=$(echo "$service_name" | sed 's/qbittorrent-//')
-
-            if ! grep -A 30 "^  ${service_name}:" "$DOCKER_COMPOSE_FILE" | grep -q "traefik.enable"; then
-                log "   Ajout labels pour $service_name..."
-
-                # Lire jusqu'à trouver où insérer les labels
-                local add_labels=true
-                while $add_labels && IFS= read -r next_line; do
-                    if echo "$next_line" | grep -q "^  [a-z]"; then
-                        # Nouveau service, ajouter les labels avant
-                        echo "    labels:" >> "$TMP_FILE"
-                        generate_labels "$service_name" "$username" "8080" "/qbittorrent" "true" >> "$TMP_FILE"
-                        echo "$next_line" >> "$TMP_FILE"
-                        add_labels=false
-                    else
-                        echo "$next_line" >> "$TMP_FILE"
-                    fi
-                done
-            fi
-            ;;
-
-        *"  homarr-"*)
-            service_name=$(echo "$line" | sed 's/://g' | xargs)
-            username=$(echo "$service_name" | sed 's/homarr-//')
-
-            if ! grep -A 30 "^  ${service_name}:" "$DOCKER_COMPOSE_FILE" | grep -q "traefik.enable"; then
-                log "   Ajout labels pour $service_name..."
-                echo "    labels:" >> "$TMP_FILE"
-                generate_labels "$service_name" "$username" "7575" "" "true" >> "$TMP_FILE"
-            fi
-            ;;
-
-        *"  filebrowser-"*)
-            service_name=$(echo "$line" | sed 's/://g' | xargs)
-            username=$(echo "$service_name" | sed 's/filebrowser-//')
-
-            if ! grep -A 30 "^  ${service_name}:" "$DOCKER_COMPOSE_FILE" | grep -q "traefik.enable"; then
-                log "   Ajout labels pour $service_name..."
-                echo "    labels:" >> "$TMP_FILE"
-                generate_labels "$service_name" "$username" "80" "/files" "true" >> "$TMP_FILE"
-            fi
-            ;;
-
-        *"  sonarr-"*)
-            service_name=$(echo "$line" | sed 's/://g' | xargs)
-            username=$(echo "$service_name" | sed 's/sonarr-//')
-
-            if ! grep -A 30 "^  ${service_name}:" "$DOCKER_COMPOSE_FILE" | grep -q "traefik.enable"; then
-                log "   Ajout labels pour $service_name..."
-                echo "    labels:" >> "$TMP_FILE"
-                generate_labels "$service_name" "$username" "8989" "/sonarr" "true" >> "$TMP_FILE"
-            fi
-            ;;
-
-        *"  radarr-"*)
-            service_name=$(echo "$line" | sed 's/://g' | xargs)
-            username=$(echo "$service_name" | sed 's/radarr-//')
-
-            if ! grep -A 30 "^  ${service_name}:" "$DOCKER_COMPOSE_FILE" | grep -q "traefik.enable"; then
-                log "   Ajout labels pour $service_name..."
-                echo "    labels:" >> "$TMP_FILE"
-                generate_labels "$service_name" "$username" "7878" "/radarr" "true" >> "$TMP_FILE"
-            fi
-            ;;
-
-        *"  jellyfin:"*)
-            if ! grep -A 30 "^  jellyfin:" "$DOCKER_COMPOSE_FILE" | grep -q "traefik.enable"; then
-                log "   Ajout labels pour jellyfin..."
-                echo "    labels:" >> "$TMP_FILE"
-                generate_labels "jellyfin" "" "8096" "" "false" >> "$TMP_FILE"
-            fi
-            ;;
-
-        *"  plex:"*)
-            if ! grep -A 30 "^  plex:" "$DOCKER_COMPOSE_FILE" | grep -q "traefik.enable"; then
-                log "   Ajout labels pour plex..."
-                echo "    labels:" >> "$TMP_FILE"
-                generate_labels "plex" "" "32400" "" "false" >> "$TMP_FILE"
-            fi
-            ;;
-
-        *"  portainer:"*)
-            if ! grep -A 30 "^  portainer:" "$DOCKER_COMPOSE_FILE" | grep -q "traefik.enable"; then
-                log "   Ajout labels pour portainer..."
-                echo "    labels:" >> "$TMP_FILE"
-                generate_labels "portainer" "" "9000" "" "true" >> "$TMP_FILE"
-            fi
-            ;;
+PROXY_NET=$(docker network inspect traefik_proxy -f '{{(index .IPAM.Config 0).Subnet}}' 2>/dev/null || true)
+declare -A DONE_USERS=()
+for e in "${USER_ENTRIES[@]}"; do
+    svc=${e%%:*}; USERNAME=${e#*:}; USER_ID=$(id -u "$USERNAME")
+    # shellcheck disable=SC2034  # lue par les bibliothèques sourcées
+    USER_DIR="$INSTALL_DIR/data/users/$USERNAME"
+    cfg=$(service_config_dir "$svc")
+    case "$svc" in
+        qbittorrent)
+            conf="$cfg/qBittorrent/qBittorrent.conf"
+            if [ -f "$conf" ] && [ -n "$PROXY_NET" ]; then
+                ini_set "$conf" Preferences 'WebUI\ReverseProxySupportEnabled' 'true'
+                ini_set "$conf" Preferences 'WebUI\TrustedReverseProxiesList' "$PROXY_NET"
+                chown "$USER_ID:$USER_ID" "$conf"
+            fi ;;
+        *) traefik_prepare_app "$svc" "$cfg" "$USER_ID" ;;
     esac
+    DONE_USERS[$USERNAME]=1
+done
 
-done < "$DOCKER_COMPOSE_FILE"
+mv "$TMP" "$DOCKER_COMPOSE_FILE"
+log "✓ docker-compose.yml reconstruit en mode Traefik"
 
-# Remplacer le fichier original par le nouveau (temporairement commenté pour debug)
-# mv "$TMP_FILE" "$DOCKER_COMPOSE_FILE"
-# log "✓ Labels Traefik ajoutés au docker-compose.yml"
+log "Redémarrage des services..."
+cd "$INSTALL_DIR"
+if ! compose_cmd up -d --remove-orphans; then
+    warn "Échec du démarrage — restauration de la configuration précédente"
+    cp "${DOCKER_COMPOSE_FILE}.pre-migration" "$DOCKER_COMPOSE_FILE"
+    cp "${ENV_FILE}.pre-migration" "$ENV_FILE"
+    compose_cmd up -d --remove-orphans || true
+    error "Migration annulée (configuration restaurée)"
+fi
 
-# Pour l'instant, afficher le diff
-log "Aperçu des changements (fichier temporaire: $TMP_FILE)"
+for u in "${!DONE_USERS[@]}"; do
+    "$SCRIPT_DIR/configure_homarr.sh" "$u" >/dev/null 2>&1 || warn "Homarr de $u non régénéré"
+done
 
-echo ""
-info "═══════════════════════════════════════════════════════════"
-info "Génération des labels terminée"
-info "═══════════════════════════════════════════════════════════"
-info ""
-info "Fichier généré : $TMP_FILE"
-info "Sauvegarde : ${DOCKER_COMPOSE_FILE}.pre-labels-backup"
-info ""
-info "Pour appliquer les changements :"
-info "  mv $TMP_FILE $DOCKER_COMPOSE_FILE"
-info "  cd $INSTALL_DIR && docker-compose up -d"
-info ""
-info "═══════════════════════════════════════════════════════════"
+log "${GREEN}✓${NC} Migration terminée"
+info "Portail SSO : https://auth.$DOMAIN"
+for u in "${!DONE_USERS[@]}"; do info "   $u : https://$u.$DOMAIN"; done
+info "Les certificats Let's Encrypt sont obtenus au premier accès (DNS *.${DOMAIN} requis)."
+
+[ -x "$SCRIPT_DIR/healthcheck.sh" ] && { echo ""; "$SCRIPT_DIR/healthcheck.sh" --quiet || true; }

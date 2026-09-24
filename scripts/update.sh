@@ -40,7 +40,8 @@ compose() {
 SNAP_DONE=false
 snapshot_before() {
     $SNAP_DONE && return 0
-    local b="$(dirname "$0")/backup.sh"
+    local b
+    b="$(dirname "$0")/backup.sh"
     if [ -x "$b" ]; then
         log "Snapshot de la configuration avant mise à jour..."
         if INSTALL_DIR="$INSTALL_DIR" "$b" --auto --label preupdate >/dev/null; then
@@ -56,7 +57,8 @@ snapshot_before() {
 
 # Vérification complète du système (script séparé)
 run_healthcheck() {
-    local hc="$(dirname "$0")/healthcheck.sh"
+    local hc
+    hc="$(dirname "$0")/healthcheck.sh"
     if [ -x "$hc" ]; then
         echo ""
         log "Vérification du système (healthcheck)..."
@@ -122,7 +124,8 @@ update_docker_bump() {
 
     snapshot_before
     # Sauvegarde puis remplacement ciblé (repo identique, on ne change que le tag)
-    local backup="$COMPOSE.bak.$(date +%Y%m%d%H%M%S)"
+    local backup
+    backup="$COMPOSE.bak.$(date +%Y%m%d%H%M%S)"
     cp "$COMPOSE" "$backup"
     sed -i "s#\(image:[[:space:]]*${repo}\):[^[:space:]]*#\1:${newtag}#g" "$COMPOSE"
     log "docker-compose.yml : $repo:$oldtag -> $repo:$newtag (sauvegarde : $backup)"

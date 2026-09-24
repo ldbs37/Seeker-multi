@@ -62,7 +62,8 @@ check_dns_resolution() {
 
     # Tester avec dig
     if command -v dig &> /dev/null; then
-        local resolved_ip=$(dig +short "$test_domain" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -n1)
+        local resolved_ip
+        resolved_ip=$(dig +short "$test_domain" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -n1)
 
         if [ -z "$resolved_ip" ]; then
             error "❌ $test_domain ne résout vers aucune IP"
@@ -76,7 +77,8 @@ check_dns_resolution() {
         fi
     # Fallback sur nslookup
     elif command -v nslookup &> /dev/null; then
-        local resolved_ip=$(nslookup "$test_domain" | grep -A1 "Name:" | grep "Address:" | awk '{print $2}' | head -n1)
+        local resolved_ip
+        resolved_ip=$(nslookup "$test_domain" | grep -A1 "Name:" | grep "Address:" | awk '{print $2}' | head -n1)
 
         if [ -z "$resolved_ip" ]; then
             error "❌ $test_domain ne résout vers aucune IP"
@@ -128,7 +130,8 @@ check_dns_propagation() {
 
     for dns in "${dns_servers[@]}"; do
         if command -v dig &> /dev/null; then
-            local resolved_ip=$(dig +short @"$dns" "$domain" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -n1)
+            local resolved_ip
+            resolved_ip=$(dig +short @"$dns" "$domain" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -n1)
 
             if [ "$resolved_ip" = "$expected_ip" ]; then
                 success "✓ DNS $dns : $domain → $resolved_ip"

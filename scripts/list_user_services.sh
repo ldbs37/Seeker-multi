@@ -1,86 +1,54 @@
 #!/bin/bash
 
 #######################
-# Script de listage des services d'un utilisateur
+# Liste les services d'un utilisateur, leur état et leur adresse d'accès
 # Usage: ./list_user_services.sh <username>
 #######################
 
 set -e
 
-# Couleurs
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
-
-# Fonctions
-log() { echo -e "${GREEN}[$(date +'%Y-%m-%d %H:%M:%S')]${NC} $1"; }
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
 error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 warn() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 
-# Vérification des arguments
-if [ $# -ne 1 ]; then
-    error "Usage: $0 <username>"
-fi
+INSTALL_DIR="/opt/seedbox"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+DOCKER_COMPOSE_FILE="$INSTALL_DIR/docker-compose.yml"
 
+for lib in lib_ports lib_traefik lib_services; do
+    # shellcheck source=/dev/null
+    source "$SCRIPT_DIR/$lib.sh" || error "$lib.sh introuvable"
+done
+
+[ $# -eq 1 ] || error "Usage: $0 <username>"
 USERNAME=$1
-
-# Vérifier si l'utilisateur existe
-if ! id "$USERNAME" &>/dev/null; then
-    error "L'utilisateur $USERNAME n'existe pas"
-fi
-
-# Récupérer l'UID
+id "$USERNAME" &>/dev/null || error "L'utilisateur $USERNAME n'existe pas"
 USER_ID=$(id -u "$USERNAME")
-BASE_PORT=$((USER_ID - 1000))
+# shellcheck disable=SC2034  # lue par les bibliothèques sourcées
+USER_DIR="$INSTALL_DIR/data/users/$USERNAME"
+traefik_detect "$INSTALL_DIR/.env"
 
-echo -e "\n${BLUE}╔════════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║  Services pour l'utilisateur: $USERNAME"
-echo -e "${BLUE}╚════════════════════════════════════════════╝${NC}\n"
-
-# Liste des services possibles
-declare -A SERVICES=(
-    ["qbittorrent"]="$((8080 + BASE_PORT * 10))"
-    ["sonarr"]="$((8989 + BASE_PORT))"
-    ["radarr"]="$((7878 + BASE_PORT))"
-    ["readarr"]="$((8787 + BASE_PORT))"
-    ["bazarr"]="$((6767 + BASE_PORT))"
-    ["prowlarr"]="$((9696 + BASE_PORT))"
-    ["overseerr"]="$((5055 + BASE_PORT))"
-    ["homarr"]="$((7575 + BASE_PORT))"
-    ["calibre"]="$((8083 + BASE_PORT))"
-    ["filebrowser"]="$((8081 + BASE_PORT))"
-)
-
-# Afficher les services installés
-echo -e "${GREEN}Services installés:${NC}"
-for service in "${!SERVICES[@]}"; do
-    container_name="${service}-${USERNAME}"
-    if docker ps -a --format '{{.Names}}' | grep -q "^$container_name$"; then
-        status=$(docker ps --filter "name=^${container_name}$" --format '{{.Status}}')
-        if [ -n "$status" ]; then
-            echo -e "  ${GREEN}✓${NC} ${service^} - Port: ${SERVICES[$service]} - ${GREEN}Running${NC}"
-        else
-            echo -e "  ${YELLOW}!${NC} ${service^} - Port: ${SERVICES[$service]} - ${YELLOW}Stopped${NC}"
-        fi
+echo ""
+echo -e "${BLUE}Services de ${USERNAME} (UID ${USER_ID}) :${NC}"
+MISSING=()
+for s in $USER_SERVICES; do
+    name="${s}-${USERNAME}"
+    if grep -q "^  ${name}:" "$DOCKER_COMPOSE_FILE" 2>/dev/null; then
+        status=$(docker ps -a --filter "name=^${name}$" --format '{{.Status}}' 2>/dev/null)
+        case "$status" in
+            Up*) state="${GREEN}● actif${NC}" ;;
+            "")  state="${YELLOW}○ non créé${NC}" ;;
+            *)   state="${RED}● arrêté${NC}" ;;
+        esac
+        printf "  %-12s %b  %s\n" "$s" "$state" "$(service_url "$s")"
+    else
+        MISSING+=("$s")
     fi
 done
-
-# Afficher les services disponibles mais non installés
-echo -e "\n${YELLOW}Services disponibles (non installés):${NC}"
-AVAILABLE_SERVICES=(sonarr radarr readarr bazarr prowlarr overseerr calibre)
-for service in "${AVAILABLE_SERVICES[@]}"; do
-    container_name="${service}-${USERNAME}"
-    if ! docker ps -a --format '{{.Names}}' | grep -q "^$container_name$"; then
-        echo -e "  ${BLUE}○${NC} ${service^} - Port: ${SERVICES[$service]}"
-    fi
-done
-
-echo -e "\n${BLUE}Pour ajouter un service:${NC}"
-echo "  sudo ./add_user_service.sh $USERNAME <service>"
 echo ""
-echo -e "${BLUE}Exemple:${NC}"
-echo "  sudo ./add_user_service.sh $USERNAME sonarr"
-echo ""
+info "Port torrent entrant : $(user_port "$USER_ID" torrent) (TCP/UDP)"
+if [ ${#MISSING[@]} -gt 0 ]; then
+    info "Services installables : ${MISSING[*]}"
+    info "   sudo $SCRIPT_DIR/add_user_service.sh $USERNAME <service>"
+fi

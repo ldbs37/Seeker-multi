@@ -1,6 +1,39 @@
 # Audit de Compatibilité et Fonctionnement
 ## Seeker-multi - Seedbox Multi-Utilisateurs
 
+## 🔎 Audit complet des scripts — 2026-09
+
+Relecture ligne à ligne de tous les scripts + banc de test de bout en bout
+(installation Traefik et port direct, ajout/suppression d'utilisateurs et de
+services, changement de mot de passe, migration vers Traefik, sauvegarde /
+restauration), avec les vrais binaires Authelia, qBittorrent, Filebrowser,
+Traefik et `docker compose config`. `bash -n` et `shellcheck -S warning` : 0 erreur.
+
+| Domaine | Problème trouvé | Correction |
+|---------|-----------------|------------|
+| Authelia | Configuration refusée au démarrage (ancien format, `jwt_secret` manquant, base vide) | Format 4.39, secrets générés, 1er admin créé avant le démarrage |
+| Authelia | Tout utilisateur connecté accédait aux pages admin **et** aux services des autres | Règles `group:admins` + `deny` explicite, isolation par `domain_regex (?P<User>…)` |
+| Traefik | Labels YAML invalides, service Traefik perdu à la génération du compose | Génération centralisée (`lib_compose_base.sh`, `lib_traefik.sh`) validée par `compose config` |
+| Routage | *arr, Bazarr, qBittorrent, Calibre cassés sous un sous-chemin ; Overseerr incompatible | URL de base préconfigurée, redirection/strip qBittorrent, en-tête Calibre, sous-domaine Overseerr |
+| Ports | UID 65535 possible (`nobody`), collisions de ports entre utilisateurs, port torrent non publié | UID ≥ 2001, bloc de 20 ports par utilisateur, port torrent TCP/UDP + pare-feu |
+| Ports admin | Portainer, Authelia, Scrutiny… exposés sans authentification en mode direct | Écoute sur `127.0.0.1` (`ADMIN_BIND`), accès par tunnel SSH |
+| qBittorrent | Hash du mot de passe au mauvais format, chemins de téléchargement faux | PBKDF2-SHA512 au format attendu, `/data/downloads` |
+| Filebrowser | Mot de passe admin aléatoire inconnu, mauvais UID, base verrouillée lors du changement de mot de passe | Compte = identifiants seedbox, `user:` imposé, mise à jour conteneur arrêté |
+| Disque | Copies au lieu de hardlinks (espace doublé) | Montage `/data` unique pour qBittorrent et les *arr |
+| `remove_user.sh` | Blocs compose jamais retirés (conteneurs recréés au `up -d`) | Retrait exact + validation, pare-feu, quota, Authelia |
+| Homarr / Jellyfin | Config Homarr écrite au mauvais endroit ; appels API Jellyfin invalides | Chemin corrigé ; API Jellyfin conforme, bibliothèques restreintes |
+| Installation | `netcat` sans candidat sur Ubuntu 24.04 (arrêt), verrouillage SSH possible (port non standard), RAM mal arrondie | Dépendances corrigées, ports SSH détectés, `/proc/meminfo` |
+| Divers | URL API Cloudflare fausse, token DuckDNS et sauvegardes lisibles par tous, pièges `set -e` dans le menu | Corrigés (`umask 077`, `chmod 700`…) |
+| `api/` | Prototype non déployé et non fonctionnel (plantage à la connexion, clé secrète par défaut) | Marqué expérimental, clé obligatoire, bugs évidents corrigés |
+
+> Le reste de ce document est l'audit initial (2025-01), conservé pour
+> l'historique : les versions d'images sont désormais **épinglées** (voir
+> `scripts/update.sh`) et `netcat` n'est plus une dépendance.
+
+---
+
+## Audit initial (2025-01)
+
 **Date de l'audit:** 2025-01-13
 **Version auditée:** 2.3
 **Systèmes ciblés:** Debian 12 (Bookworm) et Ubuntu 22.04/24.04 LTS

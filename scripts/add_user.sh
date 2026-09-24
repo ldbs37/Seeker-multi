@@ -3,6 +3,11 @@
 #######################
 # Script d'ajout d'utilisateur
 # Usage: ./add_user.sh <username> <password> <email> [quota_gb] [--admin]
+#
+# Crée le compte système, le compte Authelia (SSO), le dossier et le quota de
+# l'utilisateur, puis ses services (qBittorrent, Homarr, Filebrowser + choix).
+# Les identifiants de connexion à qBittorrent et Filebrowser sont ceux de la
+# seedbox (même nom / même mot de passe).
 #######################
 
 set -e
@@ -23,14 +28,21 @@ info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 
 # Configuration
 INSTALL_DIR="/opt/seedbox"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DOCKER_COMPOSE_FILE="$INSTALL_DIR/docker-compose.yml"
 AUTHELIA_CONFIG_DIR="$INSTALL_DIR/authelia"
 ENV_FILE="$INSTALL_DIR/.env"
 TZ="Europe/Paris"
 DEFAULT_QUOTA="500"
+AUTHELIA_IMAGE="authelia/authelia:4.39.28"
 IS_ADMIN=false
-USE_TRAEFIK=false
-DOMAIN=""
+
+# Bibliothèques partagées
+for lib in lib_ports lib_traefik lib_qbittorrent lib_services lib_quota; do
+    [ -f "$SCRIPT_DIR/$lib.sh" ] || error "$lib.sh introuvable dans $SCRIPT_DIR"
+    # shellcheck source=/dev/null
+    source "$SCRIPT_DIR/$lib.sh"
+done
 
 # Vérification des arguments
 if [ $# -lt 3 ]; then
@@ -40,448 +52,221 @@ fi
 USERNAME=$1
 PASSWORD=$2
 EMAIL=$3
-QUOTA=${4:-$DEFAULT_QUOTA}
+QUOTA=$DEFAULT_QUOTA
 
-# Vérifier si le flag --admin est présent
-if [[ "$*" == *"--admin"* ]]; then
-    IS_ADMIN=true
-fi
+# Arguments optionnels (ordre libre) : [quota_gb] [--admin]
+# (comparaison exacte : un mot de passe contenant "--admin" ne doit PAS
+#  rendre l'utilisateur administrateur)
+shift 3
+for arg in "$@"; do
+    case "$arg" in
+        --admin) IS_ADMIN=true ;;
+        *)
+            [[ "$arg" =~ ^[1-9][0-9]*$ ]] || error "Argument invalide : '$arg' (quota en Go ou --admin attendu)"
+            QUOTA=$arg
+            ;;
+    esac
+done
 
 # Vérification root
 if [[ $EUID -ne 0 ]]; then
     error "Ce script doit être exécuté en tant que root"
 fi
 
-# Validation du nom d'utilisateur
-validate_username() {
-    local username=$1
-    if [[ ! "$username" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
-        error "Nom d'utilisateur invalide: $username (utilisez uniquement des lettres minuscules, chiffres, - et _)"
-    fi
-}
+[ -f "$DOCKER_COMPOSE_FILE" ] || error "docker-compose.yml introuvable : lancez d'abord install.sh"
 
-# Validation de l'email
-validate_email() {
-    local email=$1
-    if [[ ! "$email" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
-        error "Format d'email invalide: $email"
-    fi
-}
+# Fuseau horaire de l'installation
+if [ -f "$ENV_FILE" ] && grep -q '^TZ=' "$ENV_FILE"; then
+    TZ=$(grep '^TZ=' "$ENV_FILE" | cut -d'=' -f2)
+fi
 
-# Validation du mot de passe
-validate_password() {
-    local password=$1
-    if [ ${#password} -lt 8 ]; then
-        error "Le mot de passe doit contenir au moins 8 caractères"
-    fi
-}
+#######################
+# Validation
+#######################
 
-# Détecter si Traefik est actif
-detect_traefik() {
-    [ -f "$ENV_FILE" ] || return
+log "Validation des données..."
+[[ "$USERNAME" =~ ^[a-z][a-z0-9]{0,31}$ ]] \
+    || error "Nom d'utilisateur invalide: $USERNAME (lettres minuscules et chiffres uniquement, commence par une lettre, 32 max)"
+[ ${#PASSWORD} -ge 12 ] || error "Le mot de passe doit contenir au moins 12 caractères"
+[[ "$EMAIL" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]] || error "Format d'email invalide: $EMAIL"
 
-    # Priorité au flag explicite USE_TRAEFIK écrit par install.sh.
-    if grep -q "^USE_TRAEFIK=" "$ENV_FILE"; then
-        local flag
-        flag=$(grep "^USE_TRAEFIK=" "$ENV_FILE" | cut -d'=' -f2)
-        if [ "$flag" = "true" ]; then
-            DOMAIN=$(grep "^DOMAIN=" "$ENV_FILE" | cut -d'=' -f2)
-            USE_TRAEFIK=true
-            info "Mode Traefik détecté (domaine: $DOMAIN)"
-        else
-            info "Mode port direct détecté"
-        fi
-        return
-    fi
+if id "$USERNAME" &>/dev/null || getent group "$USERNAME" >/dev/null; then
+    error "L'utilisateur (ou le groupe) $USERNAME existe déjà"
+fi
+if grep -q "^  ${USERNAME}:" "$AUTHELIA_CONFIG_DIR/users_database.yml" 2>/dev/null; then
+    error "L'utilisateur $USERNAME existe déjà dans Authelia"
+fi
 
-    # Rétro-compatibilité : ancien .env sans flag → déduire du domaine.
-    if grep -q "^DOMAIN=" "$ENV_FILE"; then
-        DOMAIN=$(grep "^DOMAIN=" "$ENV_FILE" | cut -d'=' -f2)
-        if [ -n "$DOMAIN" ]; then
-            USE_TRAEFIK=true
-            info "Mode Traefik détecté avec domaine: $DOMAIN"
-        fi
-    fi
-}
+traefik_detect "$ENV_FILE"
+if [ "$USE_TRAEFIK" = true ]; then
+    info "Mode Traefik détecté (domaine: $DOMAIN)"
+else
+    info "Mode port direct détecté"
+fi
 
-# Générer les labels Traefik pour un service
-generate_traefik_labels() {
-    local service_name=$1
-    local username=$2
-    local port=$3
-    local path=$4
-    local protect_with_authelia=${5:-true}
+USER_ID=$(next_seedbox_uid) || error "Plus d'UID disponible dans la plage ${SEEDBOX_UID_MIN}-${SEEDBOX_UID_MAX}"
+USER_DIR="$INSTALL_DIR/data/users/$USERNAME"
 
-    if [ "$USE_TRAEFIK" != "true" ]; then
-        return
-    fi
+#######################
+# Hashs des mots de passe — AVANT toute création, pour ne rien laisser à
+# moitié fait (et ne jamais écrire un compte Authelia sans mot de passe, ce
+# qui empêcherait Authelia de démarrer pour TOUS les utilisateurs).
+#######################
 
-    local subdomain="${username}.${DOMAIN}"
+log "Préparation des identifiants..."
+AUTHELIA_HASH=$(docker run --rm "$AUTHELIA_IMAGE" authelia crypto hash generate argon2 --password "$PASSWORD" 2>/dev/null \
+                | grep 'Digest:' | awk '{print $2}') || true
+[[ "$AUTHELIA_HASH" == \$argon2* ]] || error "Impossible de générer le hash Authelia (image $AUTHELIA_IMAGE accessible ?)"
 
-    echo "    networks:"
-    echo "      - traefik_proxy"
-    echo "    labels:"
-    echo "      - \"traefik.enable=true\""
-    echo -n "      - \"traefik.http.routers.${service_name}.rule=Host(\\\`${subdomain}\\\`)"
-    if [ -n "$path" ]; then
-        echo -n " && PathPrefix(\\\`${path}\\\`)"
-    fi
-    echo "\""
-    echo "      - \"traefik.http.routers.${service_name}.entrypoints=websecure\""
-    echo "      - \"traefik.http.routers.${service_name}.tls.certresolver=letsencrypt\""
-    echo "      - \"traefik.http.services.${service_name}.loadbalancer.server.port=${port}\""
+FB_PASSWORD_HASH=$(htpasswd -nbBC 10 "" "$PASSWORD" 2>/dev/null | cut -d: -f2 | tr -d '\n') || true
+[[ "$FB_PASSWORD_HASH" == \$2* ]] || error "Impossible de générer le hash Filebrowser (paquet apache2-utils requis)"
 
-    if [ "$protect_with_authelia" = "true" ]; then
-        echo "      - \"traefik.http.routers.${service_name}.middlewares=authelia@docker\""
-    fi
-}
+#######################
+# Sélection des services (menu affiché sur stderr : la sélection seule est lue)
+#######################
 
-# Obtenir le prochain ID utilisateur
-get_next_user_id() {
-    local last_id=1000
-
-    while IFS=: read -r _ _ uid _; do
-        if [[ "$uid" =~ ^[0-9]+$ ]] && [ "$uid" -ge 1000 ] && [ "$uid" -gt "$last_id" ]; then
-            last_id=$uid
-        fi
-    done < /etc/passwd
-
-    echo $((last_id + 1))
-}
-
-# Menu de sélection des services
 select_services() {
-    echo ""
-    echo -e "${CYAN}╔════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║       Sélection des services supplémentaires          ║${NC}"
-    echo -e "${CYAN}╚════════════════════════════════════════════════════════╝${NC}"
-    echo ""
-    echo -e "${BLUE}Services disponibles:${NC}"
-    echo ""
-    echo "  [1] 🖥️  Homarr        - Dashboard personnel"
-    echo "  [2] 📂 Filebrowser   - Gestionnaire de fichiers web"
-    echo "  [3] 📺 Sonarr        - Gestion séries TV"
-    echo "  [4] 🎬 Radarr        - Gestion films"
-    echo "  [5] 📚 Readarr       - Gestion livres"
-    echo "  [6] 💬 Bazarr        - Sous-titres automatiques"
-    echo "  [7] 🔍 Prowlarr      - Gestion indexeurs"
-    echo "  [8] 📝 Overseerr     - Système de requêtes"
-    echo "  [9] 📖 Calibre-web   - Bibliothèque ebooks"
-    echo ""
-    echo -e "${YELLOW}Note: qBittorrent est installé automatiquement${NC}"
-    if [ "$IS_ADMIN" = true ]; then
-        echo -e "${YELLOW}Note: Homarr et Filebrowser sont installés automatiquement pour l'admin${NC}"
-    fi
-    echo ""
-    echo -e "${BLUE}Instructions:${NC}"
-    echo "  - Entrez les numéros des services à installer séparés par des espaces"
-    echo "  - Exemple: 1 3 4 7 (pour Homarr, Sonarr, Radarr, Prowlarr)"
-    echo "  - Appuyez sur Entrée sans rien saisir pour passer"
-    echo ""
-
-    read -p "Votre sélection: " selection
-
-    # Convertir la sélection en tableau
-    declare -a SELECTED_SERVICES=()
-
+    {
+        echo ""
+        echo -e "${CYAN}╔════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${CYAN}║       Sélection des services supplémentaires          ║${NC}"
+        echo -e "${CYAN}╚════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+        echo -e "${YELLOW}Inclus d'office : qBittorrent, Homarr (tableau de bord), Filebrowser${NC}"
+        echo ""
+        echo "  [1] 📺 Sonarr        - Gestion séries TV"
+        echo "  [2] 🎬 Radarr        - Gestion films"
+        echo "  [3] 📚 Readarr       - Gestion livres"
+        echo "  [4] 💬 Bazarr        - Sous-titres automatiques"
+        echo "  [5] 🔍 Prowlarr      - Gestion indexeurs"
+        echo "  [6] 📝 Overseerr     - Système de requêtes"
+        echo "  [7] 📖 Calibre-web   - Bibliothèque ebooks"
+        echo ""
+        echo "  Numéros séparés par des espaces (ex: 1 2 5), Entrée pour aucun"
+    } >&2
+    local selection num
+    read -r -p "Votre sélection: " selection
     for num in $selection; do
         case $num in
-            1) SELECTED_SERVICES+=("homarr") ;;
-            2) SELECTED_SERVICES+=("filebrowser") ;;
-            3) SELECTED_SERVICES+=("sonarr") ;;
-            4) SELECTED_SERVICES+=("radarr") ;;
-            5) SELECTED_SERVICES+=("readarr") ;;
-            6) SELECTED_SERVICES+=("bazarr") ;;
-            7) SELECTED_SERVICES+=("prowlarr") ;;
-            8) SELECTED_SERVICES+=("overseerr") ;;
-            9) SELECTED_SERVICES+=("calibre") ;;
+            1) EXTRA_SERVICES+=("sonarr") ;;
+            2) EXTRA_SERVICES+=("radarr") ;;
+            3) EXTRA_SERVICES+=("readarr") ;;
+            4) EXTRA_SERVICES+=("bazarr") ;;
+            5) EXTRA_SERVICES+=("prowlarr") ;;
+            6) EXTRA_SERVICES+=("overseerr") ;;
+            7) EXTRA_SERVICES+=("calibre") ;;
             *) warn "Numéro invalide ignoré: $num" ;;
         esac
     done
-
-    # Retourner le tableau
-    echo "${SELECTED_SERVICES[@]}"
 }
 
-# Validation
-log "Validation des données..."
-validate_username "$USERNAME"
-validate_password "$PASSWORD"
-validate_email "$EMAIL"
-
-# Détecter le mode Traefik
-detect_traefik
-
-# Vérifier si l'utilisateur existe déjà
-if id "$USERNAME" &>/dev/null; then
-    error "L'utilisateur $USERNAME existe déjà"
-fi
-
-# Obtenir l'ID utilisateur
-USER_ID=$(get_next_user_id)
-log "ID utilisateur attribué: $USER_ID"
-
-# Afficher le type d'utilisateur
-if [ "$IS_ADMIN" = true ]; then
-    echo ""
-    info "🔐 Création d'un utilisateur ADMINISTRATEUR"
-    info "   Services inclus: qBittorrent + Homarr + Filebrowser"
+EXTRA_SERVICES=()
+if [ -t 0 ]; then
+    select_services
 else
-    echo ""
-    info "👤 Création d'un utilisateur STANDARD"
-    info "   Service inclus: qBittorrent (obligatoire)"
+    info "Mode non interactif : services de base uniquement"
 fi
-
-# Calculer les ports
-BASE_PORT=$((USER_ID - 1000))
-QBIT_PORT=$((8080 + BASE_PORT * 10))
-HOMARR_PORT=$((7575 + BASE_PORT))
-FILEBROWSER_PORT=$((8081 + BASE_PORT))
-
-# Créer l'utilisateur système
-log "Création de l'utilisateur système..."
-useradd -u "$USER_ID" -m -s /bin/bash "$USERNAME"
-echo "$USERNAME:$PASSWORD" | chpasswd
-
-# Créer les répertoires
-log "Création des répertoires utilisateur..."
-USER_DIR="$INSTALL_DIR/data/users/$USERNAME"
-mkdir -p "$USER_DIR"/{downloads,config,data}
-# Dossier dédié à la base Filebrowser (monté en tant que /config dans le conteneur)
-mkdir -p "$USER_DIR/config/filebrowser"
-chown -R "$USER_ID:$USER_ID" "$USER_DIR"
-
-# Configurer le quota PROJET : on limite directement le dossier de
-# l'utilisateur ($USER_DIR), indépendamment du propriétaire des fichiers.
-# L'id de projet = l'UID de l'utilisateur (unique).
-# Non-bloquant : si les quotas ne sont pas activés, la création continue
-# (sinon, sous `set -e`, l'utilisateur serait créé sans ses conteneurs).
-log "Configuration du quota disque (projet)..."
-QUOTA_LIB="$(dirname "$0")/lib_quota.sh"
-if [ -f "$QUOTA_LIB" ]; then
-    # shellcheck source=/dev/null
-    source "$QUOTA_LIB"
-    if quota_project_active "$USER_DIR"; then
-        quota_register_project "$USERNAME" "$USER_ID" "$USER_DIR"
-        if quota_apply_project "$USER_DIR" "$USER_ID" "$QUOTA"; then
-            info "Quota projet appliqué : ${QUOTA}GB sur $USER_DIR"
-        else
-            warn "Échec de l'application du quota projet (quota non appliqué)"
-        fi
-    else
-        warn "Quotas disque NON actifs : quota de ${QUOTA}GB non appliqué."
-        info "Activez-les : sudo $INSTALL_DIR/scripts/enable_quotas.sh"
-        info "Puis :        sudo $INSTALL_DIR/scripts/update_quota.sh $USERNAME $QUOTA"
-    fi
-else
-    warn "lib_quota.sh introuvable : quota de ${QUOTA}GB non appliqué"
-fi
-
-# Ajouter l'utilisateur à Authelia
-log "Ajout de l'utilisateur à Authelia..."
-HASHED_PASSWORD=$(docker run --rm authelia/authelia:4.39.28 authelia crypto hash generate argon2 --password "$PASSWORD" | grep 'Digest:' | awk '{print $2}')
-
-if [ "$IS_ADMIN" = true ]; then
-    cat >> "$AUTHELIA_CONFIG_DIR/users_database.yml" << EOF
-
-  $USERNAME:
-    displayname: "$USERNAME"
-    password: "$HASHED_PASSWORD"
-    email: "$EMAIL"
-    groups:
-      - users
-      - admins
-EOF
-else
-    cat >> "$AUTHELIA_CONFIG_DIR/users_database.yml" << EOF
-
-  $USERNAME:
-    displayname: "$USERNAME"
-    password: "$HASHED_PASSWORD"
-    email: "$EMAIL"
-    groups:
-      - users
-EOF
-fi
-
-# Sélection des services supplémentaires
-SERVICES_TO_INSTALL=()
-
-# Demander la sélection
-SELECTED=$(select_services)
-if [ -n "$SELECTED" ]; then
-    read -ra SERVICES_TO_INSTALL <<< "$SELECTED"
-fi
-
-# Ajouter automatiquement Homarr et Filebrowser pour TOUS les utilisateurs
-if [[ ! " ${SERVICES_TO_INSTALL[@]} " =~ " homarr " ]]; then
-    SERVICES_TO_INSTALL+=("homarr")
-fi
-if [[ ! " ${SERVICES_TO_INSTALL[@]} " =~ " filebrowser " ]]; then
-    SERVICES_TO_INSTALL+=("filebrowser")
-fi
-
-# Afficher le récapitulatif
-echo ""
-log "Services qui seront installés:"
-echo "  ✓ qBittorrent (obligatoire)"
-if [ ${#SERVICES_TO_INSTALL[@]} -gt 0 ]; then
-    for service in "${SERVICES_TO_INSTALL[@]}"; do
-        echo "  ✓ $service"
-    done
-else
-    echo "  (aucun service supplémentaire)"
-fi
-
-# Ajouter qBittorrent (obligatoire)
-log "Ajout de qBittorrent au docker-compose..."
-
-if [ "$USE_TRAEFIK" = "true" ]; then
-    # Mode Traefik : pas de ports exposés, avec labels
-    cat >> "$DOCKER_COMPOSE_FILE" << EOF
-
-  qbittorrent-$USERNAME:
-    image: linuxserver/qbittorrent:5.2.3
-    container_name: qbittorrent-$USERNAME
-    environment:
-      - PUID=$USER_ID
-      - PGID=$USER_ID
-      - TZ=$TZ
-      - WEBUI_PORT=8080
-    volumes:
-      - $USER_DIR/config/qbittorrent:/config
-      - $USER_DIR/downloads:/downloads
-$(generate_traefik_labels "qbit-$USERNAME" "$USERNAME" "8080" "/qbittorrent" "true")
-    restart: unless-stopped
-EOF
-    info "✓ qBittorrent configuré (https://$USERNAME.$DOMAIN/qbittorrent)"
-else
-    # Mode port direct
-    cat >> "$DOCKER_COMPOSE_FILE" << EOF
-
-  qbittorrent-$USERNAME:
-    image: linuxserver/qbittorrent:5.2.3
-    container_name: qbittorrent-$USERNAME
-    environment:
-      - PUID=$USER_ID
-      - PGID=$USER_ID
-      - TZ=$TZ
-      - WEBUI_PORT=$QBIT_PORT
-    volumes:
-      - $USER_DIR/config/qbittorrent:/config
-      - $USER_DIR/downloads:/downloads
-    ports:
-      - "$QBIT_PORT:$QBIT_PORT"
-    restart: unless-stopped
-EOF
-    info "✓ qBittorrent configuré (port $QBIT_PORT)"
-fi
-
-# Ajouter les services sélectionnés
-for service in "${SERVICES_TO_INSTALL[@]}"; do
-    log "Ajout de $service..."
-
-    case $service in
-        homarr)
-            if [ "$USE_TRAEFIK" = "true" ]; then
-                cat >> "$DOCKER_COMPOSE_FILE" << EOF
-
-  homarr-$USERNAME:
-    image: ghcr.io/ajnart/homarr:0.16.1
-    container_name: homarr-$USERNAME
-    environment:
-      - PUID=$USER_ID
-      - PGID=$USER_ID
-      - TZ=$TZ
-    volumes:
-      - $USER_DIR/config/homarr:/app/data/configs
-      - $USER_DIR/config/homarr-icons:/app/public/icons
-$(generate_traefik_labels "homarr-$USERNAME" "$USERNAME" "7575" "" "true")
-    restart: unless-stopped
-EOF
-                info "✓ Homarr configuré (https://$USERNAME.$DOMAIN)"
-            else
-                cat >> "$DOCKER_COMPOSE_FILE" << EOF
-
-  homarr-$USERNAME:
-    image: ghcr.io/ajnart/homarr:0.16.1
-    container_name: homarr-$USERNAME
-    environment:
-      - PUID=$USER_ID
-      - PGID=$USER_ID
-      - TZ=$TZ
-    volumes:
-      - $USER_DIR/config/homarr:/app/data/configs
-      - $USER_DIR/config/homarr-icons:/app/public/icons
-    ports:
-      - "$HOMARR_PORT:7575"
-    restart: unless-stopped
-EOF
-                info "✓ Homarr configuré (port $HOMARR_PORT)"
-            fi
-            ;;
-
-        filebrowser)
-            if [ "$USE_TRAEFIK" = "true" ]; then
-                cat >> "$DOCKER_COMPOSE_FILE" << EOF
-
-  filebrowser-$USERNAME:
-    image: filebrowser/filebrowser:v2.63.23
-    container_name: filebrowser-$USERNAME
-    environment:
-      - PUID=$USER_ID
-      - PGID=$USER_ID
-      - TZ=$TZ
-      - FB_ROOT=/srv
-      - FB_DATABASE=/config/filebrowser.db
-    volumes:
-      - $USER_DIR:/srv
-      - $USER_DIR/config/filebrowser:/config
-$(generate_traefik_labels "fb-$USERNAME" "$USERNAME" "80" "/files" "true")
-    restart: unless-stopped
-EOF
-                info "✓ Filebrowser configuré (https://$USERNAME.$DOMAIN/files)"
-            else
-                cat >> "$DOCKER_COMPOSE_FILE" << EOF
-
-  filebrowser-$USERNAME:
-    image: filebrowser/filebrowser:v2.63.23
-    container_name: filebrowser-$USERNAME
-    environment:
-      - PUID=$USER_ID
-      - PGID=$USER_ID
-      - TZ=$TZ
-      - FB_ROOT=/srv
-      - FB_DATABASE=/config/filebrowser.db
-    volumes:
-      - $USER_DIR:/srv
-      - $USER_DIR/config/filebrowser:/config
-    ports:
-      - "$FILEBROWSER_PORT:80"
-    restart: unless-stopped
-EOF
-                info "✓ Filebrowser configuré (port $FILEBROWSER_PORT)"
-            fi
-            ;;
-
-        sonarr|radarr|readarr|bazarr|prowlarr|overseerr|calibre)
-            # Appeler add_user_service.sh pour ces services
-            "$INSTALL_DIR/scripts/add_user_service.sh" "$USERNAME" "$service" || warn "Erreur lors de l'ajout de $service"
-            ;;
-    esac
+# Dédoublonnage en conservant l'ordre
+SERVICES_TO_INSTALL=(qbittorrent homarr filebrowser)
+for s in "${EXTRA_SERVICES[@]}"; do
+    [[ " ${SERVICES_TO_INSTALL[*]} " == *" $s "* ]] || SERVICES_TO_INSTALL+=("$s")
 done
 
-# Redémarrer Docker Compose
+echo ""
+if [ "$IS_ADMIN" = true ]; then
+    info "🔐 Création de l'utilisateur ADMINISTRATEUR $USERNAME (UID $USER_ID)"
+else
+    info "👤 Création de l'utilisateur $USERNAME (UID $USER_ID)"
+fi
+info "Services : ${SERVICES_TO_INSTALL[*]}"
+
+#######################
+# Compte système + dossiers + quota
+#######################
+
+log "Création de l'utilisateur système..."
+groupadd -g "$USER_ID" "$USERNAME"
+useradd -u "$USER_ID" -g "$USER_ID" -m -s /bin/bash "$USERNAME"
+echo "$USERNAME:$PASSWORD" | chpasswd
+
+log "Création des répertoires utilisateur..."
+mkdir -p "$USER_DIR"/{downloads,tv,movies,books,config}
+chown -R "$USER_ID:$USER_ID" "$USER_DIR"
+
+# Quota PROJET sur le dossier de l'utilisateur (id projet = UID).
+# Non-bloquant : si les quotas ne sont pas activés, la création continue.
+log "Configuration du quota disque (projet)..."
+if quota_project_active "$USER_DIR"; then
+    quota_register_project "$USERNAME" "$USER_ID" "$USER_DIR"
+    if quota_apply_project "$USER_DIR" "$USER_ID" "$QUOTA"; then
+        info "Quota projet appliqué : ${QUOTA}GB sur $USER_DIR"
+    else
+        warn "Échec de l'application du quota projet (quota non appliqué)"
+    fi
+else
+    warn "Quotas disque NON actifs : quota de ${QUOTA}GB non appliqué."
+    info "Activez-les : sudo $INSTALL_DIR/scripts/enable_quotas.sh"
+    info "Puis :        sudo $INSTALL_DIR/scripts/update_quota.sh $USERNAME $QUOTA"
+fi
+
+#######################
+# Compte Authelia (SSO)
+#######################
+
+log "Ajout de l'utilisateur à Authelia..."
+{
+    echo ""
+    echo "  ${USERNAME}:"
+    echo "    displayname: \"${USERNAME}\""
+    echo "    password: \"${AUTHELIA_HASH}\""
+    echo "    email: \"${EMAIL}\""
+    echo "    groups:"
+    echo "      - users"
+    [ "$IS_ADMIN" = true ] && echo "      - admins"
+} >> "$AUTHELIA_CONFIG_DIR/users_database.yml"
+
+#######################
+# Services
+#######################
+
+log "Préparation des services..."
+for s in "${SERVICES_TO_INSTALL[@]}"; do
+    service_prepare "$s" "$PASSWORD"
+done
+
+log "Ajout des services au docker-compose.yml..."
+cp "$DOCKER_COMPOSE_FILE" "${DOCKER_COMPOSE_FILE}.bak"
+compose_append_services "$DOCKER_COMPOSE_FILE" "${SERVICES_TO_INSTALL[@]}" \
+    || error "docker-compose.yml invalide après ajout des services — fichier inchangé (voir l'erreur ci-dessus)"
+
+# Pare-feu : port torrent entrant de l'utilisateur (TCP + UDP)
+TORRENT_PORT=$(user_port "$USER_ID" torrent)
+if command -v ufw &>/dev/null; then
+    ufw allow "$TORRENT_PORT/tcp" comment "torrent $USERNAME" >/dev/null 2>&1 || true
+    ufw allow "$TORRENT_PORT/udp" comment "torrent $USERNAME" >/dev/null 2>&1 || true
+fi
+
+# Tableau de bord Homarr pré-rempli avec les liens de l'utilisateur (généré
+# avant le premier démarrage de Homarr)
+"$SCRIPT_DIR/configure_homarr.sh" "$USERNAME" >/dev/null 2>&1 \
+    || warn "Configuration Homarr non appliquée (relancez : $SCRIPT_DIR/configure_homarr.sh $USERNAME)"
+
 log "Démarrage des conteneurs..."
 cd "$INSTALL_DIR"
-docker-compose up -d
+compose_cmd up -d
+
+# Authelia relit sa base utilisateurs au redémarrage
+docker restart authelia >/dev/null 2>&1 || warn "Redémarrez Authelia pour activer le compte : docker restart authelia"
+
+#######################
+# Résumé
+#######################
 
 echo ""
 echo -e "${GREEN}╔════════════════════════════════════════════════════════╗${NC}"
 echo -e "${GREEN}║            Utilisateur créé avec succès !              ║${NC}"
 echo -e "${GREEN}╚════════════════════════════════════════════════════════╝${NC}"
 echo ""
-
 if [ "$IS_ADMIN" = true ]; then
     info "👤 Utilisateur ADMINISTRATEUR: $USERNAME"
 else
@@ -490,38 +275,19 @@ fi
 info "📧 Email: $EMAIL"
 info "🆔 UID: $USER_ID"
 info "💾 Quota: ${QUOTA}GB"
+info "🔌 Port torrent entrant: $TORRENT_PORT (TCP/UDP)"
 echo ""
-
-if [ "$USE_TRAEFIK" = "true" ]; then
-    info "🌐 Services accessibles (HTTPS avec Authelia SSO):"
-    echo "   • Authelia: https://auth.$DOMAIN"
-    echo "   • qBittorrent: https://$USERNAME.$DOMAIN/qbittorrent"
-
-    if [[ " ${SERVICES_TO_INSTALL[@]} " =~ " homarr " ]]; then
-        echo "   • Homarr: https://$USERNAME.$DOMAIN"
-    fi
-
-    if [[ " ${SERVICES_TO_INSTALL[@]} " =~ " filebrowser " ]]; then
-        echo "   • Filebrowser: https://$USERNAME.$DOMAIN/files"
-    fi
-
-    echo ""
-    info "💡 Connexion:"
-    echo "   1. Connectez-vous sur https://auth.$DOMAIN"
-    echo "   2. Accédez à tous les services sans re-login"
+info "🌐 Services :"
+for s in "${SERVICES_TO_INSTALL[@]}"; do
+    printf "   • %-12s %s\n" "$s" "$(service_url "$s")"
+done
+echo ""
+if [ "$USE_TRAEFIK" = true ]; then
+    info "💡 Connexion : identifiez-vous sur https://auth.$DOMAIN (SSO)."
+    info "   qBittorrent et Filebrowser demandent ensuite les mêmes identifiants."
 else
-    info "🌐 Services accessibles:"
-    echo "   • qBittorrent: http://votre-serveur:$QBIT_PORT"
-
-    if [[ " ${SERVICES_TO_INSTALL[@]} " =~ " homarr " ]]; then
-        echo "   • Homarr: http://votre-serveur:$HOMARR_PORT"
-    fi
-
-    if [[ " ${SERVICES_TO_INSTALL[@]} " =~ " filebrowser " ]]; then
-        echo "   • Filebrowser: http://votre-serveur:$FILEBROWSER_PORT"
-    fi
+    info "💡 qBittorrent et Filebrowser : mêmes identifiants que la seedbox."
 fi
-
 echo ""
 info "Pour ajouter d'autres services plus tard:"
 echo "   sudo $INSTALL_DIR/scripts/add_user_service.sh $USERNAME <service>"

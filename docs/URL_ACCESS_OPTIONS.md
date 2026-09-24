@@ -21,11 +21,11 @@
 Chaque service est accessible directement via son port :
 
 ```
-http://votre-serveur:8080  → qBittorrent User1
-http://votre-serveur:8090  → qBittorrent User2
-http://votre-serveur:7576  → Homarr User1
-http://votre-serveur:9000  → Portainer
-http://votre-serveur:8096  → Jellyfin
+http://votre-serveur:20000  → qBittorrent User1
+http://votre-serveur:20020  → qBittorrent User2
+http://votre-serveur:20001  → Homarr User1
+http://votre-serveur:8096   → Jellyfin
+http://localhost:9000       → Portainer (tunnel SSH : admin en local uniquement)
 ```
 
 ### Avantages

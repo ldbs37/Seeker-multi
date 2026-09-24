@@ -1,5 +1,15 @@
 # Intégration Homarr - Gestion des Services Utilisateur
 
+> ⚠️ **EXPÉRIMENTAL — NON FONCTIONNEL EN L'ÉTAT, NON DÉPLOYÉ PAR `install.sh`.**
+> Le script `add_user_service.sh` doit s'exécuter **sur l'hôte** (création de
+> dossiers, `docker compose`, quotas, pare-feu) : lancé depuis le conteneur
+> décrit ci-dessous, il ne peut pas aboutir. De plus, monter
+> `/var/run/docker.sock` dans un service exposé équivaut à donner un accès
+> root au serveur. **N'exposez pas cette API.** Pour ajouter un service à un
+> utilisateur : `sudo ./menu.sh` ou `sudo ./scripts/add_user_service.sh <user> <service>`.
+> Les services de chaque utilisateur sont déjà affichés automatiquement sur
+> son tableau de bord Homarr (`configure_homarr.sh`).
+
 Ce document explique comment permettre aux utilisateurs d'ajouter des services depuis leur dashboard Homarr de manière sécurisée.
 
 ## 🎯 Objectif

@@ -1,0 +1,371 @@
+#!/bin/bash
+#######################
+# lib_compose_base.sh — Services SYSTÈME du docker-compose.yml (source unique)
+#
+# Utilisée par install.sh, add_service.sh et generate_traefik_labels.sh
+# (migration vers Traefik). À sourcer.
+#
+# Variables : INSTALL_DIR TZ DOMAIN USE_TRAEFIK ADMIN_UID ADMIN_GID
+#             INSTALL_<SERVICE>=true|false pour les services optionnels.
+#
+# Sécurité : les interfaces d'administration et FlareSolverr sont publiées sur
+# ${ADMIN_BIND:-127.0.0.1} (variable du .env). Par défaut elles ne sont donc
+# joignables que localement : via Traefik + SSO Authelia en mode Traefik, ou
+# par tunnel SSH en mode port direct (ssh -L 8200:localhost:8200 …). Mettre
+# ADMIN_BIND=0.0.0.0 dans .env pour les exposer (déconseillé : pas d'auth).
+#######################
+
+SYSTEM_SERVICES="authelia plex flaresolverr scrutiny uptime-kuma watchtower duplicati jellyfin dashdot tautulli portainer"
+
+# Variable INSTALL_* correspondant à un service système optionnel
+system_service_flag() {
+    case "$1" in
+        plex) echo INSTALL_PLEX ;;           jellyfin) echo INSTALL_JELLYFIN ;;
+        scrutiny) echo INSTALL_SCRUTINY ;;   uptime-kuma) echo INSTALL_UPTIME_KUMA ;;
+        watchtower) echo INSTALL_WATCHTOWER ;; duplicati) echo INSTALL_DUPLICATI ;;
+        dashdot) echo INSTALL_DASHDOT ;;     tautulli) echo INSTALL_TAUTULLI ;;
+        portainer) echo INSTALL_PORTAINER ;;
+        *) return 1 ;;
+    esac
+}
+
+# Positionne les INSTALL_*=true d'après les services présents dans un compose
+detect_system_services() {
+    local file="$1" s flag
+    for s in $SYSTEM_SERVICES; do
+        flag=$(system_service_flag "$s") || continue
+        if grep -q "^  ${s}:" "$file" 2>/dev/null; then
+            printf -v "$flag" '%s' true
+        else
+            printf -v "$flag" '%s' false
+        fi
+    done
+}
+
+# Réseau + labels Traefik d'un service système. $1=routeur $2=sous-domaine
+# $3=port interne $4=protéger par Authelia (true/false)
+_sys_labels() {
+    [ "$USE_TRAEFIK" = "true" ] || return 0
+    local name=$1 sub=$2 port=$3 protect=$4
+    echo "    networks:"
+    echo "      - traefik_proxy"
+    echo "    labels:"
+    echo "      - \"traefik.enable=true\""
+    echo "      - \"traefik.docker.network=traefik_proxy\""
+    echo "      - \"traefik.http.routers.${name}.rule=Host(\`${sub}.${DOMAIN}\`)\""
+    echo "      - \"traefik.http.routers.${name}.entrypoints=websecure\""
+    echo "      - \"traefik.http.routers.${name}.tls.certresolver=letsencrypt\""
+    echo "      - \"traefik.http.services.${name}.loadbalancer.server.port=${port}\""
+    [ "$protect" = "true" ] && echo "      - \"traefik.http.routers.${name}.middlewares=authelia@docker\""
+    return 0
+}
+
+_block_authelia() {
+    cat << 'EOF'
+
+  authelia:
+    image: authelia/authelia:4.39.28
+    container_name: authelia
+    volumes:
+      - ./authelia:/config
+    environment:
+      - TZ=${TZ}
+    ports:
+      - "${ADMIN_BIND:-127.0.0.1}:9091:9091"
+EOF
+    if [ "$USE_TRAEFIK" = "true" ]; then
+        # Portail SSO + middleware forward-auth "authelia@docker" utilisé par
+        # tous les services protégés (endpoint moderne /api/authz/forward-auth)
+        echo "    networks:"
+        echo "      - traefik_proxy"
+        echo "    labels:"
+        echo "      - \"traefik.enable=true\""
+        echo "      - \"traefik.docker.network=traefik_proxy\""
+        echo "      - \"traefik.http.routers.authelia.rule=Host(\`auth.${DOMAIN}\`)\""
+        echo "      - \"traefik.http.routers.authelia.entrypoints=websecure\""
+        echo "      - \"traefik.http.routers.authelia.tls.certresolver=letsencrypt\""
+        echo "      - \"traefik.http.services.authelia.loadbalancer.server.port=9091\""
+        echo "      - \"traefik.http.middlewares.authelia.forwardauth.address=http://authelia:9091/api/authz/forward-auth\""
+        echo "      - \"traefik.http.middlewares.authelia.forwardauth.trustForwardHeader=true\""
+        echo "      - \"traefik.http.middlewares.authelia.forwardauth.authResponseHeaders=Remote-User,Remote-Groups,Remote-Name,Remote-Email\""
+    fi
+    echo "    restart: unless-stopped"
+}
+
+_block_plex() {
+    # network_mode: host (découverte DLNA/GDM) : accès http://IP:32400/web
+    cat << 'EOF'
+
+  plex:
+    image: linuxserver/plex:1.43.4
+    container_name: plex
+    network_mode: host
+    environment:
+      - PUID=${ADMIN_UID}
+      - PGID=${ADMIN_GID}
+      - TZ=${TZ}
+      - VERSION=docker
+    volumes:
+      - ./plex:/config
+      - ./data:/data
+    restart: unless-stopped
+EOF
+}
+
+_block_flaresolverr() {
+    cat << 'EOF'
+
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:v3.5.2
+    container_name: flaresolverr
+    environment:
+      - LOG_LEVEL=info
+      - TZ=${TZ}
+    ports:
+      - "${ADMIN_BIND:-127.0.0.1}:8191:8191"
+EOF
+    # Backend interne (proxy de résolution) : joignable par les *arr via son
+    # nom d'hôte, jamais publié sur Internet
+    [ "$USE_TRAEFIK" = "true" ] && printf '    networks:\n      - traefik_proxy\n'
+    echo "    restart: unless-stopped"
+}
+
+_block_scrutiny() {
+    # privileged + /run/udev : accès à tous les disques (pas de liste de
+    # périphériques figée, qui échouerait sur NVMe ou mono-disque)
+    cat << 'EOF'
+
+  scrutiny:
+    image: ghcr.io/analogj/scrutiny:master-omnibus
+    container_name: scrutiny
+    privileged: true
+    ports:
+      - "${ADMIN_BIND:-127.0.0.1}:8080:8080"
+    volumes:
+      - ./scrutiny/config:/opt/scrutiny/config
+      - ./scrutiny/influxdb:/opt/scrutiny/influxdb
+      - /run/udev:/run/udev:ro
+    cap_add:
+      - SYS_RAWIO
+      - SYS_ADMIN
+    environment:
+      - TZ=${TZ}
+EOF
+    _sys_labels scrutiny scrutiny 8080 true
+    echo "    restart: unless-stopped"
+}
+
+_block_uptime_kuma() {
+    cat << 'EOF'
+
+  uptime-kuma:
+    image: louislam/uptime-kuma:2.5.5
+    container_name: uptime-kuma
+    volumes:
+      - ./uptime-kuma:/app/data
+    ports:
+      - "${ADMIN_BIND:-127.0.0.1}:3001:3001"
+    environment:
+      - TZ=${TZ}
+EOF
+    _sys_labels uptime-kuma uptime 3001 true
+    echo "    restart: unless-stopped"
+}
+
+_block_watchtower() {
+    cat << 'EOF'
+
+  watchtower:
+    image: containrrr/watchtower:1.7.1
+    container_name: watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WATCHTOWER_SCHEDULE=0 0 4 * * *
+      - WATCHTOWER_CLEANUP=true
+      - TZ=${TZ}
+    restart: unless-stopped
+EOF
+}
+
+_block_duplicati() {
+    cat << 'EOF'
+
+  duplicati:
+    image: linuxserver/duplicati:2.4.0
+    container_name: duplicati
+    environment:
+      - PUID=${ADMIN_UID}
+      - PGID=${ADMIN_GID}
+      - TZ=${TZ}
+    volumes:
+      - ./duplicati/config:/config
+      - ./data:/source:ro
+    ports:
+      - "${ADMIN_BIND:-127.0.0.1}:8200:8200"
+EOF
+    _sys_labels duplicati duplicati 8200 true
+    echo "    restart: unless-stopped"
+}
+
+_block_jellyfin() {
+    # Serveur média public (authentification propre, applis natives) :
+    # ports volontairement exposés, pas de SSO Authelia
+    cat << 'EOF'
+
+  jellyfin:
+    image: jellyfin/jellyfin:10.11.11
+    container_name: jellyfin
+    user: "${ADMIN_UID}:${ADMIN_GID}"
+    volumes:
+      - ./jellyfin/config:/config
+      - ./jellyfin/cache:/cache
+      - ./data:/media:ro
+    ports:
+      - "8096:8096"
+      - "7359:7359/udp"
+      - "1900:1900/udp"
+    environment:
+      - TZ=${TZ}
+EOF
+    _sys_labels jellyfin jellyfin 8096 false
+    echo "    restart: unless-stopped"
+}
+
+_block_dashdot() {
+    cat << 'EOF'
+
+  dashdot:
+    image: mauricenino/dashdot:6.3.4
+    container_name: dashdot
+    privileged: true
+    ports:
+      - "${ADMIN_BIND:-127.0.0.1}:3002:3001"
+    volumes:
+      - ./dashdot:/data
+      - /:/mnt/host:ro
+    environment:
+      - TZ=${TZ}
+      - DASHDOT_ENABLE_CPU_TEMPS=true
+EOF
+    _sys_labels dashdot dashdot 3001 true
+    echo "    restart: unless-stopped"
+}
+
+_block_tautulli() {
+    cat << 'EOF'
+
+  tautulli:
+    image: linuxserver/tautulli:2.18.1
+    container_name: tautulli
+    environment:
+      - PUID=${ADMIN_UID}
+      - PGID=${ADMIN_GID}
+      - TZ=${TZ}
+    volumes:
+      - ./tautulli:/config
+    ports:
+      - "${ADMIN_BIND:-127.0.0.1}:8181:8181"
+EOF
+    _sys_labels tautulli tautulli 8181 true
+    echo "    restart: unless-stopped"
+}
+
+_block_portainer() {
+    cat << 'EOF'
+
+  portainer:
+    image: portainer/portainer-ce:2.45.1
+    container_name: portainer
+    ports:
+      - "${ADMIN_BIND:-127.0.0.1}:9000:9000"
+    volumes:
+      - ./portainer:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - TZ=${TZ}
+EOF
+    _sys_labels portainer portainer 9000 true
+    echo "    restart: unless-stopped"
+}
+
+# Crée les dossiers de données des services système sélectionnés
+_system_dirs() {
+    mkdir -p "$INSTALL_DIR/authelia" "$INSTALL_DIR/data/users"
+    [ "${INSTALL_PLEX:-false}" = true ]        && mkdir -p "$INSTALL_DIR/plex"
+    [ "${INSTALL_SCRUTINY:-false}" = true ]    && mkdir -p "$INSTALL_DIR/scrutiny/config" "$INSTALL_DIR/scrutiny/influxdb"
+    [ "${INSTALL_UPTIME_KUMA:-false}" = true ] && mkdir -p "$INSTALL_DIR/uptime-kuma"
+    [ "${INSTALL_DUPLICATI:-false}" = true ]   && mkdir -p "$INSTALL_DIR/duplicati/config"
+    [ "${INSTALL_DASHDOT:-false}" = true ]     && mkdir -p "$INSTALL_DIR/dashdot"
+    [ "${INSTALL_TAUTULLI:-false}" = true ]    && mkdir -p "$INSTALL_DIR/tautulli"
+    [ "${INSTALL_PORTAINER:-false}" = true ]   && mkdir -p "$INSTALL_DIR/portainer"
+    if [ "${INSTALL_JELLYFIN:-false}" = true ]; then
+        mkdir -p "$INSTALL_DIR/jellyfin/config" "$INSTALL_DIR/jellyfin/cache"
+        chown -R "${ADMIN_UID}:${ADMIN_GID}" "$INSTALL_DIR/jellyfin" 2>/dev/null || true
+    fi
+    return 0
+}
+
+# Émet (stdout) l'en-tête et les services système sélectionnés
+compose_base_content() {
+    if [ "$USE_TRAEFIK" = "true" ]; then
+        printf 'networks:\n  traefik_proxy:\n    external: true\n\n'
+    fi
+    echo "services:"
+    _block_authelia
+    [ "${INSTALL_PLEX:-false}" = true ]        && _block_plex
+    _block_flaresolverr
+    [ "${INSTALL_SCRUTINY:-false}" = true ]    && _block_scrutiny
+    [ "${INSTALL_UPTIME_KUMA:-false}" = true ] && _block_uptime_kuma
+    [ "${INSTALL_WATCHTOWER:-false}" = true ]  && _block_watchtower
+    [ "${INSTALL_DUPLICATI:-false}" = true ]   && _block_duplicati
+    [ "${INSTALL_JELLYFIN:-false}" = true ]    && _block_jellyfin
+    [ "${INSTALL_DASHDOT:-false}" = true ]     && _block_dashdot
+    [ "${INSTALL_TAUTULLI:-false}" = true ]    && _block_tautulli
+    [ "${INSTALL_PORTAINER:-false}" = true ]   && _block_portainer
+    return 0
+}
+
+# Écrit le .env (flag USE_TRAEFIK explicite, lu par les scripts)
+write_env_file() {
+    local admin_bind="127.0.0.1"
+    if [ -f "$INSTALL_DIR/.env" ] && grep -q '^ADMIN_BIND=' "$INSTALL_DIR/.env"; then
+        admin_bind=$(grep '^ADMIN_BIND=' "$INSTALL_DIR/.env" | cut -d'=' -f2)
+    fi
+    cat > "$INSTALL_DIR/.env" << EOF
+TZ=$TZ
+DOMAIN=$DOMAIN
+ADMIN_UID=$ADMIN_UID
+ADMIN_GID=$ADMIN_GID
+USE_TRAEFIK=$USE_TRAEFIK
+ADMIN_BIND=$admin_bind
+EOF
+}
+
+# Génère le docker-compose.yml de base (+ .env). $1 = fichier de sortie
+# (défaut : $INSTALL_DIR/docker-compose.yml)
+generate_docker_compose() {
+    local out="${1:-$INSTALL_DIR/docker-compose.yml}"
+    log "Génération de la configuration Docker..."
+    _system_dirs
+    compose_base_content > "$out"
+    write_env_file
+    log "✓ Configuration Docker générée"
+}
+
+# Extrait (stdout) les blocs verbatim des services nommés d'un compose,
+# dans l'ordre du fichier. $1=fichier, $2..=noms de services
+compose_extract_blocks() {
+    local file="$1"; shift
+    awk -v names="$*" '
+        BEGIN { n = split(names, a, " "); for (i = 1; i <= n; i++) want[a[i] ":"] = 1 }
+        /^  [^ #]/ { keep = ($1 in want); if (keep) print "" }
+        /^[^ ]/    { keep = 0 }
+        keep && !/^$/ { print }
+    ' "$file"
+}
+
+# Liste des noms de services d'un compose (clés sous "services:")
+compose_service_names() {
+    awk '/^services:/{s=1;next} /^[^ ]/{s=0} s && /^  [^ #]/{sub(":$","",$1); print $1}' "$1"
+}

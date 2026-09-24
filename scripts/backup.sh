@@ -40,7 +40,10 @@ done
 [ "${EUID:-$(id -u)}" -eq 0 ] || error "Ce script doit être exécuté en tant que root"
 [ -d "$INSTALL_DIR" ] || error "Répertoire d'installation introuvable : $INSTALL_DIR"
 
+# Les archives contiennent des secrets (config Authelia, hashs) : root seul
+umask 077
 mkdir -p "$BACKUP_DIR"
+chmod 700 "$BACKUP_DIR"
 TS=$(date +%Y%m%d-%H%M%S)
 SAFE_LABEL=$(echo "$LABEL" | tr -c 'A-Za-z0-9_-' '-' | sed 's/-\+/-/g; s/^-//; s/-$//')
 NAME="seedbox-config-${SAFE_LABEL:+${SAFE_LABEL}-}${TS}.tar.gz"
@@ -61,20 +64,32 @@ cp /etc/projects "$META/projects" 2>/dev/null || true
 echo "$TS" > "$META/created_at"
 
 log "Création de l'archive..."
-tar czf "$OUT" \
-    --exclude='./data/users/*/downloads' \
-    --exclude='./data/users/*/data' \
+# En deux temps : tout SAUF ./data (médias, téléchargements…), puis uniquement
+# les dossiers config/ des utilisateurs (GNU tar appliquerait l'exclusion
+# aussi aux chemins explicites s'ils étaient dans la même commande).
+TAR="${OUT%.gz}"
+rc=0
+tar cf "$TAR" -C "$INSTALL_DIR" \
+    --exclude='./data' \
     --exclude='./jellyfin/cache' \
     --exclude='./scrutiny/influxdb' \
     --exclude='./duplicati/backups' \
     --exclude='./plex' \
     --exclude='*.sock' \
     --exclude='*.log' \
-    -C "$INSTALL_DIR" . 2>/dev/null
-
-rc=$?
+    . 2>/dev/null || rc=$?
+USER_CONFIGS=()
+if [ $rc -eq 0 ]; then
+    shopt -s nullglob
+    for d in "$INSTALL_DIR"/data/users/*/config; do USER_CONFIGS+=("./${d#"$INSTALL_DIR"/}"); done
+    shopt -u nullglob
+    if [ ${#USER_CONFIGS[@]} -gt 0 ]; then
+        tar rf "$TAR" -C "$INSTALL_DIR" "${USER_CONFIGS[@]}" 2>/dev/null || rc=$?
+    fi
+fi
+[ $rc -eq 0 ] && gzip -f "$TAR" || rc=1
 rm -rf "$META"
-[ $rc -eq 0 ] && [ -f "$OUT" ] || error "Échec de la création de l'archive"
+[ $rc -eq 0 ] && [ -f "$OUT" ] || { rm -f "$TAR" "$OUT"; error "Échec de la création de l'archive"; }
 
 success "Sauvegarde créée : $OUT ($(du -h "$OUT" | cut -f1))"
 

@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """
-API Web Sécurisée pour Ajouter des Services Utilisateur
-Permet aux utilisateurs d'ajouter des services depuis Homarr de manière sécurisée
+API Web pour Ajouter des Services Utilisateur — EXPÉRIMENTAL, NON DÉPLOYÉ
+
+⚠️ Non installée par install.sh et non fonctionnelle en l'état dans un
+conteneur : add_user_service.sh doit s'exécuter sur l'HÔTE (useradd, docker,
+quotas, ufw). Voir docs/HOMARR_INTEGRATION.md. Pour ajouter un service à un
+utilisateur, utilisez menu.sh ou scripts/add_user_service.sh.
 """
 
 from flask import Flask, request, jsonify
@@ -14,7 +18,11 @@ from werkzeug.security import check_password_hash
 import yaml
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('API_SECRET_KEY', 'CHANGE_ME_IN_PRODUCTION')
+# Pas de clé par défaut : une clé connue permettrait de forger des jetons
+_secret = os.environ.get('API_SECRET_KEY', '')
+if len(_secret) < 32:
+    raise SystemExit("API_SECRET_KEY absente ou trop courte (>= 32 caractères requis)")
+app.config['SECRET_KEY'] = _secret
 
 # Configuration
 INSTALL_DIR = "/opt/seedbox"
@@ -29,9 +37,7 @@ ALLOWED_SERVICES = [
     'bazarr',
     'prowlarr',
     'overseerr',
-    'calibre',
-    'homarr',
-    'filebrowser'
+    'calibre'
 ]
 
 # Fonction de décorateur pour l'authentification JWT
@@ -72,7 +78,7 @@ def load_authelia_users():
 @app.route('/api/login', methods=['POST'])
 def login():
     """Génère un token JWT pour l'utilisateur"""
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
 
     username = data.get('username')
     password = data.get('password')
@@ -109,7 +115,7 @@ def login():
     # Générer le token JWT
     token = jwt.encode({
         'username': username,
-        'exp': datetime.datetime.utcnow() + datetime.datetime.timedelta(hours=24)
+        'exp': datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=24)
     }, app.config['SECRET_KEY'], algorithm='HS256')
 
     return jsonify({'token': token, 'username': username})
@@ -129,13 +135,12 @@ def list_available_services(current_user):
             timeout=10
         )
 
-        # Parser la sortie pour extraire les services installés
-        # (Simplifié - améliorer le parsing en production)
+        # Lignes de service : "  <service>  <état>  <url>"
         installed = []
         for line in result.stdout.split('\n'):
-            for service in ALLOWED_SERVICES:
-                if service in line.lower() and ('running' in line.lower() or 'stopped' in line.lower()):
-                    installed.append(service)
+            words = line.split()
+            if line.startswith('  ') and words and words[0] in ALLOWED_SERVICES:
+                installed.append(words[0])
 
         # Services disponibles = tous - installés
         available = [s for s in ALLOWED_SERVICES if s not in installed]
@@ -154,7 +159,7 @@ def list_available_services(current_user):
 def add_service(current_user):
     """Ajoute un service pour l'utilisateur authentifié"""
 
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     service = data.get('service')
 
     # Validation

@@ -1,9 +1,10 @@
 #!/bin/bash
 
 #######################
-# Script de modification de mot de passe utilisateur
-# Modifie le mot de passe système, Authelia, et optionnellement Jellyfin
+# Script de modification de mot de passe
 # Usage: ./update_password.sh <username> [nouveau_mot_de_passe]
+# Met à jour : système Linux, Authelia (SSO), qBittorrent, Filebrowser et,
+# si configuré, Jellyfin — tous avec le même mot de passe.
 #######################
 
 set -e
@@ -23,295 +24,160 @@ info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 
 # Configuration
 INSTALL_DIR="/opt/seedbox"
-AUTHELIA_CONFIG_DIR="$INSTALL_DIR/authelia"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+AUTHELIA_DB="$INSTALL_DIR/authelia/users_database.yml"
+AUTHELIA_IMAGE="authelia/authelia:4.39.28"
+FILEBROWSER_IMAGE="filebrowser/filebrowser:v2.63.23"
 JELLYFIN_URL="http://localhost:8096"
+MIN_LEN=12   # minimum imposé par Filebrowser ; appliqué à tous les services
 
-# Vérification des arguments
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/lib_qbittorrent.sh" || error "lib_qbittorrent.sh introuvable"
+
 if [ $# -lt 1 ]; then
     echo "Usage: $0 <username> [nouveau_mot_de_passe]"
     echo ""
-    echo "Si le mot de passe n'est pas fourni, il sera demandé de manière sécurisée."
-    echo ""
-    echo "Exemple:"
-    echo "  sudo ./update_password.sh john"
-    echo "  sudo ./update_password.sh john NewSecurePass456"
+    echo "Si le mot de passe n'est pas fourni, il sera demandé de manière sécurisée"
+    echo "(recommandé : un mot de passe passé en argument reste dans l'historique)."
     exit 1
 fi
 
 USERNAME=$1
-NEW_PASSWORD=$2
+NEW_PASSWORD=${2:-}
 
-# Vérification root
-if [[ $EUID -ne 0 ]]; then
-    error "Ce script doit être exécuté en tant que root"
-fi
+[[ $EUID -eq 0 ]] || error "Ce script doit être exécuté en tant que root"
+id "$USERNAME" &>/dev/null || error "L'utilisateur $USERNAME n'existe pas"
+USER_ID=$(id -u "$USERNAME")
+USER_DIR="$INSTALL_DIR/data/users/$USERNAME"
 
-# Vérifier que l'utilisateur existe
-if ! id "$USERNAME" &>/dev/null; then
-    error "L'utilisateur $USERNAME n'existe pas"
-fi
-
-# Demander le mot de passe si non fourni
 if [ -z "$NEW_PASSWORD" ]; then
     echo ""
     while true; do
-        read -s -p "Nouveau mot de passe (min 8 caractères): " NEW_PASSWORD
-        echo
-        if [ ${#NEW_PASSWORD} -ge 8 ]; then
-            read -s -p "Confirmez le mot de passe: " NEW_PASSWORD_CONFIRM
-            echo
-            if [ "$NEW_PASSWORD" = "$NEW_PASSWORD_CONFIRM" ]; then
-                break
-            else
-                warn "Les mots de passe ne correspondent pas"
-            fi
-        else
-            warn "Le mot de passe doit contenir au moins 8 caractères"
+        read -r -s -p "Nouveau mot de passe (min $MIN_LEN caractères): " NEW_PASSWORD; echo
+        if [ ${#NEW_PASSWORD} -lt $MIN_LEN ]; then
+            warn "Le mot de passe doit contenir au moins $MIN_LEN caractères"; continue
         fi
+        read -r -s -p "Confirmez le mot de passe: " NEW_PASSWORD_CONFIRM; echo
+        [ "$NEW_PASSWORD" = "$NEW_PASSWORD_CONFIRM" ] && break
+        warn "Les mots de passe ne correspondent pas"
     done
 fi
+[ ${#NEW_PASSWORD} -ge $MIN_LEN ] || error "Le mot de passe doit contenir au moins $MIN_LEN caractères"
 
-# Validation du mot de passe
-if [ ${#NEW_PASSWORD} -lt 8 ]; then
-    error "Le mot de passe doit contenir au moins 8 caractères"
-fi
+container_exists() { docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx "$1"; }
+
+# Échappe une chaîne pour l'insérer dans du JSON
+json_escape() {
+    local s=$1
+    s=${s//\\/\\\\}; s=${s//\"/\\\"}
+    s=${s//$'\n'/\\n}; s=${s//$'\r'/\\r}; s=${s//$'\t'/\\t}
+    printf '%s' "$s"
+}
 
 log "Modification du mot de passe pour $USERNAME..."
 
-#######################
-# 1. Mot de passe système Linux
-#######################
+# Hash Authelia calculé AVANT toute modification (rien n'est changé s'il échoue)
+NEW_HASH=$(docker run --rm "$AUTHELIA_IMAGE" authelia crypto hash generate argon2 --password "$NEW_PASSWORD" 2>/dev/null \
+           | grep 'Digest:' | awk '{print $2}') || true
+[[ "$NEW_HASH" == \$argon2* ]] || error "Impossible de générer le hash Authelia — aucun mot de passe modifié"
 
+UPDATED=()
+
+#######################
+# 1. Système Linux
+#######################
 log "Mise à jour du mot de passe système..."
-echo "$USERNAME:$NEW_PASSWORD" | chpasswd
-
-if [ $? -eq 0 ]; then
-    log "✓ Mot de passe système mis à jour"
-else
-    error "Échec de la mise à jour du mot de passe système"
-fi
+echo "$USERNAME:$NEW_PASSWORD" | chpasswd || error "Échec de la mise à jour du mot de passe système"
+UPDATED+=("Système Linux (SSH, console)")
 
 #######################
-# 2. Mot de passe Authelia
+# 2. Authelia (SSO)
 #######################
-
-log "Mise à jour du mot de passe Authelia..."
-
-# Générer le nouveau hash Argon2
-NEW_HASHED_PASSWORD=$(docker run --rm authelia/authelia:4.39.28 authelia crypto hash generate argon2 --password "$NEW_PASSWORD" | grep 'Digest:' | awk '{print $2}')
-
-if [ -z "$NEW_HASHED_PASSWORD" ]; then
-    error "Impossible de générer le hash Argon2"
-fi
-
-# Sauvegarder le fichier original
-cp "$AUTHELIA_CONFIG_DIR/users_database.yml" "$AUTHELIA_CONFIG_DIR/users_database.yml.bak"
-
-# Remplacer le mot de passe dans le fichier Authelia
-# On utilise awk pour remplacer uniquement le mot de passe de l'utilisateur spécifié
-awk -v user="  $USERNAME:" -v newpass="    password: $NEW_HASHED_PASSWORD" '
-BEGIN { in_user=0 }
-{
-    if ($0 == user) {
-        in_user=1
-        print $0
-    } else if (in_user && /^    password:/) {
-        print newpass
-        in_user=0
-    } else {
-        print $0
-    }
-}' "$AUTHELIA_CONFIG_DIR/users_database.yml.bak" > "$AUTHELIA_CONFIG_DIR/users_database.yml"
-
-# Vérifier que la modification a réussi
-if grep -A 5 "  $USERNAME:" "$AUTHELIA_CONFIG_DIR/users_database.yml" | grep -q "$NEW_HASHED_PASSWORD"; then
-    log "✓ Mot de passe Authelia mis à jour"
-    rm "$AUTHELIA_CONFIG_DIR/users_database.yml.bak"
-else
-    error "Échec de la mise à jour du mot de passe Authelia"
-fi
-
-# Redémarrer Authelia pour prendre en compte les changements
-log "Redémarrage d'Authelia..."
-docker restart authelia >/dev/null 2>&1
-sleep 2
-log "✓ Authelia redémarré"
-
-#######################
-# 3. Mot de passe Jellyfin (optionnel)
-#######################
-
-if docker ps --format '{{.Names}}' | grep -q "^jellyfin$"; then
-    log "Jellyfin détecté. Mise à jour du mot de passe Jellyfin..."
-
-    # Vérifier si la clé API est configurée
-    if [ -f "$INSTALL_DIR/.jellyfin_api" ]; then
-        source "$INSTALL_DIR/.jellyfin_api"
-
-        # Vérifier que Jellyfin est accessible
-        if curl -s "$JELLYFIN_URL/health" >/dev/null 2>&1; then
-            # Récupérer l'ID utilisateur Jellyfin
-            USERS_LIST=$(curl -s "$JELLYFIN_URL/Users" -H "X-Emby-Token: $JELLYFIN_API_KEY")
-            JELLYFIN_USER_ID=$(echo "$USERS_LIST" | grep -o "\"Name\":\"$USERNAME\".*\"Id\":\"[^\"]*\"" | grep -o '"Id":"[^"]*"' | cut -d'"' -f4)
-
-            if [ -n "$JELLYFIN_USER_ID" ]; then
-                # Mettre à jour le mot de passe via l'API
-                RESPONSE=$(curl -s -X POST "$JELLYFIN_URL/Users/$JELLYFIN_USER_ID/Password" \
-                    -H "Content-Type: application/json" \
-                    -H "X-Emby-Token: $JELLYFIN_API_KEY" \
-                    -d "{
-                        \"Id\": \"$JELLYFIN_USER_ID\",
-                        \"NewPw\": \"$NEW_PASSWORD\",
-                        \"ResetPassword\": false
-                    }")
-
-                if [ $? -eq 0 ]; then
-                    log "✓ Mot de passe Jellyfin mis à jour"
-                else
-                    warn "Échec de la mise à jour du mot de passe Jellyfin"
-                    info "Vous pouvez le mettre à jour manuellement dans l'interface Jellyfin"
-                fi
-            else
-                warn "Utilisateur $USERNAME non trouvé dans Jellyfin"
-                info "Créez le compte Jellyfin avec: sudo ./configure_jellyfin_user.sh $USERNAME <password> \$JELLYFIN_API_KEY"
-            fi
-        else
-            warn "Jellyfin n'est pas accessible"
-        fi
+if grep -q "^  ${USERNAME}:" "$AUTHELIA_DB" 2>/dev/null; then
+    log "Mise à jour du mot de passe Authelia..."
+    cp "$AUTHELIA_DB" "$AUTHELIA_DB.bak"
+    awk -v user="  ${USERNAME}:" -v line="    password: \"${NEW_HASH}\"" '
+        $0 == user          { in_user = 1; print; next }
+        /^  [^ ]/           { in_user = 0 }
+        in_user && /^    password:/ { print line; in_user = 0; next }
+        { print }
+    ' "$AUTHELIA_DB.bak" > "$AUTHELIA_DB"
+    chmod 600 "$AUTHELIA_DB"
+    if grep -qF "$NEW_HASH" "$AUTHELIA_DB"; then
+        rm -f "$AUTHELIA_DB.bak"
+        docker restart authelia >/dev/null 2>&1 || warn "Redémarrez Authelia : docker restart authelia"
+        UPDATED+=("Authelia (SSO)")
     else
-        info "Clé API Jellyfin non configurée"
-        info "Le mot de passe Jellyfin n'a pas été mis à jour"
-        info "Mettez-le à jour manuellement dans l'interface Jellyfin"
+        cp "$AUTHELIA_DB.bak" "$AUTHELIA_DB"
+        error "Échec de la mise à jour Authelia (fichier restauré)"
     fi
 else
-    info "Jellyfin non installé, ignoré"
+    warn "Compte Authelia introuvable pour $USERNAME"
 fi
 
 #######################
-# 4. Filebrowser (base de données SQLite)
+# 3. qBittorrent (conteneur arrêté : il réécrit sa config en quittant)
 #######################
-
-FILEBROWSER_CONTAINER="filebrowser-$USERNAME"
-if docker ps --format '{{.Names}}' | grep -q "^$FILEBROWSER_CONTAINER$"; then
-    log "Mise à jour du mot de passe Filebrowser..."
-
-    # Filebrowser utilise une commande CLI pour modifier les utilisateurs
-    # On doit passer par le conteneur pour exécuter la commande
-    if docker exec "$FILEBROWSER_CONTAINER" filebrowser users update "$USERNAME" --password "$NEW_PASSWORD" 2>/dev/null; then
-        log "✓ Mot de passe Filebrowser mis à jour"
-    else
-        # Si la commande échoue, essayer avec l'admin (utilisateur par défaut)
-        if docker exec "$FILEBROWSER_CONTAINER" filebrowser users update "admin" --password "$NEW_PASSWORD" 2>/dev/null; then
-            log "✓ Mot de passe Filebrowser (admin) mis à jour"
-        else
-            warn "Impossible de mettre à jour le mot de passe Filebrowser automatiquement"
-            info "Mettez-le à jour manuellement : Settings → User Management"
-        fi
-    fi
-else
-    info "Filebrowser non installé pour $USERNAME, ignoré"
-fi
-
-#######################
-# 5. qBittorrent (fichier de configuration)
-#######################
-
-QBITTORRENT_CONTAINER="qbittorrent-$USERNAME"
-if docker ps --format '{{.Names}}' | grep -q "^$QBITTORRENT_CONTAINER$"; then
+QB="qbittorrent-$USERNAME"
+QB_CONF="$USER_DIR/config/qbittorrent/qBittorrent/qBittorrent.conf"
+if container_exists "$QB" && [ -f "$QB_CONF" ]; then
     log "Mise à jour du mot de passe qBittorrent..."
-
-    # qBittorrent utilise un hash PBKDF2 dans son fichier de config
-    # On va utiliser l'API Web de qBittorrent pour changer le mot de passe
-
-    USER_ID=$(id -u "$USERNAME")
-    QBIT_PORT=$((8080 + (USER_ID - 1000) * 10))
-
-    # Arrêter qBittorrent temporairement
-    docker stop "$QBITTORRENT_CONTAINER" >/dev/null 2>&1
-    sleep 2
-
-    # Générer le hash PBKDF2 pour qBittorrent
-    # Format: @ByteArray(hash_base64)
-    QBIT_HASH=$(python3 -c "
-import hashlib, base64
-password = '$NEW_PASSWORD'
-# qBittorrent utilise PBKDF2-SHA256 avec 100000 iterations
-salt = b'qBittorrent'
-hash_bytes = hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 100000)
-print('@ByteArray(' + base64.b64encode(hash_bytes).decode() + ')')
-" 2>/dev/null)
-
-    if [ -n "$QBIT_HASH" ]; then
-        # Modifier le fichier de configuration
-        CONFIG_DIR="$INSTALL_DIR/data/users/$USERNAME/config/qBittorrent"
-        CONFIG_FILE="$CONFIG_DIR/qBittorrent.conf"
-
-        if [ -f "$CONFIG_FILE" ]; then
-            # Sauvegarder
-            cp "$CONFIG_FILE" "${CONFIG_FILE}.bak"
-
-            # Remplacer le hash du mot de passe
-            if grep -q "WebUI\\\\Password_PBKDF2" "$CONFIG_FILE"; then
-                sed -i "s|WebUI\\\\\\\\Password_PBKDF2=.*|WebUI\\\\\\\\Password_PBKDF2=\"$QBIT_HASH\"|" "$CONFIG_FILE"
-                log "✓ Hash qBittorrent mis à jour dans le fichier de config"
-            else
-                # Ajouter la ligne si elle n'existe pas
-                sed -i "/\[Preferences\]/a WebUI\\\\\\\\Password_PBKDF2=\"$QBIT_HASH\"" "$CONFIG_FILE"
-                log "✓ Hash qBittorrent ajouté dans le fichier de config"
-            fi
-        else
-            warn "Fichier de configuration qBittorrent non trouvé"
-        fi
+    docker stop "$QB" >/dev/null 2>&1 || true
+    if qbit_configure "$QB_CONF" "$USERNAME" "$NEW_PASSWORD"; then
+        chown "$USER_ID:$USER_ID" "$QB_CONF"
+        UPDATED+=("qBittorrent")
     else
-        warn "Impossible de générer le hash PBKDF2 (python3 requis)"
+        warn "Impossible de mettre à jour qBittorrent"
     fi
+    docker start "$QB" >/dev/null 2>&1 || warn "Échec du redémarrage de $QB"
+fi
 
-    # Redémarrer qBittorrent
-    docker start "$QBITTORRENT_CONTAINER" >/dev/null 2>&1
-    sleep 3
-
-    if docker ps --format '{{.Names}}' | grep -q "^$QBITTORRENT_CONTAINER$"; then
-        log "✓ qBittorrent redémarré avec nouveau mot de passe"
+#######################
+# 4. Filebrowser (base verrouillée tant que le serveur tourne)
+#######################
+FB="filebrowser-$USERNAME"
+FB_CFG="$USER_DIR/config/filebrowser"
+if container_exists "$FB" && [ -f "$FB_CFG/filebrowser.db" ]; then
+    log "Mise à jour du mot de passe Filebrowser..."
+    docker stop "$FB" >/dev/null 2>&1 || true
+    if docker run --rm --user "$USER_ID:$USER_ID" -v "$FB_CFG:/config" \
+         --entrypoint /bin/filebrowser "$FILEBROWSER_IMAGE" \
+         -d /config/filebrowser.db users update "$USERNAME" --password "$NEW_PASSWORD" >/dev/null 2>&1; then
+        UPDATED+=("Filebrowser")
     else
-        error "Échec du redémarrage de qBittorrent"
+        warn "Impossible de mettre à jour Filebrowser (Paramètres → Gestion des utilisateurs)"
     fi
-else
-    info "qBittorrent non installé pour $USERNAME, ignoré"
+    docker start "$FB" >/dev/null 2>&1 || warn "Échec du redémarrage de $FB"
+fi
+
+#######################
+# 5. Jellyfin (si une clé API a été configurée)
+#######################
+if container_exists jellyfin && [ -f "$INSTALL_DIR/.jellyfin_api" ]; then
+    # shellcheck source=/dev/null
+    source "$INSTALL_DIR/.jellyfin_api"
+    JID=$(curl -s "$JELLYFIN_URL/Users" -H "X-Emby-Token: ${JELLYFIN_API_KEY:-}" 2>/dev/null \
+          | python3 -c "import json,sys;print(next((u['Id'] for u in json.load(sys.stdin) if u['Name']=='$USERNAME'),''))" 2>/dev/null) || true
+    if [ -n "$JID" ]; then
+        code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$JELLYFIN_URL/Users/$JID/Password" \
+               -H "Content-Type: application/json" -H "X-Emby-Token: $JELLYFIN_API_KEY" \
+               -d "{\"NewPw\":\"$(json_escape "$NEW_PASSWORD")\",\"ResetPassword\":false}")
+        if [[ "$code" == 2* ]]; then UPDATED+=("Jellyfin")
+        else warn "Jellyfin a refusé la mise à jour (HTTP $code)"; fi
+    else
+        info "Pas de compte Jellyfin pour $USERNAME"
+    fi
 fi
 
 #######################
 # Résumé
 #######################
-
 echo ""
 info "═══════════════════════════════════════════════════════════"
-info "Mot de passe mis à jour pour $USERNAME"
-info "═══════════════════════════════════════════════════════════"
+info "Mot de passe mis à jour pour $USERNAME :"
+for u in "${UPDATED[@]}"; do info "   ✓ $u"; done
 info ""
-info "✅ Services mis à jour automatiquement :"
-info "   - Système Linux (SSH, console)"
-info "   - Authelia (authentification centralisée)"
-if docker ps --format '{{.Names}}' | grep -q "^jellyfin$" && [ -f "$INSTALL_DIR/.jellyfin_api" ]; then
-    info "   - Jellyfin (streaming média)"
-fi
-if docker ps --format '{{.Names}}' | grep -q "^qbittorrent-$USERNAME$"; then
-    info "   - qBittorrent (client torrent)"
-fi
-if docker ps --format '{{.Names}}' | grep -q "^filebrowser-$USERNAME$"; then
-    info "   - Filebrowser (gestionnaire de fichiers)"
-fi
-info ""
-info "🖥️  Homarr :"
-info "   Pas d'authentification propre - utilise Authelia (déjà mis à jour ✓)"
-info ""
-info "💡 Services *arr (Sonarr, Radarr, Prowlarr, etc.) :"
-info "   Option 1 (Recommandé) : Désactiver l'authentification"
-info "      → Utiliser: sudo ./disable_arr_auth.sh $USERNAME <service>"
-info "      → S'appuie sur Authelia pour la sécurité"
-info ""
-info "   Option 2 : Garder l'authentification interne"
-info "      → Settings → General → Security"
-info "      → Changer manuellement le mot de passe"
-info ""
-info "💡 Conseil : Notez ce mot de passe dans un gestionnaire sécurisé"
+info "Homarr n'a pas d'authentification propre (protégé par Authelia)."
+info "Services *arr : leur authentification interne est indépendante"
+info "(ou déléguée au proxy via disable_arr_auth.sh)."
 info "═══════════════════════════════════════════════════════════"

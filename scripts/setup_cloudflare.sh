@@ -24,6 +24,7 @@ success() { echo -e "${GREEN}[✓]${NC} $1"; }
 
 # Variables
 CLOUDFLARE_API_TOKEN=""
+DOMAIN_ARG="${1:-}"
 DOMAIN=""
 ZONE_ID=""
 SERVER_IP=""
@@ -48,7 +49,7 @@ check_dependencies() {
 get_server_ip() {
     log "Détection de l'IP publique du serveur..."
 
-    SERVER_IP=$(curl -s ifconfig.me || curl -s icanhazip.com || curl -s ipecho.net/plain)
+    SERVER_IP=$(curl -4 -fs ifconfig.me || curl -4 -fs icanhazip.com || curl -4 -fs ipecho.net/plain)
 
     if [ -z "$SERVER_IP" ]; then
         error "Impossible de détecter l'IP publique du serveur"
@@ -73,14 +74,16 @@ prompt_cloudflare_info() {
     echo "  5. Copiez le token généré"
     echo ""
 
-    read -p "Votre API Token Cloudflare: " CLOUDFLARE_API_TOKEN
+    read -r -p "Votre API Token Cloudflare: " CLOUDFLARE_API_TOKEN
 
     if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
         error "Le token API est requis"
     fi
 
     echo ""
-    read -p "Votre nom de domaine (ex: monseedbox.com): " DOMAIN
+    # Domaine passé en argument par install.sh (sinon demandé)
+    DOMAIN="${DOMAIN_ARG:-}"
+    [ -n "$DOMAIN" ] || read -r -p "Votre nom de domaine (ex: monseedbox.com): " DOMAIN
 
     if [ -z "$DOMAIN" ]; then
         error "Le nom de domaine est requis"
@@ -91,11 +94,13 @@ prompt_cloudflare_info() {
 test_cloudflare_api() {
     log "Test de connexion à l'API Cloudflare..."
 
-    local response=$(curl -s -X GET "https://api.cloudflare.com/v4/user/tokens/verify" \
+    local response
+    response=$(curl -s -X GET "https://api.cloudflare.com/client/v4/user/tokens/verify" \
         -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
         -H "Content-Type: application/json")
 
-    local success_status=$(echo "$response" | jq -r '.success')
+    local success_status
+    success_status=$(echo "$response" | jq -r '.success')
 
     if [ "$success_status" != "true" ]; then
         error "Token API invalide ou expiré"
@@ -108,7 +113,8 @@ test_cloudflare_api() {
 get_zone_id() {
     log "Récupération du Zone ID pour $DOMAIN..."
 
-    local response=$(curl -s -X GET "https://api.cloudflare.com/v4/zones?name=$DOMAIN" \
+    local response
+    response=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=$DOMAIN" \
         -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
         -H "Content-Type: application/json")
 
@@ -126,12 +132,14 @@ check_record_exists() {
     local record_name=$1
     local record_type=$2
 
-    local response=$(curl -s -X GET \
-        "https://api.cloudflare.com/v4/zones/$ZONE_ID/dns_records?type=$record_type&name=$record_name" \
+    local response
+    response=$(curl -s -X GET \
+        "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=$record_type&name=$record_name" \
         -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
         -H "Content-Type: application/json")
 
-    local record_id=$(echo "$response" | jq -r '.result[0].id')
+    local record_id
+    record_id=$(echo "$response" | jq -r '.result[0].id')
 
     if [ -z "$record_id" ] || [ "$record_id" = "null" ]; then
         echo ""
@@ -149,14 +157,16 @@ create_or_update_record() {
     log "Configuration de l'enregistrement $record_type pour $record_name..."
 
     # Vérifier si l'enregistrement existe
-    local existing_id=$(check_record_exists "$record_name" "$record_type")
+    local existing_id
+    existing_id=$(check_record_exists "$record_name" "$record_type")
 
     if [ -n "$existing_id" ]; then
         # Mise à jour
         info "Enregistrement existant trouvé, mise à jour..."
 
-        local response=$(curl -s -X PUT \
-            "https://api.cloudflare.com/v4/zones/$ZONE_ID/dns_records/$existing_id" \
+        local response
+        response=$(curl -s -X PUT \
+            "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$existing_id" \
             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
             -H "Content-Type: application/json" \
             --data "{
@@ -167,20 +177,23 @@ create_or_update_record() {
                 \"proxied\": false
             }")
 
-        local success_status=$(echo "$response" | jq -r '.success')
+        local success_status
+        success_status=$(echo "$response" | jq -r '.success')
 
         if [ "$success_status" = "true" ]; then
             success "✓ Enregistrement mis à jour: $record_name → $record_content"
         else
-            local error_msg=$(echo "$response" | jq -r '.errors[0].message')
+            local error_msg
+            error_msg=$(echo "$response" | jq -r '.errors[0].message')
             error "Échec de la mise à jour: $error_msg"
         fi
     else
         # Création
         info "Création du nouvel enregistrement..."
 
-        local response=$(curl -s -X POST \
-            "https://api.cloudflare.com/v4/zones/$ZONE_ID/dns_records" \
+        local response
+        response=$(curl -s -X POST \
+            "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \
             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
             -H "Content-Type: application/json" \
             --data "{
@@ -191,12 +204,14 @@ create_or_update_record() {
                 \"proxied\": false
             }")
 
-        local success_status=$(echo "$response" | jq -r '.success')
+        local success_status
+        success_status=$(echo "$response" | jq -r '.success')
 
         if [ "$success_status" = "true" ]; then
             success "✓ Enregistrement créé: $record_name → $record_content"
         else
-            local error_msg=$(echo "$response" | jq -r '.errors[0].message')
+            local error_msg
+            error_msg=$(echo "$response" | jq -r '.errors[0].message')
             error "Échec de la création: $error_msg"
         fi
     fi
@@ -247,7 +262,7 @@ echo ""
 log "Vérification de la configuration DNS..."
 sleep 3
 
-if ./scripts/check_dns.sh "$DOMAIN"; then
+if "$(dirname "$0")/check_dns.sh" "$DOMAIN"; then
     echo ""
     success "Configuration DNS Cloudflare terminée avec succès !"
     echo ""
@@ -263,5 +278,5 @@ if ./scripts/check_dns.sh "$DOMAIN"; then
     echo ""
 else
     warn "La vérification DNS a échoué, mais les enregistrements ont été créés"
-    warn "Attendez quelques minutes et relancez: ./scripts/check_dns.sh $DOMAIN"
+    warn "Attendez quelques minutes et relancez: $(dirname "$0")/check_dns.sh $DOMAIN"
 fi
