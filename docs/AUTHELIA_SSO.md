@@ -98,7 +98,7 @@ log:
 ```yaml
 services:
   traefik:
-    image: traefik:v3.0
+    image: traefik:v3.7.13
     container_name: traefik
     restart: unless-stopped
     security_opt:

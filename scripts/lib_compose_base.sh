@@ -176,7 +176,7 @@ _block_watchtower() {
     cat << 'EOF'
 
   watchtower:
-    image: containrrr/watchtower:1.7.1
+    image: nickfedor/watchtower:1.22.3
     container_name: watchtower
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock

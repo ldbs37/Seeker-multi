@@ -82,6 +82,7 @@ entryPoints:
   web:
     address: ":80"
     http:
+      aliasHeadersStrategy: delete
       redirections:
         entryPoint:
           to: websecure
@@ -91,6 +92,17 @@ entryPoints:
   websecure:
     address: ":443"
     http:
+      # Noms de fichiers avec #, ?, %, ; (Filebrowser, torrents) : autorisés
+      # explicitement, les futures versions de Traefik les refusant par défaut
+      # Supprime les en-têtes imitant ceux gérés par Traefik/Authelia
+      # (ex. Remote_User pour Remote-User, lus à l'identique par les backends
+      # Python/WSGI comme Bazarr ou Calibre-Web)
+      aliasHeadersStrategy: delete
+      encodedCharacters:
+        allowEncodedHash: true
+        allowEncodedQuestionMark: true
+        allowEncodedPercent: true
+        allowEncodedSemicolon: true
       tls:
         certResolver: letsencrypt
 
@@ -153,7 +165,7 @@ else
     cat >> "$DOCKER_COMPOSE_FILE" << EOF
 
   traefik:
-    image: traefik:v3.0
+    image: traefik:v3.7.13
     container_name: traefik
     restart: unless-stopped
     security_opt:

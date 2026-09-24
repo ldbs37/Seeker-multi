@@ -150,7 +150,7 @@ providers:
 
 ```yaml
   traefik:
-    image: traefik:v3.0
+    image: traefik:v3.7.13
     container_name: traefik
     command:
       - "--configFile=/traefik.yml"
