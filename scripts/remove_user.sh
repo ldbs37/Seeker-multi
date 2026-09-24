@@ -143,10 +143,11 @@ fi
 
 # 7) Compte système (et son groupe)
 log "Suppression de l'utilisateur système..."
-if [ "$KEEP_DATA" = false ]; then
-    userdel -r "$USERNAME" 2>/dev/null || warn "Impossible de supprimer l'utilisateur système"
-else
-    userdel "$USERNAME" 2>/dev/null || warn "Impossible de supprimer l'utilisateur système"
+USER_HOME=$(getent passwd "$USERNAME" | cut -d: -f6)
+userdel "$USERNAME" 2>/dev/null || warn "Impossible de supprimer l'utilisateur système"
+# Home éventuel (comptes créés par une ancienne version, avec shell)
+if [ "$KEEP_DATA" = false ] && [[ "$USER_HOME" == /home/"$USERNAME" ]] && [ -d "$USER_HOME" ]; then
+    rm -rf "${USER_HOME:?}"
 fi
 getent group "$USERNAME" >/dev/null && { groupdel "$USERNAME" 2>/dev/null || true; }
 
@@ -154,3 +155,6 @@ log "${GREEN}✓${NC} Utilisateur $USERNAME supprimé avec succès !"
 if [ "$KEEP_DATA" = true ]; then
     info "Les données ont été conservées ; add_user.sh $USERNAME … les réattribuera au nouveau compte."
 fi
+
+# API libre-service : état des services à jour (sauf si appelé par son ouvrier)
+[ -n "${SEEDBOX_API_WORKER:-}" ] || "$SCRIPT_DIR/seedbox_api_worker.sh" --state >/dev/null 2>&1 || true

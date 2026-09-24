@@ -759,6 +759,7 @@ menu_traefik() {
         echo "3. Voir l'état de Traefik"
         echo "4. Voir les certificats SSL"
         echo "5. Redémarrer Traefik"
+        echo "6. API libre-service des utilisateurs (activer / désactiver)"
         echo ""
         echo "0. Retour au menu principal"
         echo ""
@@ -771,6 +772,7 @@ menu_traefik() {
             3) traefik_status_menu ;;
             4) traefik_certs_menu ;;
             5) restart_traefik_menu ;;
+            6) api_menu ;;
             0) break ;;
             *) warn "Choix invalide" ; pause ;;
         esac
@@ -823,6 +825,24 @@ generate_labels_menu() {
     echo ""
     "$SCRIPTS_DIR/generate_traefik_labels.sh" || error "La migration a échoué (voir ci-dessus)"
 
+    pause
+}
+
+api_menu() {
+    show_header
+    echo -e "${BOLD}${BLUE}🧩 API libre-service${NC}\n"
+    info "Permet à chaque utilisateur d'ajouter/retirer ses services optionnels"
+    info "depuis https://<utilisateur>.<domaine>/seedbox-api/ (lien sur Homarr)."
+    echo ""
+    if grep -q '^SEEDBOX_API=true' "$INSTALL_DIR/.env" 2>/dev/null; then
+        echo -e "${GREEN}● API active${NC}"
+        read -r -p "Désactiver l'API ? (o/N): " c
+        [[ "$c" =~ ^[oO]$ ]] && "$SCRIPTS_DIR/setup_api.sh" --disable
+    else
+        echo -e "${YELLOW}○ API inactive${NC} (mode Traefik requis)"
+        read -r -p "Activer l'API ? (o/N): " c
+        [[ "$c" =~ ^[oO]$ ]] && "$SCRIPTS_DIR/setup_api.sh"
+    fi
     pause
 }
 

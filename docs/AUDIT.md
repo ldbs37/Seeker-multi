@@ -24,7 +24,9 @@ Traefik et `docker compose config`. `bash -n` et `shellcheck -S warning` : 0 err
 | Homarr / Jellyfin | Config Homarr écrite au mauvais endroit ; appels API Jellyfin invalides | Chemin corrigé ; API Jellyfin conforme, bibliothèques restreintes |
 | Installation | `netcat` sans candidat sur Ubuntu 24.04 (arrêt), verrouillage SSH possible (port non standard), RAM mal arrondie | Dépendances corrigées, ports SSH détectés, `/proc/meminfo` |
 | Divers | URL API Cloudflare fausse, token DuckDNS et sauvegardes lisibles par tous, pièges `set -e` dans le menu | Corrigés (`umask 077`, `chmod 700`…) |
-| `api/` | Prototype non déployé et non fonctionnel (plantage à la connexion, clé secrète par défaut) | Marqué expérimental, clé obligatoire, bugs évidents corrigés |
+| `api/` | Prototype non déployé et non fonctionnel (plantage à la connexion, clé secrète par défaut, `docker.sock` exposé) | Remplacé par une API libre-service réelle (`setup_api.sh`) : conteneur sans privilège + ouvrier hôte qui revalide |
+| Comptes seedbox | Shell `/bin/bash` : un utilisateur en SSH pouvait lire les fichiers des autres | Comptes de service sans shell (`nologin`), migration auto via `update.sh --seedbox` |
+| Docker 29 | Traefik v3.0 et Watchtower 1.7.1 refusés (API Docker trop ancienne) : aucun routage | Traefik 3.7.13, fork maintenu de Watchtower |
 
 > Le reste de ce document est l'audit initial (2025-01), conservé pour
 > l'historique : les versions d'images sont désormais **épinglées** (voir

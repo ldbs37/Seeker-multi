@@ -186,7 +186,9 @@ info "Services : ${SERVICES_TO_INSTALL[*]}"
 
 log "Création de l'utilisateur système..."
 groupadd -g "$USER_ID" "$USERNAME"
-useradd -u "$USER_ID" -g "$USER_ID" -m -s /bin/bash "$USERNAME"
+# Compte de service : pas de shell ni de home (pas d'accès SSH/SFTP, donc
+# aucune lecture des fichiers des autres). Accès aux fichiers via Filebrowser.
+useradd -u "$USER_ID" -g "$USER_ID" -M -d /nonexistent -s /usr/sbin/nologin "$USERNAME"
 echo "$USERNAME:$PASSWORD" | chpasswd
 
 log "Création des répertoires utilisateur..."
@@ -291,3 +293,6 @@ fi
 echo ""
 info "Pour ajouter d'autres services plus tard:"
 echo "   sudo $INSTALL_DIR/scripts/add_user_service.sh $USERNAME <service>"
+
+# API libre-service : état des services à jour (sauf si appelé par son ouvrier)
+[ -n "${SEEDBOX_API_WORKER:-}" ] || "$SCRIPT_DIR/seedbox_api_worker.sh" --state >/dev/null 2>&1 || true

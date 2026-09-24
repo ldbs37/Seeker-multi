@@ -341,7 +341,7 @@ sudo ./update_password.sh <username> [nouveau_mot_de_passe]
 **Si le mot de passe n'est pas fourni, il sera demandé de manière sécurisée.**
 
 **Ce qui est mis à jour automatiquement :**
-- ✅ **Mot de passe système Linux** (SSH, console)
+- ✅ **Mot de passe du compte système** (compte de service sans accès SSH : les fichiers se gèrent via Filebrowser)
 - ✅ **Mot de passe Authelia** (authentification centralisée)
 - ✅ **Mot de passe Jellyfin** (si configuré avec clé API)
 - ✅ **Mot de passe qBittorrent** (hash PBKDF2 dans fichier config)
@@ -391,13 +391,20 @@ voir [Accès aux services](#-accès-aux-services).
 
 Pour retirer un service système : `sudo ./remove_service.sh <service>`.
 
-### 🧪 API de services pour Homarr (expérimental)
+### 🧩 API libre-service des utilisateurs (mode Traefik)
 
-Le dossier `api/` contient un prototype d'API permettant aux utilisateurs
-d'ajouter eux-mêmes des services. Il est **non fonctionnel en l'état et n'est
-pas déployé** par l'installeur — voir [HOMARR_INTEGRATION.md](docs/HOMARR_INTEGRATION.md).
-Chaque tableau de bord Homarr liste déjà automatiquement les services de son
-utilisateur.
+Chaque utilisateur peut ajouter ou retirer lui-même ses services optionnels
+(Sonarr, Radarr, Readarr, Bazarr, Prowlarr, Overseerr, Calibre-Web) depuis
+`https://<utilisateur>.votre-domaine.com/seedbox-api/`, lien affiché sur son
+tableau de bord Homarr. Activation (désactivée par défaut) :
+
+```bash
+sudo ./setup_api.sh            # ou menu → Traefik & SSO → API libre-service
+sudo ./setup_api.sh --disable
+```
+
+Protégée par Authelia (chaque utilisateur ne gère que ses services), sans
+accès Docker : voir [HOMARR_INTEGRATION.md](docs/HOMARR_INTEGRATION.md).
 
 ## 📁 Structure des Dossiers
 

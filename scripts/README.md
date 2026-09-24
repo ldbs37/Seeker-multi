@@ -51,6 +51,9 @@ sudo ./remove_user.sh <username> [--keep-data] [--yes]
 Retire conteneurs, blocs du `docker-compose.yml`, compte Authelia, règle de
 pare-feu, quota et compte système. Refuse de supprimer le dernier administrateur.
 
+> Les comptes seedbox sont des **comptes de service sans shell** (pas d'accès
+> SSH/SFTP) : les fichiers se gèrent via Filebrowser.
+
 ### `remove_service.sh`
 ```bash
 sudo ./remove_service.sh sonarr-john   # service d'un utilisateur
@@ -86,6 +89,15 @@ sudo ./add_service.sh <plex|jellyfin|portainer|scrutiny|uptime-kuma|dashdot|taut
 ```
 Reconstruit la partie système du `docker-compose.yml` (validation avant
 application). Portainer et Jellyfin : compte admin créé automatiquement.
+
+### `setup_api.sh` (mode Traefik)
+```bash
+sudo ./setup_api.sh [--refresh|--disable]
+```
+Active l'API libre-service : chaque utilisateur ajoute/retire ses services
+optionnels depuis `https://<user>.<domaine>/seedbox-api/`. Conteneur sans
+privilège + ouvrier systemd côté hôte (`seedbox_api_worker.sh`) qui revalide
+chaque demande. Détails : `docs/HOMARR_INTEGRATION.md`.
 
 ## 🌐 Accès distant
 

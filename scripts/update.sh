@@ -146,6 +146,25 @@ update_docker_bump() {
 #######################
 # 3) Module seedbox (scripts + menu)
 #######################
+# Migrations idempotentes appliquées après la mise à jour des scripts
+post_update_migrations() {
+    local u uid shell
+    # Comptes seedbox = comptes de service sans shell (sécurité : un shell
+    # permettait de lire les fichiers des autres utilisateurs)
+    while IFS=: read -r u _ uid _ _ _ shell; do
+        [ "$uid" -ge 2001 ] && [ "$uid" -le 4276 ] || continue
+        [ -d "$INSTALL_DIR/data/users/$u" ] || continue
+        if [ "$shell" != /usr/sbin/nologin ]; then
+            usermod -s /usr/sbin/nologin "$u" && info "Accès SSH retiré au compte seedbox $u"
+        fi
+    done < /etc/passwd
+    # API libre-service : réinstalle le code si elle est déployée
+    if [ -f /etc/systemd/system/seedbox-api.service ] && [ -x "$INSTALL_DIR/scripts/setup_api.sh" ]; then
+        "$INSTALL_DIR/scripts/setup_api.sh" --refresh || warn "Mise à jour de l'API échouée"
+    fi
+    return 0
+}
+
 update_seedbox() {
     snapshot_before
     local src="" url="" sync_from="" tmp=""
@@ -182,10 +201,11 @@ update_seedbox() {
     log "Synchronisation des scripts de gestion et du menu..."
     # On ne met à jour QUE le code de gestion : ni docker-compose.yml, ni .env,
     # ni la config Authelia, ni les données utilisateurs ne sont touchés.
-    cp "$sync_from"/scripts/*.sh "$INSTALL_DIR/scripts/" && chmod +x "$INSTALL_DIR/scripts/"*.sh
+    cp "$sync_from"/scripts/*.sh "$sync_from"/scripts/*.py "$INSTALL_DIR/scripts/" && chmod +x "$INSTALL_DIR/scripts/"*.sh
     [ -f "$sync_from/menu.sh" ] && { cp "$sync_from/menu.sh" "$INSTALL_DIR/menu.sh"; chmod +x "$INSTALL_DIR/menu.sh"; }
 
     [ -n "$tmp" ] && rm -rf "$tmp"
+    post_update_migrations
     success "Module seedbox mis à jour (scripts + menu)"
     info "Note : le docker-compose.yml existant n'est pas régénéré (services préservés)."
 }

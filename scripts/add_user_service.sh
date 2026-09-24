@@ -95,6 +95,8 @@ compose_cmd up -d "$CONTAINER_NAME"
 
 # Mettre à jour les liens du tableau de bord Homarr
 "$SCRIPT_DIR/configure_homarr.sh" "$USERNAME" >/dev/null 2>&1 || true
+# API libre-service : état des services à jour (sauf si appelé par son ouvrier)
+[ -n "${SEEDBOX_API_WORKER:-}" ] || "$SCRIPT_DIR/seedbox_api_worker.sh" --state >/dev/null 2>&1 || true
 
 sleep 5
 if docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then

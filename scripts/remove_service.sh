@@ -83,3 +83,6 @@ if [[ "$NAME" == *-* ]] && id "$usr" &>/dev/null; then
 fi
 
 log "${GREEN}✓${NC} Service $NAME supprimé (données conservées sur le disque)"
+
+# API libre-service : état des services à jour (sauf si appelé par son ouvrier)
+[ -n "${SEEDBOX_API_WORKER:-}" ] || "$SCRIPT_DIR/seedbox_api_worker.sh" --state >/dev/null 2>&1 || true

@@ -63,6 +63,10 @@ for s in qbittorrent filebrowser sonarr radarr readarr bazarr prowlarr overseerr
 done
 [ -n "$LINKS" ] || LINKS="<li>Aucun service pour le moment</li>"
 SERVICES_HTML="<h1>Bienvenue ${USERNAME} !</h1><p>Vos services :</p><ul>${LINKS}</ul>"
+# API libre-service activée (setup_api.sh) : lien de gestion des services
+if [ "$USE_TRAEFIK" = true ] && grep -q '^SEEDBOX_API=true' "$INSTALL_DIR/.env" 2>/dev/null; then
+    SERVICES_HTML="${SERVICES_HTML}<p><a href='/seedbox-api/'>➕ Ajouter / retirer des services</a></p>"
+fi
 
 # Heredoc NON quoté : ${SERVICES_HTML} est injecté (le JSON ne contient ni $
 # ni backtick).
