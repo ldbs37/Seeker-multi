@@ -70,6 +70,9 @@ service_prepare() {
                 # Connexion unique via Traefik (remplace la prise en charge du proxy)
                 [ "$USE_TRAEFIK" = true ] && qbit_sso_configure "$conf"
             fi
+            # Interface web VueTorrent (sinon interface d'origine)
+            if vuetorrent_ensure; then qbit_vuetorrent_configure "$conf"
+            else warn "VueTorrent non téléchargé : interface d'origine de qBittorrent"; fi
             ;;
         homarr) mkdir -p "$USER_DIR/config/homarr-icons" ;;
         filebrowser)
@@ -126,7 +129,11 @@ service_block() {
     case "$svc" in
         qbittorrent|sonarr|radarr|readarr|bazarr)
             echo "      - ${cfg}:/config"
-            echo "      - ${USER_DIR}:/data" ;;
+            echo "      - ${USER_DIR}:/data"
+            # Interface VueTorrent partagée (lib_qbittorrent.sh), lecture seule
+            [ "$svc" = qbittorrent ] && [ -d "$INSTALL_DIR/vuetorrent/public" ] \
+                && echo "      - ${INSTALL_DIR}/vuetorrent:/vuetorrent:ro"
+            ;;
         homarr)
             echo "      - ${cfg}:/app/data/configs"
             echo "      - ${USER_DIR}/config/homarr-icons:/app/public/icons" ;;

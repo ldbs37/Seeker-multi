@@ -96,3 +96,43 @@ qbit_configure() {
         ini_set "$conf" Preferences 'WebUI\TrustedReverseProxiesList' "$proxy_net"
     fi
 }
+
+#######################
+# VueTorrent : interface web moderne de qBittorrent (interface « alternative »)
+#
+# Une copie partagée, version épinglée et empreinte vérifiée, dans
+# $INSTALL_DIR/vuetorrent, montée en lecture seule sur /vuetorrent dans
+# chaque qBittorrent (plutôt que le mod Docker, qui la retélécharge à chaque
+# démarrage). Chemins relatifs : fonctionne sous /qbittorrent (Traefik).
+#######################
+
+VUETORRENT_VERSION="2.35.0"
+VUETORRENT_SHA256="6e0c0e6acb563710aaf32cd165cf34da0e5d61bc1a68386e4cf97a648fa8171c"
+
+# Installe (ou met à jour) VueTorrent si nécessaire. Retour 0 si disponible.
+vuetorrent_ensure() {
+    local dir="$INSTALL_DIR/vuetorrent" tmp
+    [ "$(cat "$dir/version.txt" 2>/dev/null)" = "$VUETORRENT_VERSION" ] && [ -d "$dir/public" ] && return 0
+    tmp=$(mktemp -d) || return 1
+    if curl -fsSL -m 120 -o "$tmp/vuetorrent.zip" \
+            "https://github.com/VueTorrent/VueTorrent/releases/download/v${VUETORRENT_VERSION}/vuetorrent.zip" \
+        && echo "$VUETORRENT_SHA256  $tmp/vuetorrent.zip" | sha256sum -c --quiet - >/dev/null 2>&1 \
+        && unzip -q "$tmp/vuetorrent.zip" -d "$tmp" && [ -d "$tmp/vuetorrent/public" ]; then
+        rm -rf "${dir:?}.new"
+        mv "$tmp/vuetorrent" "$dir.new" && chmod -R a+rX "$dir.new"
+        rm -rf "${dir:?}.old"; [ -d "$dir" ] && mv "$dir" "$dir.old"
+        mv "$dir.new" "$dir" && rm -rf "${dir:?}.old"
+        rm -rf "${tmp:?}"
+        return 0
+    fi
+    rm -rf "${tmp:?}"
+    [ -d "$dir/public" ]    # version précédente encore utilisable
+}
+
+# qBittorrent : VueTorrent comme interface web (conteneur arrêté).
+# $1 = qBittorrent.conf
+qbit_vuetorrent_configure() {
+    [ -d "$INSTALL_DIR/vuetorrent/public" ] || return 1
+    ini_set "$1" Preferences 'WebUI\AlternativeUIEnabled' 'true'
+    ini_set "$1" Preferences 'WebUI\RootFolder' '/vuetorrent'
+}

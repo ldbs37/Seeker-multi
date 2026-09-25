@@ -14,7 +14,7 @@ Une solution **simple et efficace** de seedbox multi-utilisateurs avec authentif
 ### 📋 Services Par Utilisateur
 
 **Services Obligatoires (tous les utilisateurs) :**
-- 📥 **qBittorrent + VueTorrent** - Client torrent moderne
+- 📥 **qBittorrent + VueTorrent** - Client torrent avec l'interface moderne VueTorrent (installée et activée automatiquement)
 - 🖥️ **Homarr** - Dashboard personnel avec auto-découverte
 - 📂 **FileBrowser Quantum** - Gestionnaire de fichiers web (aperçus, recherche, liens de partage publics)
 

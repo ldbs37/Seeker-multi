@@ -93,6 +93,8 @@ AUTHELIA_DB="$INSTALL_DIR/authelia/users_database.yml"
 # Construction du nouveau compose
 #######################
 TMP="${DOCKER_COMPOSE_FILE%.yml}.new.yml"
+# Interface VueTorrent de qBittorrent (montée par les blocs générés ci-dessous)
+vuetorrent_ensure || warn "VueTorrent non téléchargé : interface d'origine de qBittorrent"
 generate_docker_compose "$TMP"           # services système + .env (USE_TRAEFIK=true)
 # Connexion unique qBittorrent/Filebrowser : réseau dédié et en-tête secret
 # (.env, lus par les labels générés ci-dessous)
@@ -139,6 +141,7 @@ for e in "${USER_ENTRIES[@]}"; do
     case "$svc" in
         qbittorrent)
             conf="$cfg/qBittorrent/qBittorrent.conf"
+            [ -f "$conf" ] && qbit_vuetorrent_configure "$conf"
             if [ -f "$conf" ] && [ "$SSO_OK" = true ]; then
                 # Connexion unique : Traefik seul dispensé de mot de passe
                 qbit_sso_configure "$conf"
