@@ -143,14 +143,15 @@ vuetorrent_set_defaults() {
     [ -f "$html" ] || return 1
     if grep -q '^USE_TRAEFIK=true' "$INSTALL_DIR/.env" 2>/dev/null; then
         domain=$(grep '^DOMAIN=' "$INSTALL_DIR/.env" | cut -d= -f2)
-        [ -n "$domain" ] && logout="https://auth.${domain}/logout?rd=https://${domain}/"
+        # /logout-done : efface aussi la session Homarr (lib_compose_base.sh)
+        [ -n "$domain" ] && logout="https://auth.${domain}/logout?rd=https://${domain}/logout-done"
     fi
     VT_LANG="$(seedbox_lang)" VT_LOGOUT="$logout" python3 -c '
 import json, os, re, sys
 p = sys.argv[1]; s = open(p, encoding="utf-8").read()
 s = re.sub(r"<!-- seedbox-(lang|defaults) -->.*?<!-- /seedbox-(lang|defaults) -->", "", s, flags=re.S)
 js = ("try{var k=\"vuetorrent_webuiSettings\",v=localStorage.getItem(k),o=v?JSON.parse(v):{};"
-      "if(!v)o.language=%s;var u=%s;if(u&&!o.logoutUrl)o.logoutUrl=u;"
+      "if(!v)o.language=%s;var u=%s;if(u&&(!o.logoutUrl||/[?&]rd=https:[^&]*\\/$/.test(o.logoutUrl)))o.logoutUrl=u;"
       "localStorage.setItem(k,JSON.stringify(o))}catch(e){}"
       % (json.dumps(os.environ["VT_LANG"]), json.dumps(os.environ["VT_LOGOUT"])))
 s = s.replace("<head>", "<head><!-- seedbox-defaults --><script>" + js + "</script><!-- /seedbox-defaults -->", 1)

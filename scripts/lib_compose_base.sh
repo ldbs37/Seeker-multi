@@ -126,7 +126,11 @@ _block_homarr() {
       - AUTH_OIDC_AUTO_LOGIN=true
       # Déconnexion Homarr → déconnexion Authelia (sinon la connexion
       # automatique reconnecte aussitôt), puis retour à l'accueil
-      - AUTH_LOGOUT_REDIRECT_URL=https://auth.${DOMAIN}/logout?rd=https://${DOMAIN}/
+      - AUTH_LOGOUT_REDIRECT_URL=https://auth.${DOMAIN}/logout?rd=https://${DOMAIN}/logout-done
+      # Session Homarr courte : si l'on change de compte Authelia sans passer
+      # par une déconnexion, Homarr redemande l'identité (reconnexion
+      # automatique et invisible via Authelia) au bout d'une heure au plus
+      - AUTH_SESSION_EXPIRY_TIME=1h
     volumes:
       - ./homarr/appdata:/appdata
 EOF
@@ -171,7 +175,22 @@ EOF
     echo "      - \"traefik.http.routers.homarr-logout.middlewares=homarr-logout-clear,homarr-logout-redirect\""
     echo "      - \"traefik.http.middlewares.homarr-logout-clear.headers.customresponseheaders.Set-Cookie=seedbox_logout=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax\""
     echo "      - \"traefik.http.middlewares.homarr-logout-redirect.redirectregex.regex=^.*\$\$\""
-    echo "      - \"traefik.http.middlewares.homarr-logout-redirect.redirectregex.replacement=https://auth.${DOMAIN}/logout?rd=https://${DOMAIN}/\""
+    echo "      - \"traefik.http.middlewares.homarr-logout-redirect.redirectregex.replacement=https://auth.${DOMAIN}/logout?rd=https://${DOMAIN}/logout-done\""
+    # Fin de TOUTE déconnexion (Homarr, VueTorrent, FileBrowser → Authelia →
+    # /logout-done) : session Homarr effacée (cookie homarr.session-token,
+    # propre à ${DOMAIN}), puis accueil. Sans cela, après un changement de
+    # compte Authelia, Homarr gardait la session du compte précédent.
+    echo "      - \"traefik.http.routers.logout-done.rule=Host(\`${DOMAIN}\`) && Path(\`/logout-done\`)\""
+    echo "      - \"traefik.http.routers.logout-done.entrypoints=websecure\""
+    echo "      - \"traefik.http.routers.logout-done.tls.certresolver=letsencrypt\""
+    echo "      - \"traefik.http.routers.logout-done.service=homarr\""
+    echo "      - \"traefik.http.routers.logout-done.middlewares=logout-done-clear,logout-done-redirect\""
+    echo "      - \"traefik.http.middlewares.logout-done-clear.headers.customresponseheaders.Set-Cookie=homarr.session-token=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax\""
+    echo "      - \"traefik.http.middlewares.logout-done-redirect.redirectregex.regex=^.*\$\$\""
+    # Jellyfin installé : sa session est effacée aussi (maillon suivant)
+    local after="https://${DOMAIN}/"
+    [ "${INSTALL_JELLYFIN:-false}" = true ] && after="https://jellyfin.${DOMAIN}/logout-done"
+    echo "      - \"traefik.http.middlewares.logout-done-redirect.redirectregex.replacement=${after}\""
     echo "    restart: unless-stopped"
 }
 
@@ -350,6 +369,20 @@ _block_jellyfin() {
       - TZ=${TZ}
 EOF
     _sys_labels jellyfin jellyfin 8096 false
+    if [ "$USE_TRAEFIK" = "true" ]; then
+        # Maillon de la chaîne de déconnexion (voir _block_homarr) : session
+        # Jellyfin (stockage du navigateur sur jellyfin.<domaine>) effacée par
+        # l'en-tête standard Clear-Site-Data, puis retour à l'accueil
+        echo "      - \"traefik.http.routers.jellyfin-logout-done.rule=Host(\`jellyfin.${DOMAIN}\`) && Path(\`/logout-done\`)\""
+        echo "      - \"traefik.http.routers.jellyfin-logout-done.entrypoints=websecure\""
+        echo "      - \"traefik.http.routers.jellyfin-logout-done.tls.certresolver=letsencrypt\""
+        echo "      - \"traefik.http.routers.jellyfin-logout-done.service=jellyfin\""
+        echo "      - \"traefik.http.routers.jellyfin-logout-done.middlewares=jellyfin-logout-clear,jellyfin-logout-redirect\""
+        echo "      - \"traefik.http.middlewares.jellyfin-logout-clear.headers.customresponseheaders.Clear-Site-Data=\\\"storage\\\"\""
+        echo "      - \"traefik.http.middlewares.jellyfin-logout-redirect.redirectregex.regex=^.*\$\$\""
+        echo "      - \"traefik.http.middlewares.jellyfin-logout-redirect.redirectregex.replacement=https://${DOMAIN}/\""
+        echo "      - \"traefik.http.routers.jellyfin.service=jellyfin\""
+    fi
     echo "    restart: unless-stopped"
 }
 

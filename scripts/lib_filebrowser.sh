@@ -50,7 +50,7 @@ fbq_write_config() {
     proxy:
       enabled: true
       header: \"${header}\"
-      logoutRedirectUrl: \"https://auth.${DOMAIN}/logout?rd=https://${DOMAIN}/\""
+      logoutRedirectUrl: \"https://auth.${DOMAIN}/logout?rd=https://${DOMAIN}/logout-done\""
     else
         # YAML entre apostrophes : seule « ' » est à doubler
         if [ -n "$pass" ]; then adminpw="'${pass//\'/\'\'}'"
