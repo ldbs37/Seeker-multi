@@ -368,15 +368,32 @@ sso_env_ensure() {
 
 # Réseau dédié Traefik ↔ qBittorrent, sur un sous-réseau sans chevauchement
 # (réseaux Docker et routes de l'hôte). Adresse fixe de Traefik :
-# TRAEFIK_SSO_IP du .env. Idempotent.
+# TRAEFIK_SSO_IP du .env (.2), HORS de la plage distribuée aux autres
+# conteneurs (--ip-range : seconde moitié du sous-réseau) — sinon un
+# qBittorrent démarré avant Traefik pouvait prendre son adresse (« Address
+# already in use », Traefik ne démarrait plus). Un réseau créé sans cette
+# plage (versions précédentes) est recréé : ses conteneurs sont supprimés,
+# `compose up` les recrée. Idempotent.
 sso_net_ensure() {
-    local env="$INSTALL_DIR/.env" subnet ip used
+    local env="$INSTALL_DIR/.env" subnet ip used range cur c
     sso_env_ensure || return 1
-    if ! docker network inspect "$SSO_NET" >/dev/null 2>&1; then
+    if docker network inspect "$SSO_NET" >/dev/null 2>&1; then
+        subnet=$(docker network inspect "$SSO_NET" -f '{{(index .IPAM.Config 0).Subnet}}' 2>/dev/null)
+        cur=$(docker network inspect "$SSO_NET" -f '{{(index .IPAM.Config 0).IPRange}}' 2>/dev/null)
+        range=$(_sso_ip_range "$subnet")
+        if [ -n "$range" ] && [ "$cur" != "$range" ]; then
+            echo "Réseau $SSO_NET recréé (adresse de Traefik réservée)" >&2
+            for c in $(docker network inspect "$SSO_NET" -f '{{range .Containers}}{{.Name}} {{end}}' 2>/dev/null); do
+                docker rm -f "$c" >/dev/null 2>&1 || true
+            done
+            docker network rm "$SSO_NET" >/dev/null || return 1
+            docker network create --internal --subnet "$subnet" --ip-range "$range" "$SSO_NET" >/dev/null || return 1
+        fi
+    else
         used=$(_used_subnets)
         subnet=$(_free_subnet "$used" 172.31.254.0/24 10.254.254.0/24 192.168.254.0/24 172.30.254.0/24)
         [ -n "$subnet" ] || { echo "Aucun sous-réseau libre pour $SSO_NET" >&2; return 1; }
-        docker network create --internal --subnet "$subnet" "$SSO_NET" >/dev/null || return 1
+        docker network create --internal --subnet "$subnet" --ip-range "$(_sso_ip_range "$subnet")" "$SSO_NET" >/dev/null || return 1
     fi
     subnet=$(docker network inspect "$SSO_NET" -f '{{(index .IPAM.Config 0).Subnet}}' 2>/dev/null)
     ip=$(python3 -c 'import ipaddress,sys; print(ipaddress.ip_network(sys.argv[1])[2])' "$subnet" 2>/dev/null)
@@ -384,6 +401,12 @@ sso_net_ensure() {
     sed -i '/^TRAEFIK_SSO_IP=/d' "$env"
     echo "TRAEFIK_SSO_IP=$ip" >> "$env"
     chmod 600 "$env"
+}
+
+# Plage distribuée par Docker sur le réseau dédié : seconde moitié du
+# sous-réseau $1 (l'adresse fixe de Traefik, .2, n'en fait pas partie)
+_sso_ip_range() {
+    python3 -c 'import ipaddress,sys; print(list(ipaddress.ip_network(sys.argv[1]).subnets(prefixlen_diff=1))[1])' "$1" 2>/dev/null
 }
 
 # Ajoute au compose le réseau dédié : déclaration, et Traefik à son adresse
