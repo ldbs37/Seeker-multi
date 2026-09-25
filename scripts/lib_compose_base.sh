@@ -124,7 +124,9 @@ _block_homarr() {
       - AUTH_OIDC_CLIENT_SECRET=${HOMARR_OIDC_SECRET}
       - AUTH_OIDC_CLIENT_NAME=Authelia
       - AUTH_OIDC_AUTO_LOGIN=true
-      - AUTH_LOGOUT_REDIRECT_URL=https://auth.${DOMAIN}/logout
+      # Déconnexion Homarr → déconnexion Authelia (sinon la connexion
+      # automatique reconnecte aussitôt), puis retour à l'accueil
+      - AUTH_LOGOUT_REDIRECT_URL=https://auth.${DOMAIN}/logout?rd=https://${DOMAIN}/
     volumes:
       - ./homarr/appdata:/appdata
 EOF
