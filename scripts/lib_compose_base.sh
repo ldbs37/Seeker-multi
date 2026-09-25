@@ -365,6 +365,16 @@ _block_dashdot() {
       - TZ=${TZ}
       - DASHDOT_ENABLE_CPU_TEMPS=true
 EOF
+    # Disque système : Dash. calcule mal son espace utilisé (vu sur un disque
+    # virtuel de contrôleur RAID : 1,99 To « utilisés » pour 17 Go) ; il
+    # affiche à la place la partition système telle que la voit df
+    local root_src root_disk
+    root_src=$(findmnt -no SOURCE / 2>/dev/null | sed 's/\[.*//')
+    root_disk=$(lsblk -no PKNAME "$root_src" 2>/dev/null | head -1)
+    if [[ "$root_src" =~ ^/dev/[A-Za-z0-9/_.-]+$ ]] && [[ "$root_disk" =~ ^[A-Za-z0-9_.-]+$ ]]; then
+        echo "      - DASHDOT_FS_VIRTUAL_MOUNTS=${root_src}"
+        echo "      - DASHDOT_FS_DEVICE_FILTER=${root_disk}"
+    fi
     _sys_labels dashdot dashdot 3001 true
     echo "    restart: unless-stopped"
 }
