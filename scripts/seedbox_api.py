@@ -50,6 +50,11 @@ BASE = {
     "filebrowser": "Fichiers",
     "flaresolverr": "FlareSolverr (pour Prowlarr)",
 }
+# Services partagés (un conteneur pour tous) : redémarrage réservé aux admins
+SHARED = {
+    "jellyfin": "Films et séries (Jellyfin)",
+    "stirling-pdf": "Outils PDF (Stirling-PDF)",
+}
 USER_RE = re.compile(r"^[a-z][a-z0-9]{0,31}$")
 JOB_RE = re.compile(r"^[a-f0-9]{32}$")
 
@@ -109,20 +114,21 @@ applications. Retirer un service conserve ses données.</p>
 const api=p=>fetch('PREFIX'+p,{headers:{'X-Requested-With':'fetch'}}).then(r=>r.json());
 const msg=(t,c)=>{const m=document.getElementById('msg');m.textContent=t;m.style.color=c||''};
 const ST={running:'actif',unhealthy:'ne répond pas',restarting:'redémarre',exited:'arrêté',dead:'arrêté',absent:'absent',created:'arrêté'};
-function row(l,s,label,d,on,canAdd){
+function row(l,s,label,d,on,canAdd,canRs=true){
   const r=document.createElement('div');r.className='row';
   if(on){const dot=document.createElement('span');const st=d.status[s]||'absent';dot.className='dot '+st;dot.title=ST[st]||st;r.appendChild(dot)}
   const b=document.createElement('b');b.textContent=s;const sm=document.createElement('small');
   sm.textContent=label+(on?' · '+(ST[d.status[s]]||d.status[s]||'?'):'');b.appendChild(sm);r.appendChild(b);
   if(on&&d.urls[s]){const a=document.createElement('a');a.href=d.urls[s];a.textContent='Ouvrir';r.appendChild(a)}
   const btn=(t,c,f)=>{const x=document.createElement('button');x.textContent=t;if(c)x.className=c;x.disabled=!!d.pending;x.onclick=f;r.appendChild(x)};
-  if(on)btn('Redémarrer','rs',()=>act('restart',s));
+  if(on&&canRs)btn('Redémarrer','rs',()=>act('restart',s));
   if(canAdd)btn(on?'Retirer':'Ajouter',on?'rm':'',()=>act(on?'remove':'add',s));
   l.appendChild(r)}
 async function load(){
   const d=await api('/services');const l=document.getElementById('list');l.textContent='';
   const h=t=>{const x=document.createElement('h2');x.textContent=t;l.appendChild(x)};
   if(Object.keys(d.base).length){h('Services de base');for(const [s,label] of Object.entries(d.base))row(l,s,label,d,true,false)}
+  if(Object.keys(d.shared||{}).length){h('Services partagés');for(const [s,label] of Object.entries(d.shared))row(l,s,label,d,true,false,d.admin)}
   h('Applications');
   for(const [s,label] of Object.entries(d.catalog))row(l,s,label,d,d.installed.includes(s),true);
   if(d.pending){msg('Opération en cours…');poll(d.pending)}
@@ -196,11 +202,14 @@ class Handler(BaseHTTPRequestHandler):
             state = read_json(os.path.join(SPOOL, "state.json"), {}).get(user, {})
             installed = [s for s in state.get("services", []) if s in SERVICES]
             base = [s for s in state.get("base", []) if s in BASE]
-            urls = {s: u for s, u in state.get("urls", {}).items() if s in SERVICES or s in BASE}
-            status = {s: v for s, v in state.get("status", {}).items() if s in SERVICES or s in BASE}
+            shared = [s for s in state.get("shared", []) if s in SHARED]
+            urls = {s: u for s, u in state.get("urls", {}).items() if s in SERVICES or s in BASE or s in SHARED}
+            status = {s: v for s, v in state.get("status", {}).items() if s in SERVICES or s in BASE or s in SHARED}
             catalog = {s: d for s, d in SERVICES.items() if s not in RETIRED or s in installed}
             return self.send(200, {"catalog": catalog, "installed": installed,
-                                   "base": {s: BASE[s] for s in base}, "urls": urls,
+                                   "base": {s: BASE[s] for s in base},
+                                   "shared": {s: SHARED[s] for s in shared},
+                                   "admin": state.get("admin") is True, "urls": urls,
                                    "status": status, "pending": pending_job(user)})
         if sub.startswith("/jobs/"):
             job = sub[6:]
@@ -242,7 +251,9 @@ class Handler(BaseHTTPRequestHandler):
         action, service = body.get("action"), body.get("service")
         if not ((action in ("add", "remove") and service in SERVICES
                  and not (action == "add" and service in RETIRED))
-                or (action == "restart" and (service in SERVICES or service in BASE))):
+                or (action == "restart" and (service in SERVICES or service in BASE))
+                or (action == "restart" and service in SHARED
+                    and read_json(os.path.join(SPOOL, "state.json"), {}).get(user, {}).get("admin") is True)):
             return self.send(400, {"error": "Action ou service non autorisé"})
         if pending_job(user):
             return self.send(409, {"error": "Une opération est déjà en cours"})

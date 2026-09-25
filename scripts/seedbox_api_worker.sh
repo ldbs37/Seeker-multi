@@ -24,11 +24,15 @@ API_UID=65534                 # utilisateur du conteneur de l'API
 ALLOWED="sonarr radarr readarr bazarr prowlarr seerr calibre"   # ajout / retrait
 BASE="qbittorrent filebrowser flaresolverr"                      # redémarrage seulement
 RESTARTABLE="$BASE $ALLOWED"
+# Services partagés (un seul conteneur pour tous) : état et lien pour chacun,
+# redémarrage réservé aux administrateurs (coupe le service pour tous)
+SHARED="jellyfin stirling-pdf"
+USERS_DB="$INSTALL_DIR/authelia/users_database.yml"
 
 grep -q '^SEEDBOX_API=true' "$ENV_FILE" 2>/dev/null || exit 0
 [ -d "$SPOOL/requests" ] || exit 0
 
-for lib in lib_ports lib_traefik lib_services; do
+for lib in lib_ports lib_traefik lib_services lib_password; do
     # shellcheck source=/dev/null
     source "$SCRIPT_DIR/$lib.sh" || exit 1
 done
@@ -50,10 +54,13 @@ write_json() {
     mv -f "$tmp" "$dest"
 }
 
+# Sous-domaine d'un service partagé
+shared_sub() { case "$1" in stirling-pdf) echo pdf ;; *) echo "$1" ;; esac; }
+
 # État de tous les utilisateurs seedbox : services installés, URL, état des
 # conteneurs (running, unhealthy, restarting, exited…)
 write_state() {
-    local out="{" first=true u uid s svcs urls base st states
+    local out="{" first=true u uid s svcs urls base st states shared admin
     traefik_detect "$ENV_FILE"
     states=$(docker ps -a --format '{{.Names}} {{.State}} {{.Status}}' 2>/dev/null)
     while IFS=: read -r u _ uid _; do
@@ -64,7 +71,8 @@ write_state() {
         USERNAME=$u
         # shellcheck disable=SC2034
         USER_ID=$uid
-        svcs=""; urls=""; base=""; st=""
+        svcs=""; urls=""; base=""; st=""; shared=""
+        admin=false; password_user_is_admin "$u" "$USERS_DB" && admin=true
         for s in $RESTARTABLE; do
             grep -q "^  ${s}-${u}:" "$DOCKER_COMPOSE_FILE" 2>/dev/null || continue
             if [[ " $BASE " == *" $s "* ]]; then
@@ -77,8 +85,16 @@ write_state() {
                 $1 == n { if ($0 ~ /\(unhealthy\)/) print "unhealthy"; else print $2; f = 1; exit }
                 END { if (!f) print "absent" }')\""
         done
+        for s in $SHARED; do
+            grep -q "^  ${s}:" "$DOCKER_COMPOSE_FILE" 2>/dev/null || continue
+            shared+="${shared:+,}\"$s\""
+            urls+="${urls:+,}\"$s\":\"https://$(shared_sub "$s").${DOMAIN}\""
+            st+="${st:+,}\"$s\":\"$(printf '%s\n' "$states" | awk -v n="$s" '
+                $1 == n { if ($0 ~ /\(unhealthy\)/) print "unhealthy"; else print $2; f = 1; exit }
+                END { if (!f) print "absent" }')\""
+        done
         $first || out+=","; first=false
-        out+="\"$u\":{\"services\":[${svcs}],\"base\":[${base}],\"urls\":{${urls}},\"status\":{${st}}}"
+        out+="\"$u\":{\"services\":[${svcs}],\"base\":[${base}],\"shared\":[${shared}],\"admin\":${admin},\"urls\":{${urls}},\"status\":{${st}}}"
     done < /etc/passwd
     write_json "$SPOOL/state.json" "${out}}"
 }
@@ -103,6 +119,17 @@ process() {
     if ! [[ "$user" =~ ^[a-z][a-z0-9]{0,31}$ ]] || [ "$uid" -lt "$SEEDBOX_UID_MIN" ] \
        || [ "$uid" -gt "$SEEDBOX_UID_MAX" ] || [ ! -d "$INSTALL_DIR/data/users/$user" ]; then
         msg="Utilisateur invalide"; user=""   # jamais recopié tel quel
+    elif [ "$action" = restart ] && [[ " $SHARED " == *" $service "* ]]; then
+        # Service partagé : administrateurs seulement (base Authelia relue)
+        if ! password_user_is_admin "$user" "$USERS_DB"; then
+            msg="Réservé aux administrateurs"
+        elif ! grep -q "^  ${service}:" "$DOCKER_COMPOSE_FILE"; then
+            msg="Service non installé"
+        elif out=$(docker restart -t 30 "$service" 2>&1); then
+            ok=true; msg="$service redémarré"
+        else
+            msg="Échec du redémarrage de $service"
+        fi
     elif [ "$action" = restart ]; then
         # Seulement un conteneur de CET utilisateur, présent dans le compose
         if [[ " $RESTARTABLE " != *" $service "* ]] || ! grep -q "^  ${service}-${user}:" "$DOCKER_COMPOSE_FILE"; then
