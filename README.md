@@ -47,6 +47,9 @@ Une solution **simple et efficace** de seedbox multi-utilisateurs avec authentif
 - 🔄 **Watchtower** - Mises à jour automatiques
 - 💾 **Duplicati** - Système de backup
 
+### 🧰 Services Optionnels (tous les utilisateurs)
+- 📄 **Stirling-PDF** - Outils PDF : fusionner, découper, compresser, signer, convertir, OCR (français compris) — `https://pdf.<domaine>`, après Authelia, aucun fichier conservé
+
 ### 👥 Rôles Utilisateurs
 - **Administrateur** (premier utilisateur créé) : Accès aux services système + services utilisateur
 - **Utilisateurs Standard** : Accès uniquement aux services utilisateur (qBittorrent, Homarr, FileBrowser Quantum + optionnels)

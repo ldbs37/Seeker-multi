@@ -87,6 +87,7 @@ fi
 log "Validation des données..."
 [[ "$USERNAME" =~ ^[a-z][a-z0-9]{0,31}$ ]] \
     || error "Nom d'utilisateur invalide: $USERNAME (lettres minuscules et chiffres uniquement, commence par une lettre, 32 max)"
+username_reserved "$USERNAME" && error "Nom d'utilisateur réservé (adresse d'un service) : $USERNAME"
 PW_REASON=$(password_check "$PASSWORD" "$IS_ADMIN") \
     || error "Mot de passe refusé : $PW_REASON ($(password_policy "$IS_ADMIN"))"
 [[ "$EMAIL" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]] || error "Format d'email invalide: $EMAIL"

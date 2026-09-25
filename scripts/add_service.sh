@@ -36,6 +36,7 @@ usage() {
     echo "Streaming:   jellyfin"
     echo "Monitoring:  scrutiny, uptime-kuma, dashdot"
     echo "Gestion:     portainer"
+    echo "Outils:      stirling-pdf (outils PDF, tous les utilisateurs)"
     echo "Maintenance: watchtower, duplicati"
     exit 1
 }
@@ -109,6 +110,13 @@ case "$SERVICE" in
     scrutiny)  autoconfig_scrutiny "$INSTALL_DIR" || true ;;
     duplicati) autoconfig_duplicati "$INSTALL_DIR" || true ;;
     uptime-kuma) autoconfig_uptime_kuma "$INSTALL_DIR" "$(autoconfig_first_admin "$INSTALL_DIR")" || true ;;
+    stirling-pdf)
+        # Ouvert à tous les utilisateurs : règle Authelia (installations
+        # antérieures), tuile sur chaque tableau de bord
+        if authelia_ensure_home "$INSTALL_DIR/authelia/configuration.yml" "$DOMAIN"; then
+            docker restart authelia >/dev/null 2>&1 || warn "Redémarrez Authelia : docker restart authelia"
+        fi
+        "$SCRIPT_DIR/homarr_provision.sh" --all || warn "Tuiles Homarr non ajoutées (relancez homarr_provision.sh --all)" ;;
     jellyfin)
         # Comptes et bibliothèques de chaque utilisateur, administrateur =
         # premier administrateur seedbox, connexion via Authelia (client OIDC)
@@ -135,6 +143,7 @@ fi
 # Accès
 case "$SERVICE" in
     jellyfin)   info "Accès : https://jellyfin.$DOMAIN" ;;
+    stirling-pdf) info "Accès (tous les utilisateurs, SSO) : https://pdf.$DOMAIN" ;;
     watchtower) info "Mises à jour automatiques chaque nuit à 4h" ;;
     duplicati)
         info "Accès (administrateurs, SSO) : https://duplicati.$DOMAIN"
