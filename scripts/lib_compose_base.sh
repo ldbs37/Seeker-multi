@@ -306,6 +306,9 @@ _block_duplicati() {
     volumes:
       - ./duplicati/config:/config
       - ./data:/source:ro
+      # Destination locale des sauvegardes (« /backups » dans Duplicati) ;
+      # préférer une destination distante (autre serveur, stockage en ligne)
+      - ./duplicati/backups:/backups
     ports:
       - "${ADMIN_BIND:-127.0.0.1}:8200:8200"
 EOF
@@ -415,7 +418,11 @@ _system_dirs() {
     mkdir -p "$INSTALL_DIR/homarr/appdata"
     [ "${INSTALL_SCRUTINY:-false}" = true ]    && mkdir -p "$INSTALL_DIR/scrutiny/config" "$INSTALL_DIR/scrutiny/influxdb"
     [ "${INSTALL_UPTIME_KUMA:-false}" = true ] && mkdir -p "$INSTALL_DIR/uptime-kuma"
-    [ "${INSTALL_DUPLICATI:-false}" = true ]   && { mkdir -p "$INSTALL_DIR/duplicati/config"; duplicati_env_ensure; }
+    if [ "${INSTALL_DUPLICATI:-false}" = true ]; then
+        mkdir -p "$INSTALL_DIR/duplicati/config" "$INSTALL_DIR/duplicati/backups"
+        chown "${ADMIN_UID}:${ADMIN_GID}" "$INSTALL_DIR/duplicati/backups" 2>/dev/null || true
+        duplicati_env_ensure
+    fi
     [ "${INSTALL_DASHDOT:-false}" = true ]     && mkdir -p "$INSTALL_DIR/dashdot"
     [ "${INSTALL_PORTAINER:-false}" = true ]   && mkdir -p "$INSTALL_DIR/portainer"
     if [ "${INSTALL_JELLYFIN:-false}" = true ]; then
