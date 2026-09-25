@@ -16,7 +16,9 @@
 #   seul le groupe users peut se connecter). Applis TV/mobile : mot de passe
 #   seedbox, ou Quick Connect (code validé depuis le navigateur).
 #
-# Vérifié sur Jellyfin 10.11.11 (image officielle) et le plugin 4.0.0.4.
+# Vérifié sur Jellyfin 10.11.11 et 12.1 (images officielles) et le plugin
+# 4.0.0.4 ; en-têtes « Authorization: MediaBrowser » (Jellyfin 12 ne lit plus
+# X-Emby-Token ni X-Emby-Authorization).
 # Variables : INSTALL_DIR, DOMAIN (mode Traefik).
 #######################
 
@@ -38,14 +40,16 @@ _jf_save_key() {
 # l'assistant). $1=administrateur $2=mot de passe. Affiche la clé.
 jellyfin_api_key_from_login() {
     local h token key
-    h='X-Emby-Authorization: MediaBrowser Client="seedbox", Device="seedbox", DeviceId="seedbox-setup", Version="1.0"'
+    # En-tête « Authorization: MediaBrowser » : seul accepté par Jellyfin 12
+    # (X-Emby-Authorization supprimé), valable aussi en 10.11
+    h='Authorization: MediaBrowser Client="seedbox", Device="seedbox", DeviceId="seedbox-setup", Version="1.0"'
     token=$(curl -s -m 30 -X POST "$JELLYFIN_LOCAL_URL/Users/AuthenticateByName" -H "$h" -H 'Content-Type: application/json' \
         -d "$(N="$1" P="$2" python3 -c 'import json,os; print(json.dumps({"Username":os.environ["N"],"Pw":os.environ["P"]}))')" \
-        | python3 -c 'import json,sys; print(json.load(sys.stdin)["AccessToken"])' 2>/dev/null) || return 1
+        | python3 -c 'import json,sys; print(json.loads(sys.stdin.read().lstrip("\ufeff"))["AccessToken"])' 2>/dev/null) || return 1
     [ -n "$token" ] || return 1
     curl -s -o /dev/null -m 30 -X POST "$JELLYFIN_LOCAL_URL/Auth/Keys?app=seedbox" -H "$h, Token=\"$token\"" || return 1
     key=$(curl -s -m 30 "$JELLYFIN_LOCAL_URL/Auth/Keys" -H "$h, Token=\"$token\"" \
-        | python3 -c 'import json,sys; print(next((k["AccessToken"] for k in json.load(sys.stdin)["Items"] if k["AppName"]=="seedbox"), ""))')
+        | python3 -c 'import json,sys; print(next((k["AccessToken"] for k in json.loads(sys.stdin.read().lstrip("\ufeff"))["Items"] if k["AppName"]=="seedbox"), ""))')
     [ -n "$key" ] || return 1
     _jf_save_key "$key"; echo "$key"
 }
@@ -92,10 +96,13 @@ db.commit()' "$db" "$key"
 jf_api() {
     local out code
     [ -n "$JF_KEY" ] || JF_KEY=$(jellyfin_ensure_api_key) || return 1
-    out=$(curl -s -m 60 -X "$1" -H "X-Emby-Token: $JF_KEY" -H 'Content-Type: application/json' \
+    # Clé d'API dans « Authorization: MediaBrowser Token=… » (Jellyfin 12 ne lit
+    # plus X-Emby-Token ni ?api_key=)
+    out=$(curl -s -m 60 -X "$1" -H "Authorization: MediaBrowser Token=\"$JF_KEY\"" -H 'Content-Type: application/json' \
         ${3:+--data "$3"} -w '\n%{http_code}' "$JELLYFIN_LOCAL_URL$2") || return 1
     code=${out##*$'\n'}
-    printf '%s' "${out%$'\n'*}"
+    out=${out%$'\n'*}
+    printf '%s' "${out#$'\xef\xbb\xbf'}"
     [[ "$code" == 2* ]]
 }
 
@@ -117,7 +124,7 @@ jellyfin_available() {
 # Assistant de premier démarrage terminé ?
 jellyfin_wizard_done() {
     curl -fs -m 10 "$JELLYFIN_LOCAL_URL/System/Info/Public" 2>/dev/null \
-        | python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin).get("StartupWizardCompleted") else 1)' 2>/dev/null
+        | python3 -c 'import json,sys; sys.exit(0 if json.loads(sys.stdin.read().lstrip("\ufeff")).get("StartupWizardCompleted") else 1)' 2>/dev/null
 }
 
 # Termine l'assistant s'il ne l'est pas : administrateur $1 (mot de passe $2,
@@ -200,7 +207,7 @@ jellyfin_user_libraries() {
             jf_api POST "/Library/VirtualFolders?$q" '{"LibraryOptions":{"EnableRealtimeMonitor":true}}' >/dev/null && break
             sleep 3
             # Créée malgré l'erreur ?
-            jf_api GET /Library/VirtualFolders | N="$name" python3 -c 'import json,os,sys; sys.exit(0 if any(f["Name"]==os.environ["N"] for f in json.load(sys.stdin)) else 1)' && break
+            jf_api GET /Library/VirtualFolders | N="$name" python3 -c 'import json,os,sys; sys.exit(0 if any(f["Name"]==os.environ["N"] for f in json.loads(sys.stdin.read().lstrip("\ufeff"))) else 1)' && break
         done || echo "Bibliothèque Jellyfin « $name » non créée" >&2
     done << 'LIBS'
 Séries TV|tv|tvshows
@@ -211,7 +218,7 @@ LIBS
     jf_api GET /Library/VirtualFolders | U="$user" python3 -c '
 import json, os, sys
 suffix = " (%s)" % os.environ["U"]
-print(json.dumps([f["ItemId"] for f in json.load(sys.stdin) if f["Name"].endswith(suffix)]))'
+print(json.dumps([f["ItemId"] for f in json.loads(sys.stdin.read().lstrip("\ufeff")) if f["Name"].endswith(suffix)]))'
 }
 
 # Compte Jellyfin d'un utilisateur seedbox : créé s'il manque (mot de passe
@@ -225,7 +232,7 @@ jellyfin_user_sync() {
     if [ -z "$jid" ]; then
         [ -n "$pass" ] || pass=$(openssl rand -base64 24)
         jid=$(jf_api POST /Users/New "$(N="$user" P="$pass" python3 -c 'import json,os; print(json.dumps({"Name":os.environ["N"],"Password":os.environ["P"]}))')" \
-            | python3 -c 'import json,sys; print(json.load(sys.stdin).get("Id",""))' 2>/dev/null)
+            | python3 -c 'import json,sys; print(json.loads(sys.stdin.read().lstrip("\ufeff")).get("Id",""))' 2>/dev/null)
         [ -n "$jid" ] || { echo "Compte Jellyfin $user non créé" >&2; return 1; }
     elif [ -n "$pass" ]; then
         jf_api POST "/Users/$jid/Password" "$(P="$pass" python3 -c 'import json,os; print(json.dumps({"NewPw":os.environ["P"],"ResetPassword":False}))')" >/dev/null \
@@ -237,7 +244,7 @@ jellyfin_user_sync() {
     # Politique complète relue puis modifiée (champs obligatoires conservés)
     policy=$(jf_api GET "/Users/$jid" | A="$admin" F="$folders" python3 -c '
 import json, os, sys
-p = json.load(sys.stdin)["Policy"]
+p = json.loads(sys.stdin.read().lstrip("\ufeff"))["Policy"]
 if os.environ["A"] == "true":
     p.update({"IsAdministrator": True, "EnableAllFolders": True})
 else:
@@ -253,11 +260,11 @@ print(json.dumps(p))') || return 1
 # fichiers restent sur le disque).
 jellyfin_user_remove() {
     local user="$1" jid names n q
-    jid=$(jf_api GET /Users | N="$user" python3 -c 'import json,os,sys; print(next((u["Id"] for u in json.load(sys.stdin) if u["Name"].lower()==os.environ["N"].lower()), ""))') || return 1
+    jid=$(jf_api GET /Users | N="$user" python3 -c 'import json,os,sys; print(next((u["Id"] for u in json.loads(sys.stdin.read().lstrip("\ufeff")) if u["Name"].lower()==os.environ["N"].lower()), ""))') || return 1
     [ -n "$jid" ] && jf_api DELETE "/Users/$jid" >/dev/null
     names=$(jf_api GET /Library/VirtualFolders | U="$user" python3 -c '
 import json, os, sys
-print("\n".join(f["Name"] for f in json.load(sys.stdin) if f["Name"].endswith(" (%s)" % os.environ["U"])))')
+print("\n".join(f["Name"] for f in json.loads(sys.stdin.read().lstrip("\ufeff")) if f["Name"].endswith(" (%s)" % os.environ["U"])))')
     while IFS= read -r n; do
         [ -n "$n" ] || continue
         q=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.urlencode({"name":sys.argv[1],"refreshLibrary":"false"}))' "$n")
@@ -328,7 +335,7 @@ jellyfin_sso_ensure() {
     if ! P="$plugins" python3 -c 'import json,os,sys; sys.exit(0 if any(p["Name"] in ("SSO-Auth","SSO Authentication") for p in json.loads(os.environ["P"])) else 1)'; then
         repos=$(jf_api GET /Repositories | M="$JF_SSO_MANIFEST" python3 -c '
 import json, os, sys
-r = [x for x in json.load(sys.stdin) if x["Url"] != os.environ["M"]]
+r = [x for x in json.loads(sys.stdin.read().lstrip("\ufeff")) if x["Url"] != os.environ["M"]]
 r.append({"Name": "SSO Authentication", "Url": os.environ["M"], "Enabled": True})
 print(json.dumps(r))') || return 1
         jf_api POST /Repositories "$repos" >/dev/null || return 1
@@ -346,7 +353,7 @@ print(json.dumps(r))') || return 1
     users=$(_jf_seedbox_users)
     conf=$(jf_api GET /Library/VirtualFolders | U="$users" D="$DOMAIN" S="$secret" python3 -c '
 import json, os, sys
-libs = json.load(sys.stdin); users = os.environ["U"].split()
+libs = json.loads(sys.stdin.read().lstrip("\ufeff")); users = os.environ["U"].split()
 mapping = [{"Role": "u-" + u, "Folders": [f["ItemId"] for f in libs if f["Name"].endswith(" (%s)" % u)]} for u in users]
 mapping.append({"Role": "admins", "Folders": [f["ItemId"] for f in libs]})
 print(json.dumps({
@@ -365,7 +372,7 @@ print(json.dumps({
     esac
     f=$(jf_api GET /System/Configuration/branding | L="$label" D="$DOMAIN" python3 -c '
 import json, os, re, sys
-b = json.load(sys.stdin)
+b = json.loads(sys.stdin.read().lstrip("\ufeff"))
 btn = ("<!-- seedbox-sso --><form action=\"https://jellyfin.%s/sso/OID/start/authelia\">"
        "<button class=\"raised block emby-button button-submit\">%s</button></form><!-- /seedbox-sso -->") % (os.environ["D"], os.environ["L"])
 d = re.sub(r"<!-- seedbox-sso -->.*?<!-- /seedbox-sso -->", "", b.get("LoginDisclaimer") or "", flags=re.S)

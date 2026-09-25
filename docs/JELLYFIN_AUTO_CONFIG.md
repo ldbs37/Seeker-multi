@@ -2,7 +2,7 @@
 
 Aucune manipulation dans Jellyfin : comptes, bibliothèques privées et
 connexion via Authelia sont préparés par les scripts (`scripts/lib_jellyfin.sh`,
-vérifié sur Jellyfin 10.11.11 et le plugin SSO 4.0.0.4).
+vérifié sur Jellyfin 12.1 (et 10.11) avec le plugin SSO 4.0.0.4).
 
 ## Ce qui est fait
 

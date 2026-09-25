@@ -354,7 +354,7 @@ _block_jellyfin() {
     cat << 'EOF'
 
   jellyfin:
-    image: jellyfin/jellyfin:10.11.11
+    image: jellyfin/jellyfin:12.1
     container_name: jellyfin
     user: "${ADMIN_UID}:${ADMIN_GID}"
     volumes:
