@@ -122,6 +122,15 @@ Intégrations (clés d'API) branchées automatiquement ; appelé par
 add_user/add_user_service/remove_user. Relancer `--all` après avoir configuré
 Seerr ou installé Dash.
 
+Modèle de tableau de bord :
+```bash
+sudo ./homarr_provision.sh --save-template louis     # le tableau de louis devient le modèle
+sudo ./homarr_provision.sh --apply-template --all    # tableaux existants remis en forme
+```
+Disposition (bureau et mobile), tailles, réglages et titres des widgets, et
+widgets ajoutés à la main (avec les intégrations de l'utilisateur de même
+nom). Chacun garde ses applis ; les nouveaux tableaux suivent le modèle.
+
 ### `setup_api.sh`
 ```bash
 sudo ./setup_api.sh [--refresh|--disable]

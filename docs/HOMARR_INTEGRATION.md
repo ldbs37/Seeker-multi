@@ -133,6 +133,22 @@ Filebrowser ne sont pas repris).
 Le mot de passe reste valable pour les accès directs (applis mobiles
 qBittorrent…).
 
+### Modèle de tableau de bord
+
+Arrangez votre tableau comme vous l'aimez, puis faites-en le modèle de tous :
+
+```bash
+sudo /opt/seedbox/scripts/homarr_provision.sh --save-template <votre-utilisateur>
+sudo /opt/seedbox/scripts/homarr_provision.sh --apply-template --all
+```
+
+Repris du modèle : disposition (bureau et mobile), tailles, réglages et
+titres des widgets (lieu de la météo…), widgets ajoutés à la main (branchés
+sur les intégrations de chaque utilisateur). Chacun garde ses propres applis
+et intégrations ; la tuile « Serveur (admin) » reste réservée aux
+administrateurs. Les tableaux créés ensuite suivent directement le modèle.
+Modèle : `/opt/seedbox/homarr/board_template.json`.
+
 ## API libre-service
 
 Permet à chaque utilisateur de **redémarrer ses services** (voyant d'état
