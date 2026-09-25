@@ -1,0 +1,148 @@
+#!/bin/bash
+#######################
+# lib_seerr.sh — Seerr d'un utilisateur, configuré automatiquement (Jellyfin)
+#
+# - Jellyfin : le Seerr de l'utilisateur reçoit un jeton À SON NOM (Quick
+#   Connect autorisé par la clé d'API seedbox, sans son mot de passe) : il ne
+#   voit que ses bibliothèques, et la clé administrateur de Jellyfin n'est
+#   jamais confiée à un Seerr (chacun y est administrateur et pourrait la lire).
+# - Compte administrateur du Seerr = compte Jellyfin de l'utilisateur :
+#   connexion avec ses identifiants Jellyfin (= seedbox).
+# - Bibliothèques : ses « Séries TV (<user>) » et « Films (<user>) ».
+# - Sonarr / Radarr de l'utilisateur (clé d'API, profil HD-1080p ou premier
+#   profil, /data/tv et /data/movies), ajoutés s'ils manquent.
+# Vérifié sur Seerr 3.0.1 et Jellyfin 12.1. Idempotent ; ne touche pas à un
+# Seerr déjà configuré à la main (hors ajout de Sonarr / Radarr manquants).
+#
+# Variables : INSTALL_DIR, DOMAIN ; fonctions de lib_jellyfin.sh (jf_api),
+# lib_homarr.sh (arr_api_key, _wait_config), lib_arr.sh (arr_api),
+# lib_lang.sh (seedbox_lang).
+#######################
+
+SEERR_DEVICE_PREFIX="seedbox-seerr-"
+
+# Jeton Jellyfin au nom de $1 (Quick Connect). Affiche « <jeton> <userId> ».
+seerr_jellyfin_token() {
+    local user="$1" jid hdr r code secret
+    jid=$(jf_api GET /Users | U="$user" python3 -c 'import json,os,sys
+print(next((u["Id"] for u in json.load(sys.stdin) if u["Name"].lower() == os.environ["U"].lower()), ""))')
+    [ -n "$jid" ] || return 1
+    hdr="MediaBrowser Client=\"Seerr\", Device=\"Seerr\", DeviceId=\"${SEERR_DEVICE_PREFIX}${user}\", Version=\"3\""
+    r=$(curl -s -m 30 -X POST -H "Authorization: $hdr" "$JELLYFIN_LOCAL_URL/QuickConnect/Initiate") || return 1
+    code=$(printf '%s' "$r" | python3 -c 'import json,sys; print(json.loads(sys.stdin.read().lstrip("﻿"))["Code"])' 2>/dev/null)
+    secret=$(printf '%s' "$r" | python3 -c 'import json,sys; print(json.loads(sys.stdin.read().lstrip("﻿"))["Secret"])' 2>/dev/null)
+    [ -n "$code" ] && [ -n "$secret" ] || { echo "Quick Connect désactivé dans Jellyfin ?" >&2; return 1; }
+    jf_api POST "/QuickConnect/Authorize?code=$code&userId=$jid" >/dev/null || return 1
+    curl -s -m 30 -X POST -H "Authorization: $hdr" -H 'Content-Type: application/json' \
+        --data "{\"Secret\":\"$secret\"}" "$JELLYFIN_LOCAL_URL/Users/AuthenticateWithQuickConnect" \
+        | python3 -c 'import json,sys
+d = json.loads(sys.stdin.read().lstrip("﻿")); print(d["AccessToken"], d["User"]["Id"])' 2>/dev/null
+}
+
+# Entrée Sonarr ou Radarr pour Seerr (JSON). $1=sonarr|radarr $2=utilisateur
+_seerr_dvr() {
+    local svc="$1" user="$2" key profiles
+    key=$(arr_api_key "$svc" "$user"); [ -n "$key" ] || return 1
+    profiles=$(arr_api "$svc" "$user" GET /qualityprofile) || return 1
+    P="$profiles" S="$svc" U="$user" K="$key" D="$DOMAIN" python3 -c '
+import json, os
+e = os.environ; svc = e["S"]
+ps = json.loads(e["P"])
+p = next((x for x in ps if x["name"] == "HD-1080p"), ps[0])
+d = {"id": 0, "name": svc.capitalize(), "hostname": "%s-%s" % (svc, e["U"]),
+     "port": 8989 if svc == "sonarr" else 7878, "apiKey": e["K"], "useSsl": False,
+     "baseUrl": "/" + svc, "activeProfileId": p["id"], "activeProfileName": p["name"],
+     "activeDirectory": "/data/tv" if svc == "sonarr" else "/data/movies",
+     "tags": [], "is4k": False, "isDefault": True,
+     "externalUrl": "https://%s.%s/%s" % (e["U"], e["D"], svc),
+     "syncEnabled": True, "preventSearch": False, "tagRequests": False, "overrideRule": []}
+if svc == "sonarr":
+    d.update(seriesType="standard", animeSeriesType="anime", animeTags=[],
+             activeAnimeProfileId=p["id"], activeAnimeProfileName=p["name"],
+             activeAnimeDirectory="/data/tv", enableSeasonFolders=True)
+else:
+    d.update(minimumAvailability="released")
+print(json.dumps(d))'
+}
+
+# Configure le Seerr de $1 (conteneur arrêté pendant l'écriture). Retour 0
+# si configuré (ou déjà configuré).
+seerr_configure() {
+    local user="$1" dir="$INSTALL_DIR/seerr/$1" settings db tok="" jid="" libs="[]" info="{}" \
+          sonarr="" radarr="" email state
+    settings="$dir/settings.json"; db="$dir/db/db.sqlite3"
+    _wait_config "$settings" "seerr-$user" || return 1
+    for _ in $(seq 1 30); do [ -s "$db" ] && break; sleep 2; done
+    [ -s "$db" ] || return 1
+    state=$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print("init" if d.get("public", {}).get("initialized") else "new")' "$settings") || return 1
+
+    grep -q "^  sonarr-$user:" "$INSTALL_DIR/docker-compose.yml" 2>/dev/null && sonarr=$(_seerr_dvr sonarr "$user")
+    grep -q "^  radarr-$user:" "$INSTALL_DIR/docker-compose.yml" 2>/dev/null && radarr=$(_seerr_dvr radarr "$user")
+
+    if [ "$state" = new ]; then
+        # Première configuration : Jellyfin requis
+        jellyfin_available && jellyfin_wizard_done || { echo "Jellyfin indisponible : Seerr de $user à configurer plus tard" >&2; return 1; }
+        read -r tok jid < <(seerr_jellyfin_token "$user") || true
+        [ -n "$tok" ] && [ -n "$jid" ] || { echo "Jeton Jellyfin de $user non obtenu" >&2; return 1; }
+        libs=$(jf_api GET /Library/VirtualFolders | U="$user" python3 -c '
+import json, os, sys
+suffix = " (%s)" % os.environ["U"]; types = {"tvshows": "show", "movies": "movie"}
+print(json.dumps([{"id": f["ItemId"], "name": f["Name"], "enabled": True, "type": types[f["CollectionType"]]}
+                  for f in json.load(sys.stdin) if f["Name"].endswith(suffix) and f.get("CollectionType") in types]))') || return 1
+        info=$(curl -fs -m 10 "$JELLYFIN_LOCAL_URL/System/Info/Public") || return 1
+        email=$(awk -v u="  $user:" '$0 == u { f = 1; next } f && /^  [^ ]/ { f = 0 } f && /^    email:/ { gsub(/^    email: *"?|"$/, ""); print; exit }' \
+            "$INSTALL_DIR/authelia/users_database.yml" 2>/dev/null)
+    fi
+
+    # Déjà configuré et rien à ajouter : pas de redémarrage
+    if [ "$state" = init ] && SONARR="$sonarr" RADARR="$radarr" python3 -c '
+import json, os, sys
+s = json.load(open(sys.argv[1]))
+for k in ("sonarr", "radarr"):
+    v = os.environ[k.upper()]
+    if v and not any(x.get("hostname") == json.loads(v)["hostname"] for x in s.get(k, [])):
+        sys.exit(1)' "$settings"; then
+        return 0
+    fi
+    docker stop "seerr-$user" >/dev/null 2>&1 || true
+    ST="$state" TOK="$tok" JID="$jid" LIBS="$libs" INFO="$info" SONARR="$sonarr" RADARR="$radarr" \
+    U="$user" D="$DOMAIN" EMAIL="${email:-$user@$DOMAIN}" LANG_SB="$(seedbox_lang)" \
+    DEV="${SEERR_DEVICE_PREFIX}${user}" python3 - "$settings" "$db" << 'PY'
+import json, os, sqlite3, sys
+e = os.environ; path, db = sys.argv[1], sys.argv[2]
+s = json.load(open(path))
+if e["ST"] == "new":
+    info = json.loads(e["INFO"].lstrip("﻿"))
+    s["main"].update(mediaServerType=2, mediaServerLogin=True,
+                     applicationUrl="https://seerr-%s.%s" % (e["U"], e["D"]), locale=e["LANG_SB"])
+    s["jellyfin"].update(name=info.get("ServerName", "Jellyfin"), ip="jellyfin", port=8096, useSsl=False,
+                         urlBase="", externalHostname="https://jellyfin.%s" % e["D"],
+                         libraries=json.loads(e["LIBS"]), serverId=info["Id"], apiKey=e["TOK"])
+    s["public"]["initialized"] = True
+    c = sqlite3.connect(db)
+    fields = dict(email=e["EMAIL"], username=e["U"], jellyfinUsername=e["U"], jellyfinUserId=e["JID"],
+                  jellyfinDeviceId=e["DEV"], jellyfinAuthToken=e["TOK"], permissions=2, userType=3,
+                  avatar="/avatarproxy/%s" % e["JID"])
+    if c.execute("select 1 from user where id = 1").fetchone():
+        c.execute("update user set " + ", ".join("%s = ?" % k for k in fields) + " where id = 1", list(fields.values()))
+    else:
+        c.execute("insert into user (id, %s) values (1, %s)" % (", ".join(fields), ", ".join("?" * len(fields))),
+                  list(fields.values()))
+    c.commit()
+# Sonarr / Radarr manquants (jamais de doublon, rien de remplacé)
+for key, env in (("sonarr", "SONARR"), ("radarr", "RADARR")):
+    if not e[env]:
+        continue
+    lst = s.setdefault(key, [])
+    new = json.loads(e[env])
+    if any(x.get("hostname") == new["hostname"] for x in lst):
+        continue
+    new["id"] = max([x["id"] for x in lst], default=-1) + 1
+    new["isDefault"] = not any(x.get("isDefault") and not x.get("is4k") for x in lst)
+    lst.append(new)
+open(path, "w").write(json.dumps(s, indent=1))
+PY
+    local rc=$?
+    docker start "seerr-$user" >/dev/null 2>&1 || true
+    return $rc
+}

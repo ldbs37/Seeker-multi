@@ -110,7 +110,7 @@ compose_cmd up -d "${START[@]}"
 ARR_AUTO=false
 if [ "$USE_TRAEFIK" = true ]; then
     case "$SERVICE" in
-        sonarr|radarr|prowlarr|calibre)
+        sonarr|radarr|prowlarr|calibre|seerr)
             log "Configuration automatique de $SERVICE..."
             "$SCRIPT_DIR/arr_setup.sh" "$USERNAME" && ARR_AUTO=true ;;
     esac

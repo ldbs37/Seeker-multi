@@ -5,7 +5,9 @@
 #   - lib_arr.sh : connexion unique Sonarr/Radarr/Prowlarr (Readarr existant),
 #     dossiers racine, qBittorrent comme client de téléchargement,
 #     Prowlarr → *arr (+ son FlareSolverr) ;
-#   - lib_calibre.sh : Calibre-web (connexion unique, bibliothèque /books).
+#   - lib_calibre.sh : Calibre-web (connexion unique, bibliothèque /books) ;
+#   - lib_seerr.sh : Seerr (Jellyfin au nom de l'utilisateur, ses
+#     bibliothèques, Sonarr/Radarr).
 # Idempotent : relançable sans risque (ne remplace rien de ce qui existe).
 #
 # Usage: arr_setup.sh <user>   # un utilisateur
@@ -24,7 +26,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ENV_FILE="$INSTALL_DIR/.env"
 DOCKER_COMPOSE_FILE="$INSTALL_DIR/docker-compose.yml"
 
-for lib in lib_ports lib_traefik lib_services lib_qbittorrent lib_homarr lib_arr lib_calibre; do
+for lib in lib_ports lib_traefik lib_services lib_qbittorrent lib_homarr lib_arr lib_calibre lib_seerr; do
     [ -f "$SCRIPT_DIR/$lib.sh" ] || fail "$lib.sh introuvable dans $SCRIPT_DIR"
     # shellcheck source=/dev/null
     source "$SCRIPT_DIR/$lib.sh"
@@ -39,7 +41,7 @@ traefik_detect "$ENV_FILE"
 [ "$USE_TRAEFIK" = true ] || exit 0
 
 if [ "$1" = --all ]; then
-    USERS=$(sed -n 's/^  \(sonarr\|radarr\|readarr\|prowlarr\|calibre\)-\([a-z_][a-z0-9_-]*\):$/\2/p' "$DOCKER_COMPOSE_FILE" | sort -u)
+    USERS=$(sed -n 's/^  \(sonarr\|radarr\|readarr\|prowlarr\|calibre\|seerr\)-\([a-z_][a-z0-9_-]*\):$/\2/p' "$DOCKER_COMPOSE_FILE" | sort -u)
 else
     USERS="$1"
 fi
@@ -58,6 +60,13 @@ for u in $USERS; do
             log "✓ $u : Calibre-web (connexion unique, bibliothèque /books)"
         else
             warn "$u : configuration de Calibre-web incomplète (relancez : $0 $u)"; RC=1
+        fi
+    fi
+    if grep -q "^  seerr-$u:" "$DOCKER_COMPOSE_FILE"; then
+        if seerr_configure "$u"; then
+            log "✓ $u : Seerr (Jellyfin, ses bibliothèques, Sonarr/Radarr)"
+        else
+            warn "$u : configuration de Seerr incomplète (relancez : $0 $u)"; RC=1
         fi
     fi
 done

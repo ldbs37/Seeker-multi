@@ -88,7 +88,11 @@ Configuration automatique des applis d'un utilisateur (lancée par
   dossiers racine ; qBittorrent par sa clé d'API ; Prowlarr → Sonarr/Radarr ;
   FlareSolverr de l'utilisateur ;
 - Calibre-web (`lib_calibre.sh`) : connexion par l'en-tête secret de Traefik,
-  compte `admin` renommé (mot de passe aléatoire), bibliothèque vide dans `books/`.
+  compte `admin` renommé (mot de passe aléatoire), bibliothèque vide dans `books/` ;
+- Seerr (`lib_seerr.sh`) : jeton Jellyfin au nom de l'utilisateur (Quick
+  Connect autorisé par la clé seedbox : ni son mot de passe, ni la clé
+  administrateur de Jellyfin dans Seerr), administrateur = son compte
+  Jellyfin, ses bibliothèques, ses Sonarr / Radarr (HD-1080p).
 
 Idempotent. `disable_arr_auth.sh` (ancien nom) le lance aussi.
 

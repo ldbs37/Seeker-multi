@@ -895,6 +895,12 @@ deploy_services() {
         fi
     fi
 
+    # Applis des utilisateurs, après Jellyfin (Seerr : son compte et ses
+    # bibliothèques) : Sonarr/Radarr/Prowlarr, Calibre-web, Seerr
+    if [ "$USE_TRAEFIK" = "true" ]; then
+        "$INSTALL_DIR/scripts/arr_setup.sh" --all || true
+    fi
+
     # Homarr partagé : configuration initiale sans assistant (groupe admins,
     # clé d'API) puis tableaux de bord des utilisateurs
     if [ "$USE_TRAEFIK" = "true" ]; then

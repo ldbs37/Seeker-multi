@@ -29,7 +29,9 @@ En mode Traefik, tout est **préconfiguré** (`scripts/arr_setup.sh`) :
 connexion unique via Authelia (aucune page de connexion), dossiers racine
 (`/data/tv`, `/data/movies`), qBittorrent comme client de téléchargement,
 indexeurs Prowlarr envoyés vers Sonarr et Radarr, FlareSolverr, bibliothèque
-Calibre-web (`books/`). Les services de chaque utilisateur sont sur **son
+Calibre-web (`books/`), **Seerr** relié à Jellyfin (au nom de l'utilisateur :
+seulement ses bibliothèques ; connexion avec ses identifiants Jellyfin) et à
+ses Sonarr / Radarr. Les services de chaque utilisateur sont sur **son
 réseau Docker privé** (`seedbox_u_<user>`) : ceux des autres utilisateurs ne
 peuvent pas les joindre.
 

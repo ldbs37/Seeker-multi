@@ -263,15 +263,6 @@ compose_cmd up -d
 # Authelia relit sa base utilisateurs au redémarrage
 docker restart authelia >/dev/null 2>&1 || warn "Redémarrez Authelia pour activer le compte : docker restart authelia"
 
-# Sonarr/Radarr/Prowlarr : connexion unique, dossiers, qBittorrent, indexeurs
-if [ "$USE_TRAEFIK" = true ] && [[ " ${SERVICES_TO_INSTALL[*]} " =~ \ (sonarr|radarr|prowlarr|calibre)\  ]]; then
-    log "Sonarr/Radarr/Prowlarr/Calibre-web : configuration automatique..."
-    "$SCRIPT_DIR/arr_setup.sh" "$USERNAME" || true
-fi
-
-# Homarr partagé (mode Traefik) : tableau de bord de l'utilisateur
-[ "$USE_TRAEFIK" = true ] && { "$SCRIPT_DIR/homarr_provision.sh" "$USERNAME" || true; }
-
 # Jellyfin : compte (même mot de passe), SES bibliothèques ; connexion via
 # Authelia (droits par groupe). Pendant l'installation, l'assistant Jellyfin
 # n'est pas encore terminé : install.sh s'en charge ensuite.
@@ -282,6 +273,16 @@ if grep -q "^  jellyfin:" "$DOCKER_COMPOSE_FILE" && jellyfin_wait && jellyfin_wi
         jellyfin_sso_ensure || warn "Connexion Authelia de Jellyfin non mise à jour (relancez generate_traefik_labels.sh)"
     fi
 fi
+
+# Applis : Sonarr/Radarr/Prowlarr (connexion unique, dossiers, qBittorrent,
+# indexeurs), Calibre-web, Seerr (après Jellyfin : son compte et ses bibliothèques)
+if [ "$USE_TRAEFIK" = true ] && [[ " ${SERVICES_TO_INSTALL[*]} " =~ \ (sonarr|radarr|prowlarr|calibre|seerr)\  ]]; then
+    log "Applis (Sonarr, Radarr, Prowlarr, Calibre-web, Seerr) : configuration automatique..."
+    "$SCRIPT_DIR/arr_setup.sh" "$USERNAME" || true
+fi
+
+# Homarr partagé (mode Traefik) : tableau de bord de l'utilisateur
+[ "$USE_TRAEFIK" = true ] && { "$SCRIPT_DIR/homarr_provision.sh" "$USERNAME" || true; }
 
 #######################
 # Résumé

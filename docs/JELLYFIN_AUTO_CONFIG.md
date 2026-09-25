@@ -54,6 +54,22 @@ depuis sa dernière connexion via Authelia à la connexion suivante.
 Dans l'appli : *Quick Connect* affiche un code ; dans Jellyfin (navigateur,
 connecté via Authelia) : *Paramètres → Quick Connect*, saisir le code.
 
+## Seerr (demandes)
+
+Le Seerr de chaque utilisateur (`https://seerr-<user>.votre-domaine.com`)
+est configuré par `arr_setup.sh` (`lib_seerr.sh`) :
+
+- relié à Jellyfin par un **jeton au nom de l'utilisateur** (Quick Connect,
+  autorisé par la clé d'API seedbox) : il ne voit que ses bibliothèques, et
+  la clé administrateur de Jellyfin n'est jamais confiée à Seerr ;
+- son administrateur = le compte Jellyfin de l'utilisateur : connexion avec
+  ses identifiants Jellyfin (= seedbox) ;
+- ses Sonarr / Radarr (profil HD-1080p, `/data/tv`, `/data/movies`).
+
+Un Seerr déjà configuré à la main n'est pas modifié (seuls un Sonarr ou un
+Radarr manquants sont ajoutés). Quick Connect doit rester activé dans
+Jellyfin (réglage par défaut).
+
 ## Réparer un compte
 
 ```bash

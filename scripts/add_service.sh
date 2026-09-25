@@ -116,6 +116,8 @@ case "$SERVICE" in
         fi
         if jellyfin_sync_all; then
             log "✓ Jellyfin : comptes et bibliothèques des utilisateurs configurés"
+            # Seerr des utilisateurs : reliés à Jellyfin
+            "$SCRIPT_DIR/arr_setup.sh" --all || true
             info "Mot de passe Jellyfin (applis TV/mobile) : sudo $SCRIPT_DIR/update_password.sh <utilisateur>"
         else
             warn "Configuration automatique de Jellyfin incomplète : relancez generate_traefik_labels.sh"
