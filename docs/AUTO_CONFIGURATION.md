@@ -49,8 +49,16 @@ Ces services nécessitent une configuration manuelle lors du premier accès via 
 
 ### Duplicati (Backups)
 - **Port:** 8200
-- **Auto-configuration:** ✗ Non supporté
-- **Configuration:** Accédez à `https://duplicati.votre-domaine.com` et configurez lors du premier accès
+- **Auto-configuration:** ✓ Sauvegarde « Configuration seedbox » créée via l'API
+  - Contenu : tout `/opt/seedbox` (`.env`, Authelia, Homarr, config des *arr,
+    Jellyfin, qBittorrent…) **sans les fichiers des utilisateurs** (leur
+    `config/` est gardée), ni caches, journaux, archives de `backup.sh`.
+  - Chiffrée (phrase `DUPLICATI_BACKUP_PASSPHRASE` du `.env`, **à conserver
+    hors du serveur** : sans elle, pas de restauration), chaque nuit à 3 h 30,
+    rétention 7 jours / 4 semaines / 12 mois.
+  - Destination : `/backups` (`/opt/seedbox/duplicati/backups`, même disque) :
+    **remplacez-la par une destination distante** (SFTP, B2, S3…) dans Duplicati.
+- **Connexion :** Authelia (admins) puis mot de passe `DUPLICATI_PASSWORD` du `.env`
 
 ---
 
@@ -152,7 +160,7 @@ Le projet [Swizzin](https://github.com/swizzin/swizzin) a été analysé pour id
 | **Uptime Kuma** | ✗ | 3001 | Manuelle (web UI) |
 | **Dashdot** | N/A | 3002 | Pas d'auth requise |
 | **Scrutiny** | N/A | 8080 | Pas d'auth par défaut |
-| **Duplicati** | ✗ | 8200 | Manuelle (web UI) |
+| **Duplicati** | ✓ | 8200 | Sauvegarde de la configuration créée ; destination à changer |
 | **Watchtower** | N/A | - | Pas d'interface |
 
 ---

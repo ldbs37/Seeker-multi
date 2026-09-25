@@ -295,8 +295,10 @@ _block_duplicati() {
     image: linuxserver/duplicati:2.4.0
     container_name: duplicati
     environment:
-      - PUID=${ADMIN_UID}
-      - PGID=${ADMIN_GID}
+      # root : lit toute la configuration (.env, Authelia… en 600 root) ;
+      # accès réservé aux admins (Authelia) + mot de passe Duplicati
+      - PUID=0
+      - PGID=0
       - TZ=${TZ}
       # Duplicati 2.1+ : sans clé de chiffrement des réglages, une nouvelle
       # installation reste bloquée au démarrage (Bad Gateway) ; secrets du .env
@@ -306,6 +308,8 @@ _block_duplicati() {
     volumes:
       - ./duplicati/config:/config
       - ./data:/source:ro
+      # Configuration de la seedbox (sauvegarde « Configuration seedbox »)
+      - .:/seedbox:ro
       # Destination locale des sauvegardes (« /backups » dans Duplicati) ;
       # préférer une destination distante (autre serveur, stockage en ligne)
       - ./duplicati/backups:/backups
@@ -409,6 +413,9 @@ duplicati_env_ensure() {
         || echo "DUPLICATI_ENCRYPTION_KEY=$(openssl rand -hex 32)" >> "$env"
     grep -q '^DUPLICATI_PASSWORD=.' "$env" 2>/dev/null \
         || echo "DUPLICATI_PASSWORD=$(openssl rand -base64 18 | tr -d '/+=' | cut -c1-20)" >> "$env"
+    # Phrase de chiffrement des sauvegardes (indispensable pour restaurer)
+    grep -q '^DUPLICATI_BACKUP_PASSPHRASE=.' "$env" 2>/dev/null \
+        || echo "DUPLICATI_BACKUP_PASSPHRASE=$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-28)" >> "$env"
     chmod 600 "$env"
 }
 

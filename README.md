@@ -641,11 +641,13 @@ Pour plus d'informations, consultez la documentation dans `/docs` :
 Les services suivants créent automatiquement le compte administrateur :
 - ✓ **Portainer** - Le script collecte les identifiants et crée le compte admin via l'API
 - ✓ **Jellyfin** - Auto-configuration via l'API de démarrage Jellyfin
+- ✓ **Duplicati** - Sauvegarde chiffrée de la configuration, chaque nuit (destination à remplacer par une distante)
+- ✓ **Scrutiny** - Disques derrière un contrôleur RAID détectés, premier relevé immédiat
 
 ### Services Nécessitant Configuration Manuelle
 
 Ces services requièrent une configuration via l'interface web au premier accès :
-- ⚠️ **Uptime Kuma**, **Duplicati**
+- ⚠️ **Uptime Kuma**
 
 Voir [AUTO_CONFIGURATION.md](docs/AUTO_CONFIGURATION.md) pour les détails complets.
 

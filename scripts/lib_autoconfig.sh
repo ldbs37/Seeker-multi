@@ -128,3 +128,57 @@ autoconfig_scrutiny() {
         && log "Scrutiny : premier relevé des disques effectué" \
         || warn "Scrutiny : premier relevé en échec (docker exec scrutiny scrutiny-collector-metrics run)"
 }
+
+# Duplicati : sauvegarde « Configuration seedbox » (tout /opt/seedbox sauf les
+# fichiers des utilisateurs — leur config/ est gardée —, caches, journaux,
+# archives et Duplicati lui-même), chiffrée, chaque nuit à 3 h 30, rétention
+# 7 jours / 4 semaines / 12 mois, vers /backups (à remplacer par une
+# destination distante dans Duplicati). Créée si absente.
+# $1 = INSTALL_DIR (défaut /opt/seedbox)
+autoconfig_duplicati() {
+    local dir="${1:-/opt/seedbox}" env pass phrase token list body at base="${DUPLICATI_URL:-http://localhost:8200}" api
+    env="$dir/.env"
+    pass=$(grep '^DUPLICATI_PASSWORD=' "$env" 2>/dev/null | cut -d= -f2-)
+    phrase=$(grep '^DUPLICATI_BACKUP_PASSPHRASE=' "$env" 2>/dev/null | cut -d= -f2-)
+    [ -n "$pass" ] && [ -n "$phrase" ] || { warn "Duplicati : secrets absents du .env"; return 1; }
+    log "Configuration automatique de Duplicati..."
+    api="$base/api/v1"
+    wait_for_url "$base/" 120 || { warn "Duplicati ne répond pas : sauvegarde non préconfigurée"; return 1; }
+    token=$(P="$pass" python3 -c 'import json,os; print(json.dumps({"Password": os.environ["P"], "RememberMe": False}))' \
+        | curl -s -m 30 -X POST -H 'Content-Type: application/json' --data @- "$api/auth/login" \
+        | python3 -c 'import json,sys; print(json.load(sys.stdin).get("AccessToken",""))' 2>/dev/null)
+    [ -n "$token" ] || { warn "Duplicati : connexion à l'API refusée (mot de passe ?)"; return 1; }
+    list=$(curl -s -m 30 -H "Authorization: Bearer $token" "$api/backups")
+    if L="$list" python3 -c 'import json,os,sys
+sys.exit(0 if any(b["Backup"]["Name"] == "Configuration seedbox" for b in json.loads(os.environ["L"] or "[]")) else 1)' 2>/dev/null; then
+        info "Duplicati : sauvegarde « Configuration seedbox » déjà présente"
+        return 0
+    fi
+    at=$(date -d 'tomorrow 03:30' --iso-8601=seconds)
+    body=$(PH="$phrase" AT="$at" python3 -c '
+import json, os, re
+s = "/seedbox/"
+x = lambda p: {"Include": False, "Expression": p}
+filters = [x("[" + re.escape(s) + "data/users/[^/]+/(?!config/).+]"),   # fichiers des utilisateurs (config/ gardée)
+           x(s + "duplicati/"), x(s + "backups/"), x(s + "jellyfin/cache/"),
+           x(s + "jellyfin/config/metadata/"), x(s + "jellyfin/config/transcodes/"),
+           x(s + "scrutiny/influxdb/"), x(s + "vuetorrent/"), x(s + "api/spool/"),
+           x("[.*/logs/.*]"), x("*.pid")]
+for i, f in enumerate(filters): f["Order"] = i
+print(json.dumps({"Backup": {"ID": None, "Name": "Configuration seedbox",
+    "Description": "Configuration de la seedbox (sans les fichiers des utilisateurs). Remplacez la destination locale par une destination distante.",
+    "Tags": [], "TargetURL": "file:///backups/configuration-seedbox", "DBPath": None, "Sources": [s],
+    "Settings": [{"Name": "encryption-module", "Value": "aes"}, {"Name": "compression-module", "Value": "zip"},
+                 {"Name": "dblock-size", "Value": "50mb"}, {"Name": "passphrase", "Value": os.environ["PH"]},
+                 {"Name": "retention-policy", "Value": "1W:1D,4W:1W,12M:1M"}],
+    "Filters": filters, "Metadata": {}},
+    "Schedule": {"Tags": [], "Repeat": "1D", "Time": os.environ["AT"], "AllowedDays": []}}))')
+    if curl -s -m 30 -X POST -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
+            --data "$body" "$api/backups" | grep -q '"ID"'; then
+        log "✓ Duplicati : sauvegarde « Configuration seedbox » créée (chaque nuit, 3 h 30, vers /backups)"
+        info "   Phrase de chiffrement (à conserver HORS du serveur pour pouvoir restaurer) :"
+        info "   sudo grep DUPLICATI_BACKUP_PASSPHRASE $env"
+    else
+        warn "Duplicati : sauvegarde non créée"; return 1
+    fi
+}

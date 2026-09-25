@@ -22,7 +22,9 @@ DEFAULT_QUOTA="500" # En GB
 
 # UID/GID des services système (Jellyfin, Duplicati…). Les comptes
 # utilisateurs de la seedbox ont leur propre plage (voir scripts/lib_ports.sh).
+# shellcheck disable=SC2034  # lus par les bibliothèques sourcées
 ADMIN_UID="1000"
+# shellcheck disable=SC2034
 ADMIN_GID="1000"
 
 # Couleurs pour les messages
@@ -826,6 +828,8 @@ deploy_services() {
     fi
     # Scrutiny : disques derrière un contrôleur RAID, premier relevé
     [ "$INSTALL_SCRUTINY" = true ] && { autoconfig_scrutiny "$INSTALL_DIR" || true; }
+    # Duplicati : sauvegarde de la configuration, chaque nuit
+    [ "$INSTALL_DUPLICATI" = true ] && { autoconfig_duplicati "$INSTALL_DIR" || true; }
     # Jellyfin : administrateur = premier utilisateur (même mot de passe),
     # comptes et bibliothèques privées de chacun, connexion via Authelia
     if [ "$INSTALL_JELLYFIN" = true ]; then
