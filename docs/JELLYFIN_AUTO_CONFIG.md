@@ -78,6 +78,18 @@ est configuré par `arr_setup.sh` (`lib_seerr.sh`) :
   profils sont en français (Radarr : langue « French » ; Sonarr : format
   personnalisé « VF » exigé). Les MULTi comptent comme françaises si
   l'indexeur l'indique (réglage « Multi Languages »).
+- nommage pour Jellyfin (Sonarr / Radarr, appliqué une fois, médias déjà
+  présents compris) : `Titre (Année) [tmdbid-…]/Titre (Année) [tmdbid-…] -
+  Qualité.mkv` pour les films, `Série (Année) [tvdbid-…]/Season 01/Série
+  (Année) - S01E01 - Titre Qualité.mkv` pour les séries. Jellyfin lit
+  l'identifiant et ne devine plus. Les fichiers sont liés (pas copiés) à ceux
+  de qBittorrent : le partage continue.
+
+Un torrent ajouté à la main dans qBittorrent reste dans `downloads/` (hors
+bibliothèques). Pour qu'il arrive rangé dans Jellyfin : ajouter le film ou la
+série dans Radarr / Sonarr (ou le demander dans Seerr), puis donner au
+torrent la catégorie `radarr` ou `tv-sonarr` ; déjà téléchargé : Activité →
+« Import manuel ».
 - pas de connexion locale (mot de passe Seerr), pas d'inscription d'autres
   comptes Jellyfin ;
 - l'utilisateur est administrateur de son Seerr : ses demandes sont
