@@ -61,7 +61,10 @@ est configuré par `arr_setup.sh` (`lib_seerr.sh`) :
 
 - relié à Jellyfin par un **jeton au nom de l'utilisateur** (Quick Connect,
   autorisé par la clé d'API seedbox) : il ne voit que ses bibliothèques, et
-  la clé administrateur de Jellyfin n'est jamais confiée à Seerr ;
+  la clé administrateur de Jellyfin n'est jamais confiée à Seerr (chacun
+  est administrateur de son Seerr et pourrait la lire). Adresse interne
+  `http://jellyfin:8096`. Jeton révoqué (ancienne version) : renouvelé par
+  `arr_setup.sh` ;
 - son administrateur = le compte Jellyfin de l'utilisateur ;
 - **connexion automatique** après Authelia : Seerr n'ayant ni OIDC ni
   authentification par en-tête, la seedbox fixe son secret de signature et
@@ -71,7 +74,9 @@ est configuré par `arr_setup.sh` (`lib_seerr.sh`) :
   « Déconnexion » de Seerr déconnecte d'Authelia ;
 - adresse : `https://seerr-<user>.votre-domaine.com` (Seerr ne gère pas de
   sous-chemin) ;
-- ses Sonarr / Radarr (profil HD-1080p, `/data/tv`, `/data/movies`).
+- ses Sonarr / Radarr (profil HD-1080p, `/data/tv`, `/data/movies`) ; leurs
+  profils n'acceptent que la VF ou le MULTi (formats personnalisés « VF » et
+  « MULTi », modifiables dans Paramètres → Profils).
 - pas de connexion locale (mot de passe Seerr), pas d'inscription d'autres
   comptes Jellyfin ;
 - l'utilisateur est administrateur de son Seerr : ses demandes sont

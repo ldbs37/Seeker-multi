@@ -16,6 +16,12 @@
 # - Interface en français (dates au format français, semaine commençant le
 #   lundi ; Radarr : titres et résumés des films en français), appliquée
 #   seulement tant que l'interface est en anglais (réglage d'origine).
+# - Téléchargements en français : formats personnalisés « VF » (FRENCH,
+#   TRUEFRENCH, VFF…) et « MULTi » (VF + VO) exigés par tous les profils de
+#   qualité (score minimal 1 ; MULTi préféré) ; Radarr : langue des profils
+#   « Original » remplacée par « Toutes » (sinon un film étranger en VF serait
+#   refusé). Appliqué une fois, à la création des formats : les réglages
+#   modifiés ensuite sont conservés.
 # Idempotent. Vérifié sur Sonarr 4.0.20, Radarr 6.4.4, Prowlarr 2.6.5 et
 # qBittorrent 5.2.3 (binaires officiels).
 #
@@ -113,6 +119,52 @@ if d.get("movieInfoLanguage") == 1:
 print(json.dumps(d))')
     case $? in 0) ;; 3) return 0 ;; *) return 1 ;; esac
     arr_api "$svc" "$user" PUT /config/ui "$ui" >/dev/null
+}
+
+# Téléchargements en français (voir l'en-tête). $1=sonarr|radarr $2=utilisateur
+ARR_FR_FORMATS="VF MULTi"
+arr_french_profiles() {
+    local svc="$1" user="$2" cfs schema body profiles
+    cfs=$(arr_api "$svc" "$user" GET /customformat) || return 1
+    # Déjà fait (formats présents) : rien à changer
+    C="$cfs" F="$ARR_FR_FORMATS" python3 -c 'import json, os, sys
+names = {c["name"] for c in json.loads(os.environ["C"])}
+sys.exit(0 if set(os.environ["F"].split()) <= names else 1)' && return 0
+    schema=$(arr_api "$svc" "$user" GET /customformat/schema) || return 1
+    for name in $ARR_FR_FORMATS; do
+        C="$cfs" N="$name" python3 -c 'import json, os, sys
+sys.exit(0 if any(c["name"] == os.environ["N"] for c in json.loads(os.environ["C"])) else 1)' && continue
+        body=$(SCHEMA="$schema" N="$name" python3 -c '
+import json, os
+e = os.environ
+impl, value, label = (("LanguageSpecification", 2, "Français") if e["N"] == "VF"
+                      else ("ReleaseTitleSpecification", r"\bMULTI\b", "MULTi"))
+spec = next(s for s in json.loads(e["SCHEMA"]) if s["implementation"] == impl)
+for f in spec["fields"]:
+    if f["name"] == "value":
+        f["value"] = value
+spec.update(name=label, negate=False, required=True)
+print(json.dumps({"name": e["N"], "includeCustomFormatWhenRenaming": False, "specifications": [spec]}))') || return 1
+        arr_api "$svc" "$user" POST /customformat "$body" >/dev/null || return 1
+    done
+    cfs=$(arr_api "$svc" "$user" GET /customformat) || return 1
+    profiles=$(arr_api "$svc" "$user" GET /qualityprofile) || return 1
+    C="$cfs" P="$profiles" python3 -c '
+import json, os
+e = os.environ
+ids = {c["name"]: c["id"] for c in json.loads(e["C"])}
+scores = {ids["VF"]: 100, ids["MULTi"]: 150}
+for p in json.loads(e["P"]):
+    items = {f["format"]: f for f in p.get("formatItems", [])}
+    for fid, sc in scores.items():
+        items.setdefault(fid, {"format": fid, "name": "", "score": 0})["score"] = sc
+    p["formatItems"] = list(items.values())
+    p["minFormatScore"] = max(p.get("minFormatScore") or 0, 1)
+    if (p.get("language") or {}).get("id") == -2:
+        p["language"] = {"id": -1, "name": "Any"}
+    print(json.dumps(p))' | while IFS= read -r body; do
+        arr_api "$svc" "$user" PUT "/qualityprofile/$(printf '%s' "$body" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')" "$body" >/dev/null || exit 1
+    done
 }
 
 # Dossier racine. $1=service $2=utilisateur
@@ -228,6 +280,9 @@ arr_chain() {
     for svc in sonarr radarr readarr; do
         [[ " ${have[*]} " == *" $svc "* ]] || continue
         arr_root_folder "$svc" "$user" || { echo "$svc-$user : dossier racine non créé" >&2; rc=1; }
+        if [ "$svc" != readarr ]; then
+            arr_french_profiles "$svc" "$user" || { echo "$svc-$user : profils en français non appliqués" >&2; rc=1; }
+        fi
         if [ -n "$qkey" ]; then
             arr_download_client "$svc" "$user" "$qkey" || { echo "$svc-$user : client qBittorrent non ajouté" >&2; rc=1; }
         fi
