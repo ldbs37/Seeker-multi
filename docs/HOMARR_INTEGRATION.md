@@ -10,14 +10,14 @@ sur Authelia, Homarr ne redemande rien.
 
 - Après une connexion directe sur `https://auth.votre-domaine.com`, Authelia
   renvoie vers le tableau de bord ; `https://<user>.votre-domaine.com/` aussi.
-- **Première visite de l'administrateur** : terminer l'assistant de Homarr et
-  indiquer **`admins`** comme groupe administrateur (les groupes viennent
-  d'Authelia).
-- Chaque utilisateur est créé dans Homarr à sa première connexion.
-- Si l'assistant n'a pas enregistré de groupe administrateur (Homarr n'a
-  alors plus aucun admin : création de jeton d'API impossible), la
-  migration (`generate_traefik_labels.sh`) crée le groupe `admins` avec le
-  droit admin, comme l'aurait fait l'assistant (sauvegarde de la base avant).
+- **Aucune configuration manuelle** : à l'installation (et à chaque
+  migration), `homarr_bootstrap` termine l'assistant, crée le groupe
+  administrateur `admins` (celui d'Authelia), un compte de service
+  `seedbox-api` (admin, sans mot de passe : connexion impossible) et sa clé
+  d'API (jeton haché en bcrypt dans la base, clé dans `.env`), avec
+  sauvegarde de la base avant écriture.
+- Chaque utilisateur est créé dans Homarr à sa première connexion ; ses
+  groupes (`admins`, `u-<user>`) sont synchronisés depuis Authelia.
 - Mise en place (automatique à l'installation et par
   `generate_traefik_labels.sh`) : `scripts/lib_homarr.sh` ajoute au `.env`
   `HOMARR_SECRET_KEY` et `HOMARR_OIDC_SECRET`, et à la configuration Authelia
@@ -32,15 +32,11 @@ sur Authelia, Homarr ne redemande rien.
 `scripts/homarr_provision.sh` crée pour chaque utilisateur un tableau de bord
 **`https://votre-domaine.com/boards/<user>`** — où renvoie
 `https://<user>.votre-domaine.com/` — avec une tuile par service installé
-(qBittorrent, Fichiers, Sonarr, Radarr, Seerr…). Il passe par l'API de Homarr :
+(qBittorrent, Fichiers, Sonarr, Radarr, Seerr…), via l'API de Homarr et la
+clé créée par `homarr_bootstrap` (`--set-key '<id>.<jeton>'` permet d'en
+utiliser une autre, créée dans Homarr → Gestion → Outils → API).
 
-1. Une fois, l'admin crée un jeton : `https://votre-domaine.com/manage/tools/api`
-   → onglet **Authentification** → **Créer un jeton API** (le copier : il
-   n'est affiché qu'une fois).
-2. `sudo /opt/seedbox/scripts/homarr_provision.sh --set-key '<jeton>'`
-   (enregistre le jeton dans `.env` et prépare tous les utilisateurs).
-
-Ensuite, c'est automatique : ajout d'un utilisateur ou d'un service → tuile
+C'est automatique : ajout d'un utilisateur ou d'un service → tuile
 ajoutée ; suppression d'un utilisateur → tableau de bord, applis et groupe
 retirés. Idempotent (relançable sans doublon, personnalisations conservées).
 Retirer un service laisse sa tuile (à supprimer à la main).

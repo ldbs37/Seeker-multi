@@ -108,32 +108,62 @@ authelia_ensure_user_groups() {
     rm -f "$tmp"; return 1
 }
 
-# Groupe administrateur « admins » (nom du groupe Authelia) avec le droit
-# « admin » dans Homarr, s'il n'existe aucun groupe administrateur une fois
-# l'assistant terminé (étape de l'assistant sautée/ratée : plus aucun admin,
-# donc impossible de créer une clé d'API). Reproduit exactement l'étape
-# « group » de l'assistant (createInitialExternalGroup) ; les membres sont
-# synchronisés depuis Authelia à la connexion. Retour 0 si corrigé.
-homarr_ensure_admin_group() {
-    local db="$INSTALL_DIR/homarr/appdata/db/db.sqlite" state
+# Configuration initiale de Homarr, sans intervention (au lieu de l'assistant
+# et de la création manuelle d'un jeton d'API). Idempotent :
+#   - assistant marqué terminé (Homarr crée seul ses réglages au démarrage) ;
+#   - groupe « admins » (nom du groupe Authelia) avec le droit « admin »,
+#     comme l'étape « groupe » de l'assistant ; ses membres sont synchronisés
+#     depuis Authelia à chaque connexion ;
+#   - compte de service « seedbox-api » (admin, sans mot de passe : aucune
+#     connexion possible) propriétaire de la clé d'API ;
+#   - clé d'API « <id>.<jeton> » (jeton haché en bcrypt, comme Homarr) dans
+#     le .env (HOMARR_API_KEY), utilisée par homarr_provision.sh.
+# À appeler conteneur homarr démarré au moins une fois (base créée).
+# Retour 0 si quelque chose a été configuré.
+homarr_bootstrap() {
+    local db="$INSTALL_DIR/homarr/appdata/db/db.sqlite" env="$INSTALL_DIR/.env"
+    local state key="" kid="" tok="" hash=""
+    # Base créée par Homarr à son premier démarrage (jusqu'à 2 min)
+    for _ in $(seq 1 60); do
+        [ -f "$db" ] && python3 -c 'import sqlite3,sys; sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True).execute("select step from onboarding").fetchone()' "$db" 2>/dev/null && break
+        sleep 2
+    done
     [ -f "$db" ] || return 1
-    state=$(python3 - "$db" << 'PY'
-import sqlite3, sys
+    key=$(grep '^HOMARR_API_KEY=' "$env" 2>/dev/null | cut -d= -f2-)
+    state=$(HM_KEY="$key" python3 - "$db" << 'PY'
+import os, sqlite3, sys
 db = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
+todo = []
 try:
     step = db.execute("select step from onboarding").fetchone()
-    admin = db.execute('select 1 from "groupPermission" where permission = ?', ("admin",)).fetchone()
+    if not step or step[0] != "finish": todo.append("onboarding")
+    if not db.execute('select 1 from "groupPermission" where permission = ?', ("admin",)).fetchone(): todo.append("admin")
+    if not db.execute('select 1 from "user" where id = ?', ("seedbox-api",)).fetchone(): todo.append("bot")
+    kid = os.environ["HM_KEY"].split(".")[0]
+    if not kid or not db.execute('select 1 from "apiKey" where id = ?', (kid,)).fetchone(): todo.append("key")
 except sqlite3.Error:
-    print("inconnu"); sys.exit()
-print("ok" if admin or not step or step[0] != "finish" else "manquant")
+    todo = ["erreur"]
+print(" ".join(todo))
 PY
 )
-    [ "$state" = manquant ] || return 1
+    [ -n "$state" ] || return 1
+    [ "$state" = erreur ] && { echo "Base Homarr illisible" >&2; return 2; }
+    if [[ " $state " == *" key "* ]]; then
+        kid=$(openssl rand -hex 12); tok=$(openssl rand -hex 24)
+        # bcrypt coût 10 (comme Homarr) ; préfixe $2y$ d'htpasswd = $2b$
+        hash=$(htpasswd -nbBC 10 "" "$tok" 2>/dev/null | cut -d: -f2 | sed 's/^\$2y\$/$2b$/')
+        [[ "$hash" == '$2b$10$'* ]] || { echo "Hachage bcrypt impossible (htpasswd)" >&2; return 2; }
+    fi
     docker stop homarr >/dev/null 2>&1 || true
     cp -p "$db" "$db.bak-$(date +%Y%m%d%H%M%S)"
-    python3 - "$db" << 'PY'
-import secrets, sqlite3, sys
-db = sqlite3.connect(sys.argv[1])
+    HM_TODO="$state" HM_KID="$kid" HM_HASH="$hash" python3 - "$db" << 'PY'
+import os, secrets, sqlite3, sys
+db = sqlite3.connect(sys.argv[1]); todo = os.environ["HM_TODO"].split()
+if "onboarding" in todo:
+    if db.execute("select 1 from onboarding").fetchone():
+        db.execute("update onboarding set step = 'finish', previous_step = null")
+    else:
+        db.execute("insert into onboarding(id, step) values (?, 'finish')", (secrets.token_hex(12),))
 row = db.execute('select id from "group" where name = ?', ("admins",)).fetchone()
 if row:
     gid = row[0]
@@ -141,10 +171,25 @@ else:
     gid = secrets.token_hex(12)
     pos = db.execute('select coalesce(max(position), 0) from "group"').fetchone()[0] + 1
     db.execute('insert into "group"(id, name, position) values (?, ?, ?)', (gid, "admins", pos))
-db.execute('insert into "groupPermission"(group_id, permission) values (?, ?)', (gid, "admin"))
+if "admin" in todo:
+    db.execute('insert into "groupPermission"(group_id, permission) values (?, ?)', (gid, "admin"))
+if "bot" in todo:
+    db.execute('insert into "user"(id, name, provider) values (?, ?, ?)', ("seedbox-api", "seedbox-api", "credentials"))
+if not db.execute('select 1 from "groupMember" where group_id = ? and user_id = ?', (gid, "seedbox-api")).fetchone():
+    db.execute('insert into "groupMember"(group_id, user_id) values (?, ?)', (gid, "seedbox-api"))
+if "key" in todo:
+    db.execute('insert into "apiKey"(id, api_key, user_id) values (?, ?, ?)',
+               (os.environ["HM_KID"], os.environ["HM_HASH"], "seedbox-api"))
 db.commit()
 PY
+    local rc=$?
     docker start homarr >/dev/null 2>&1 || true
+    [ "$rc" -eq 0 ] || { echo "Écriture dans la base Homarr échouée (sauvegarde : $db.bak-*)" >&2; return 2; }
+    if [ -n "$kid" ]; then
+        sed -i '/^HOMARR_API_KEY=/d' "$env"
+        echo "HOMARR_API_KEY=$kid.$tok" >> "$env"
+        chmod 600 "$env"
+    fi
     return 0
 }
 

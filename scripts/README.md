@@ -92,8 +92,8 @@ application). Portainer et Jellyfin : compte admin créé automatiquement.
 
 ### `homarr_provision.sh` (mode Traefik)
 ```bash
-sudo ./homarr_provision.sh --set-key '<jeton>'   # une fois (jeton créé dans Homarr)
 sudo ./homarr_provision.sh <user> | --all | --remove <user>
+sudo ./homarr_provision.sh --set-key '<id>.<jeton>'   # facultatif : clé créée à la main
 ```
 Tableau de bord Homarr partagé de chaque utilisateur (`https://<domaine>/boards/<user>`),
 une tuile par service ; appelé automatiquement par add_user/add_user_service/remove_user.

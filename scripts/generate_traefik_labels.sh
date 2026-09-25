@@ -179,8 +179,9 @@ info "Portail SSO : https://auth.$DOMAIN"
 for u in "${!DONE_USERS[@]}"; do info "   $u : https://$u.$DOMAIN"; done
 info "Les certificats Let's Encrypt sont obtenus au premier accès (DNS *.${DOMAIN} requis)."
 
-# Homarr partagé : groupe administrateur « admins » s'il manque
-homarr_ensure_admin_group && log "✓ Homarr : groupe administrateur « admins » créé (reconnectez-vous)"
+# Homarr partagé : configuration initiale (assistant, groupe admins, compte
+# de service et clé d'API) si nécessaire
+homarr_bootstrap && log "✓ Homarr : configuration initiale automatique (groupe admins, clé d'API)"
 
 # Homarr partagé : tableaux de bord des utilisateurs (si la clé d'API est définie)
 [ -x "$SCRIPT_DIR/homarr_provision.sh" ] && { "$SCRIPT_DIR/homarr_provision.sh" --all || true; }

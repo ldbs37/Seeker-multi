@@ -885,6 +885,16 @@ deploy_services() {
         autoconfig_jellyfin "$JELLYFIN_USER" "$JELLYFIN_PASSWORD" || true
     fi
 
+    # Homarr partagé : configuration initiale sans assistant (groupe admins,
+    # clé d'API) puis tableaux de bord des utilisateurs
+    if [ "$USE_TRAEFIK" = "true" ]; then
+        log "Configuration automatique de Homarr..."
+        local hrc=0
+        homarr_bootstrap || hrc=$?
+        [ "$hrc" -ge 2 ] && warn "Configuration initiale de Homarr incomplète (relancez generate_traefik_labels.sh)"
+        "$INSTALL_DIR/scripts/homarr_provision.sh" --all || true
+    fi
+
     # Plex tourne en réseau hôte : le pare-feu s'applique à lui (contrairement
     # aux ports publiés par Docker)
     if [ "$INSTALL_PLEX" = true ] && command -v ufw &>/dev/null; then
@@ -989,8 +999,7 @@ main() {
             done
         fi
         info "🏠 Tableau de bord (Homarr, connexion unique) : https://$DOMAIN"
-        echo "     1re visite de l'administrateur : terminer l'assistant Homarr et"
-        echo "     indiquer le groupe administrateur « admins »"
+        echo "     (préconfiguré : chaque utilisateur arrive sur son tableau de bord privé)"
         info "👥 Chaque utilisateur : https://<utilisateur>.$DOMAIN renvoie au tableau de bord"
         echo "     qBittorrent …/qbittorrent · Filebrowser …/files · Sonarr …/sonarr · Radarr …/radarr"
         echo "     (qBittorrent et Filebrowser redemandent les identifiants de la seedbox)"
