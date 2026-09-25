@@ -93,6 +93,8 @@ TMP="${DOCKER_COMPOSE_FILE%.yml}.new.yml"
 cp "$ENV_FILE" "$ENV_FILE.bak"
 generate_docker_compose "$TMP"
 [ ${#KEEP[@]} -gt 0 ] && compose_extract_blocks "${DOCKER_COMPOSE_FILE}.bak" "${KEEP[@]}" >> "$TMP"
+# Réseaux privés des utilisateurs (déclarations, Traefik et Homarr)
+[ "$USE_TRAEFIK" = true ] && { compose_sync_user_nets "$TMP" || true; }
 
 if ! compose_validate "$TMP"; then
     rm -f "$TMP"; cp "$ENV_FILE.bak" "$ENV_FILE"

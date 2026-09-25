@@ -6,7 +6,7 @@
 # - Clé d'API « seedbox » (reprise ou créée dans la base de Jellyfin).
 # - Chaque utilisateur : compte Jellyfin (même nom ; même mot de passe que la
 #   seedbox quand il est connu — add_user.sh, update_password.sh), SES
-#   bibliothèques (séries, films, livres, musique dans son dossier), accès
+#   bibliothèques (séries et films dans son dossier), accès
 #   limité à celles-ci ; les administrateurs seedbox (groupe admins) sont
 #   administrateurs Jellyfin et voient tout.
 # - Mode Traefik : bouton « Se connecter avec Authelia » sur la page de
@@ -194,9 +194,16 @@ jellyfin_sync_all() {
 jellyfin_user_libraries() {
     local user="$1" existing label dir type name q uid
     uid=$(id -u "$user")
-    mkdir -p "$INSTALL_DIR/data/users/$user"/{tv,movies,books,music}
-    chown "$uid:$uid" "$INSTALL_DIR/data/users/$user"/{tv,movies,books,music} 2>/dev/null || true
+    mkdir -p "$INSTALL_DIR/data/users/$user"/{tv,movies}
+    chown "$uid:$uid" "$INSTALL_DIR/data/users/$user"/{tv,movies} 2>/dev/null || true
     existing=$(jf_api GET /Library/VirtualFolders) || return 1
+    # Anciennes bibliothèques Livres / Musique (versions précédentes) : retirées
+    # de Jellyfin (fichiers conservés)
+    for label in Livres Musique; do
+        J="$existing" N="$label ($user)" python3 -c 'import json,os,sys; sys.exit(0 if any(f["Name"]==os.environ["N"] for f in json.loads(os.environ["J"].lstrip("\ufeff"))) else 1)' || continue
+        q=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.urlencode({"name":sys.argv[1],"refreshLibrary":"false"}))' "$label ($user)")
+        jf_api DELETE "/Library/VirtualFolders?$q" >/dev/null || echo "Bibliothèque Jellyfin « $label ($user) » non retirée" >&2
+    done
     while IFS='|' read -r label dir type; do
         name="$label ($user)"
         J="$existing" N="$name" python3 -c 'import json,os,sys; sys.exit(0 if any(f["Name"]==os.environ["N"] for f in json.loads(os.environ["J"])) else 1)' && continue
@@ -212,8 +219,6 @@ jellyfin_user_libraries() {
     done << 'LIBS'
 Séries TV|tv|tvshows
 Films|movies|movies
-Livres|books|books
-Musique|music|music
 LIBS
     jf_api GET /Library/VirtualFolders | U="$user" python3 -c '
 import json, os, sys

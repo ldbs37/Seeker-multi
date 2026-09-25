@@ -25,6 +25,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib_filebrowser.sh"
 # shellcheck disable=SC2034  # lue par les bibliothèques sourcées
 USER_SERVICES="qbittorrent homarr filebrowser sonarr radarr readarr bazarr prowlarr seerr calibre"
 
+FLARESOLVERR_IMAGE="ghcr.io/flaresolverr/flaresolverr:v3.5.2"
+
 service_image() {
     case "$1" in
         qbittorrent) echo "linuxserver/qbittorrent:5.2.3" ;;
@@ -184,6 +186,25 @@ service_block() {
     fi
     [ "$USE_TRAEFIK" = true ] && traefik_user_labels "$svc" "$USERNAME"
     echo "    restart: unless-stopped"
+    # Mode Traefik : FlareSolverr propre à l'utilisateur, sur son réseau (un
+    # FlareSolverr partagé, navigateur piloté par tous, pourrait joindre les
+    # services des autres utilisateurs)
+    [ "$svc" = prowlarr ] && [ "$USE_TRAEFIK" = true ] && user_flaresolverr_block
+    return 0
+}
+
+# Bloc docker-compose du FlareSolverr de l'utilisateur (stdout)
+user_flaresolverr_block() {
+    echo ""
+    echo "  flaresolverr-${USERNAME}:"
+    echo "    image: ${FLARESOLVERR_IMAGE}"
+    echo "    container_name: flaresolverr-${USERNAME}"
+    echo "    environment:"
+    echo "      - LOG_LEVEL=info"
+    echo "      - TZ=${TZ}"
+    echo "    networks:"
+    echo "      - $(user_net "$USERNAME")"
+    echo "    restart: unless-stopped"
 }
 
 # Commande docker compose disponible (v2 plugin ou v1 autonome)
@@ -213,6 +234,11 @@ compose_append_services() {
     for s in "$@"; do
         service_block "$s" >> "$tmp" || { rm -f "$tmp"; return 1; }
     done
+    # Réseau privé de l'utilisateur : déclaré, Traefik et Homarr raccordés
+    if [ "$USE_TRAEFIK" = true ]; then
+        compose_sync_user_nets "$tmp"
+        [ $? -eq 2 ] && { rm -f "$tmp"; return 1; }
+    fi
     if compose_validate "$tmp"; then
         mv "$tmp" "$file"
     else

@@ -280,8 +280,8 @@ Mode port direct uniquement (en mode Traefik, tout passe par
 `https://alice.votre-domaine.com/...`). Le premier utilisateur (UID 2001)
 obtient le bloc 20000-20019 :
 - qBittorrent: `20000` · Homarr: `20001` · Fichiers (FileBrowser Quantum): `20002`
-- Sonarr: `20003` · Radarr: `20004` · Readarr: `20005`
-- Bazarr: `20006` · Prowlarr: `20007` · Seerr: `20008` · Calibre: `20009`
+- Sonarr: `20003` · Radarr: `20004` · Prowlarr: `20007` · Seerr: `20008` · Calibre: `20009`
+- (Readarr `20005` et Bazarr `20006` : installations existantes, plus proposés)
 - Port torrent entrant (TCP/UDP) : `20010`
 
 `sudo ./scripts/list_user_services.sh alice` affiche les adresses exactes.

@@ -81,8 +81,6 @@ Ajoute un service spécifique à un utilisateur existant.
 **Services disponibles:**
 - `sonarr` - Gestion des séries TV
 - `radarr` - Gestion des films
-- `readarr` - Gestion des livres
-- `bazarr` - Gestion des sous-titres
 - `prowlarr` - Gestion des indexeurs
 - `seerr` - Demandes de films/séries (connexion Jellyfin/Plex)
 - `calibre` - Bibliothèque d'ebooks

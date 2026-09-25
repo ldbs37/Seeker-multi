@@ -83,7 +83,7 @@ fi
 
 # 1) Arrêt et suppression des conteneurs de l'utilisateur
 log "Arrêt des services..."
-for s in $USER_SERVICES; do
+for s in $USER_SERVICES flaresolverr; do
     if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx "${s}-${USERNAME}"; then
         log "Arrêt de ${s}-${USERNAME}..."
         docker rm -f "${s}-${USERNAME}" >/dev/null 2>&1 || true
@@ -95,17 +95,27 @@ done
 log "Mise à jour de docker-compose.yml..."
 cp "$DOCKER_COMPOSE_FILE" "${DOCKER_COMPOSE_FILE}.bak"
 TMP="${DOCKER_COMPOSE_FILE%.yml}.new.yml"
-awk -v user="$USERNAME" -v svcs="$USER_SERVICES" '
+awk -v user="$USERNAME" -v svcs="$USER_SERVICES flaresolverr" '
     BEGIN { n = split(svcs, a, " "); for (i = 1; i <= n; i++) want[a[i] "-" user ":"] = 1; skip = 0 }
     /^  [^ #]/ { skip = ($1 in want) }      # nouvelle clé de service
     /^[^ ]/    { skip = 0 }                 # clé de premier niveau
     !skip      { print }
 ' "$DOCKER_COMPOSE_FILE" > "$TMP"
+# Son réseau privé : retiré des déclarations, de Traefik et de Homarr
+NET_CHANGED=false
+traefik_detect "$INSTALL_DIR/.env"
+[ "$USE_TRAEFIK" = true ] && compose_sync_user_nets "$TMP" && NET_CHANGED=true
 if compose_validate "$TMP"; then
     mv "$TMP" "$DOCKER_COMPOSE_FILE"
 else
     rm -f "$TMP"
     error "docker-compose.yml serait invalide — aucune modification (sauvegarde : ${DOCKER_COMPOSE_FILE}.bak)"
+fi
+
+if [ "$NET_CHANGED" = true ]; then
+    # Traefik et Homarr recréés sans son réseau, puis réseau supprimé
+    (cd "$INSTALL_DIR" && compose_cmd up -d traefik homarr >/dev/null 2>&1) || true
+    user_nets_prune "$DOCKER_COMPOSE_FILE"
 fi
 
 # 3) Pare-feu : fermer le port torrent de l'utilisateur

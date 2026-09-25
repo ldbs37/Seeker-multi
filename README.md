@@ -21,16 +21,26 @@ Une solution **simple et efficace** de seedbox multi-utilisateurs avec authentif
 **Services Optionnels (installables à la demande) :**
 - 📺 **Sonarr** - Gestion de séries TV
 - 🎬 **Radarr** - Gestion de films
-- 📚 **Readarr** - Gestion de livres
-- 💬 **Bazarr** - Gestion de sous-titres
-- 🔍 **Prowlarr** - Gestion d'indexeurs
+- 🔍 **Prowlarr** - Gestion d'indexeurs (+ son FlareSolverr)
 - 📝 **Seerr** - Demandes de films/séries (successeur d'Overseerr, connexion Jellyfin/Plex/Emby)
 - 📖 **Calibre-web** - Bibliothèque ebooks
+
+En mode Traefik, tout est **préconfiguré** (`scripts/arr_setup.sh`) :
+connexion unique via Authelia (aucune page de connexion), dossiers racine
+(`/data/tv`, `/data/movies`), qBittorrent comme client de téléchargement,
+indexeurs Prowlarr envoyés vers Sonarr et Radarr, FlareSolverr, bibliothèque
+Calibre-web (`books/`). Les services de chaque utilisateur sont sur **son
+réseau Docker privé** (`seedbox_u_<user>`) : ceux des autres utilisateurs ne
+peuvent pas les joindre.
+
+Readarr (abandonné par ses auteurs) et Bazarr ne sont plus proposés ; une
+installation existante continue de fonctionner et se retire avec
+`remove_service.sh`.
 
 ### 🛡️ Services Système (accès administrateur)
 - 🔐 **Authelia** - Authentification centralisée
 - 🎥 **Plex / Jellyfin** - Serveurs de streaming média (Jellyfin : comptes et bibliothèques privées automatiques, connexion via Authelia — voir [docs/JELLYFIN_AUTO_CONFIG.md](docs/JELLYFIN_AUTO_CONFIG.md))
-- 🚦 **FlareSolverr** - Bypass Cloudflare
+- 🚦 **FlareSolverr** - Bypass Cloudflare (mode Traefik : un par utilisateur ayant Prowlarr, sur son réseau)
 - 🐋 **Portainer** - Gestion Docker via interface web
 
 ### 🔧 Services Optionnels (accès administrateur)
@@ -352,12 +362,9 @@ sudo ./update_password.sh <username> [nouveau_mot_de_passe]
 - ✅ **Mot de passe qBittorrent** (hash PBKDF2 dans fichier config)
 - ✅ **Mot de passe du gestionnaire de fichiers** (mode port direct ; en mode Traefik, connexion unique)
 
-**Services *arr (Sonarr, Radarr, Prowlarr, etc.) :**
-- 💡 **Recommandé** : Désactiver l'authentification et s'appuyer sur Authelia
-  ```bash
-  sudo ./disable_arr_auth.sh <username> <service>
-  ```
-- ⚠️ **Alternative** : Mettre à jour manuellement (Settings → General → Security)
+**Sonarr, Radarr, Prowlarr, Calibre-web :** en mode Traefik, pas de mot de
+passe propre (connexion via Authelia, réglée par `arr_setup.sh`) ; en mode
+port direct, à changer dans l'appli (Settings → General → Security).
 
 **Exemple:**
 ```bash
@@ -399,7 +406,7 @@ Pour retirer un service système : `sudo ./remove_service.sh <service>`.
 ### 🧩 API libre-service des utilisateurs (mode Traefik)
 
 Chaque utilisateur peut ajouter ou retirer lui-même ses services optionnels
-(Sonarr, Radarr, Readarr, Bazarr, Prowlarr, Seerr, Calibre-Web) depuis
+(Sonarr, Radarr, Prowlarr, Seerr, Calibre-Web) depuis
 `https://<utilisateur>.votre-domaine.com/seedbox-api/`, lien affiché sur son
 tableau de bord Homarr. Activation (désactivée par défaut) :
 
@@ -488,8 +495,8 @@ Chaque utilisateur reçoit un bloc de 20 ports sans collision possible :
 | FileBrowser Quantum | 2 | 20002 | 20022 |
 | Sonarr | 3 | 20003 | 20023 |
 | Radarr | 4 | 20004 | 20024 |
-| Readarr | 5 | 20005 | 20025 |
-| Bazarr | 6 | 20006 | 20026 |
+| Readarr (plus proposé) | 5 | 20005 | 20025 |
+| Bazarr (plus proposé) | 6 | 20006 | 20026 |
 | Prowlarr | 7 | 20007 | 20027 |
 | Seerr | 8 | 20008 | 20028 |
 | Calibre-Web | 9 | 20009 | 20029 |
@@ -524,8 +531,6 @@ Traefik, Portainer, Scrutiny, Dashdot, Tautulli, Uptime Kuma et Duplicati sont
 - **Fichiers (FileBrowser Quantum):** `https://john.votre-domaine.com/drive` — liens de partage publics en `…/drive/public/share/…` (ancienne adresse `/files` redirigée)
 - **Sonarr:** `https://john.votre-domaine.com/sonarr`
 - **Radarr:** `https://john.votre-domaine.com/radarr`
-- **Readarr:** `https://john.votre-domaine.com/readarr`
-- **Bazarr:** `https://john.votre-domaine.com/bazarr`
 - **Prowlarr:** `https://john.votre-domaine.com/prowlarr`
 - **Seerr (demandes):** `https://seerr-john.votre-domaine.com` (sous-domaine dédié : pas de sous-chemins)
 - **Calibre:** `https://john.votre-domaine.com/calibre`
@@ -536,6 +541,10 @@ Traefik, Portainer, Scrutiny, Dashdot, Tautulli, Uptime Kuma et Duplicati sont
 3. Chaque utilisateur n'accède qu'à `https://<son-nom>.votre-domaine.com` et
    `https://seerr-<son-nom>.votre-domaine.com` ; Plex et Jellyfin gardent
    leur propre connexion (applis TV/mobiles)
+4. Sonarr, Radarr, Prowlarr, qBittorrent, les fichiers et Calibre-web
+   s'ouvrent directement, sans page de connexion. Ils ne sont joignables que
+   par Traefik (après Authelia), le Homarr partagé et les autres services du
+   même utilisateur (réseau Docker `seedbox_u_<user>`).
 
 ## 🔧 Maintenance
 

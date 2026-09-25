@@ -41,6 +41,8 @@ SERVICES = {
     "seerr": "Demandes de films/séries (connexion Jellyfin/Plex)",
     "calibre": "Bibliothèque e-books (Calibre-Web)",
 }
+# Plus proposés à l'ajout (projet abandonné) ; retirables s'ils sont installés
+RETIRED = {"readarr", "bazarr"}
 USER_RE = re.compile(r"^[a-z][a-z0-9]{0,31}$")
 JOB_RE = re.compile(r"^[a-f0-9]{32}$")
 
@@ -172,7 +174,8 @@ class Handler(BaseHTTPRequestHandler):
             state = read_json(os.path.join(SPOOL, "state.json"), {}).get(user, {})
             installed = [s for s in state.get("services", []) if s in SERVICES]
             urls = {s: u for s, u in state.get("urls", {}).items() if s in SERVICES}
-            return self.send(200, {"catalog": SERVICES, "installed": installed,
+            catalog = {s: d for s, d in SERVICES.items() if s not in RETIRED or s in installed}
+            return self.send(200, {"catalog": catalog, "installed": installed,
                                    "urls": urls, "pending": pending_job(user)})
         if sub.startswith("/jobs/"):
             job = sub[6:]
@@ -212,7 +215,8 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             return self.send(400, {"error": "JSON invalide"})
         action, service = body.get("action"), body.get("service")
-        if action not in ("add", "remove") or service not in SERVICES:
+        if (action not in ("add", "remove") or service not in SERVICES
+                or (action == "add" and service in RETIRED)):
             return self.send(400, {"error": "Action ou service non autorisé"})
         if pending_job(user):
             return self.send(409, {"error": "Une opération est déjà en cours"})

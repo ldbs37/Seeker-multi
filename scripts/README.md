@@ -76,10 +76,27 @@ sudo ./update_quota.sh john 1000   # 1 To ; 0 = illimité
 ```
 Quotas **projet** : la limite porte sur le dossier `data/users/<user>`.
 
-### `configure_homarr.sh`, `configure_jellyfin_user.sh <user> [mdp]`, `disable_arr_auth.sh`
+### `configure_homarr.sh`, `configure_jellyfin_user.sh <user> [mdp]`
 Régénère le tableau de bord Homarr d'un utilisateur ; crée/met à jour son
-compte Jellyfin (accès limité à ses bibliothèques) ; passe l'authentification
-d'un *arr en « External » (derrière Authelia).
+compte Jellyfin (accès limité à ses bibliothèques).
+
+### `arr_setup.sh <user> | --all` (mode Traefik)
+Configuration automatique des applis d'un utilisateur (lancée par
+`add_user.sh`, `add_user_service.sh` et `generate_traefik_labels.sh`) :
+- Sonarr / Radarr / Prowlarr (`lib_arr.sh`) : connexion « External » (Authelia),
+  appliquée seulement si le service est sur le réseau privé de l'utilisateur ;
+  dossiers racine ; qBittorrent par sa clé d'API ; Prowlarr → Sonarr/Radarr ;
+  FlareSolverr de l'utilisateur ;
+- Calibre-web (`lib_calibre.sh`) : connexion par l'en-tête secret de Traefik,
+  compte `admin` renommé (mot de passe aléatoire), bibliothèque vide dans `books/`.
+
+Idempotent. `disable_arr_auth.sh` (ancien nom) le lance aussi.
+
+### Réseau privé de chaque utilisateur (`lib_traefik.sh`)
+`seedbox_u_<user>` (sous-réseau /24 libre, `10.213.x.0/24` de préférence) :
+ses services y sont seuls (Seerr aussi sur `traefik_proxy` pour Jellyfin,
+qBittorrent aussi sur `seedbox_sso`) ; Traefik et Homarr y sont raccordés.
+Créé à l'ajout de l'utilisateur, supprimé avec lui (`remove_user.sh`).
 
 ## 🔧 Services système
 

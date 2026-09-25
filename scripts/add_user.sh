@@ -135,11 +135,9 @@ select_services() {
         echo ""
         echo "  [1] 📺 Sonarr        - Gestion séries TV"
         echo "  [2] 🎬 Radarr        - Gestion films"
-        echo "  [3] 📚 Readarr       - Gestion livres"
-        echo "  [4] 💬 Bazarr        - Sous-titres automatiques"
-        echo "  [5] 🔍 Prowlarr      - Gestion indexeurs"
-        echo "  [6] 📝 Seerr         - Demandes de films/séries (connexion Jellyfin/Plex)"
-        echo "  [7] 📖 Calibre-web   - Bibliothèque ebooks"
+        echo "  [3] 🔍 Prowlarr      - Gestion indexeurs"
+        echo "  [4] 📝 Seerr         - Demandes de films/séries (connexion Jellyfin/Plex)"
+        echo "  [5] 📖 Calibre-web   - Bibliothèque ebooks"
         echo ""
         echo "  Numéros séparés par des espaces (ex: 1 2 5), Entrée pour aucun"
     } >&2
@@ -149,11 +147,9 @@ select_services() {
         case $num in
             1) EXTRA_SERVICES+=("sonarr") ;;
             2) EXTRA_SERVICES+=("radarr") ;;
-            3) EXTRA_SERVICES+=("readarr") ;;
-            4) EXTRA_SERVICES+=("bazarr") ;;
-            5) EXTRA_SERVICES+=("prowlarr") ;;
-            6) EXTRA_SERVICES+=("seerr") ;;
-            7) EXTRA_SERVICES+=("calibre") ;;
+            3) EXTRA_SERVICES+=("prowlarr") ;;
+            4) EXTRA_SERVICES+=("seerr") ;;
+            5) EXTRA_SERVICES+=("calibre") ;;
             *) warn "Numéro invalide ignoré: $num" ;;
         esac
     done
@@ -266,6 +262,12 @@ compose_cmd up -d
 
 # Authelia relit sa base utilisateurs au redémarrage
 docker restart authelia >/dev/null 2>&1 || warn "Redémarrez Authelia pour activer le compte : docker restart authelia"
+
+# Sonarr/Radarr/Prowlarr : connexion unique, dossiers, qBittorrent, indexeurs
+if [ "$USE_TRAEFIK" = true ] && [[ " ${SERVICES_TO_INSTALL[*]} " =~ \ (sonarr|radarr|prowlarr|calibre)\  ]]; then
+    log "Sonarr/Radarr/Prowlarr/Calibre-web : configuration automatique..."
+    "$SCRIPT_DIR/arr_setup.sh" "$USERNAME" || true
+fi
 
 # Homarr partagé (mode Traefik) : tableau de bord de l'utilisateur
 [ "$USE_TRAEFIK" = true ] && { "$SCRIPT_DIR/homarr_provision.sh" "$USERNAME" || true; }

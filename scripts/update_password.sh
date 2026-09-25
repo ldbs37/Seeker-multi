@@ -187,6 +187,6 @@ info "Mot de passe mis à jour pour $USERNAME :"
 for u in "${UPDATED[@]}"; do info "   ✓ $u"; done
 info ""
 info "Homarr n'a pas d'authentification propre (protégé par Authelia)."
-info "Services *arr : leur authentification interne est indépendante"
-info "(ou déléguée au proxy via disable_arr_auth.sh)."
+info "Mode Traefik : Sonarr, Radarr, Prowlarr et Calibre-web n'ont pas de"
+info "mot de passe propre (connexion via Authelia, voir arr_setup.sh)."
 info "═══════════════════════════════════════════════════════════"

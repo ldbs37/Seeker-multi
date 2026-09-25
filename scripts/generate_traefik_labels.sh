@@ -60,6 +60,8 @@ for n in "${NAMES[@]}"; do
     # Service système obsolète (remplacé) : retiré, pas conservé
     [[ " $SYSTEM_SERVICES_OBSOLETE " == *" $n "* ]] && { DROPPED+=("$n"); continue; }
     svc=${n%-*}; usr=${n##*-}
+    # FlareSolverr d'un utilisateur : régénéré avec son Prowlarr
+    [ "$svc" = flaresolverr ] && id "$usr" &>/dev/null && continue
     if [[ "$n" == *-* ]] && [[ " $USER_SERVICES " == *" $svc "* ]] && id "$usr" &>/dev/null; then
         # Mode Traefik : Homarr partagé ; les Homarr individuels sont retirés
         # (leurs fichiers restent dans data/users/<user>/config/homarr)
@@ -115,6 +117,8 @@ for e in "${USER_ENTRIES[@]}"; do
 done
 [ ${#CUSTOM[@]} -gt 0 ] && compose_extract_blocks "${DOCKER_COMPOSE_FILE}.pre-migration" "${CUSTOM[@]}" >> "$TMP"
 [ "$SSO_OK" = true ] && { compose_ensure_sso_net "$TMP" || true; }
+# Réseau privé de chaque utilisateur (Traefik et Homarr raccordés)
+compose_sync_user_nets "$TMP"; [ $? -eq 2 ] && { rm -f "$TMP"; error "Réseaux des utilisateurs non créés (docker network create)"; }
 
 if ! compose_validate "$TMP"; then
     rm -f "$TMP"
@@ -215,6 +219,10 @@ if grep -q "^  jellyfin:" "$DOCKER_COMPOSE_FILE"; then
         warn "Configuration de Jellyfin incomplète (docker logs jellyfin)"
     fi
 fi
+
+# Sonarr/Radarr/Prowlarr : connexion unique (en-tête ajouté par Traefik),
+# dossiers racine, qBittorrent, Prowlarr → *arr
+[ -x "$SCRIPT_DIR/arr_setup.sh" ] && { "$SCRIPT_DIR/arr_setup.sh" --all || true; }
 
 # Homarr partagé : tableaux de bord des utilisateurs (si la clé d'API est définie)
 [ -x "$SCRIPT_DIR/homarr_provision.sh" ] && { "$SCRIPT_DIR/homarr_provision.sh" --all || true; }

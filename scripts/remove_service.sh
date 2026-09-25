@@ -60,10 +60,14 @@ if FLAG=$(system_service_flag "$NAME"); then
     cp "$ENV_FILE" "$ENV_FILE.bak"
     generate_docker_compose "$TMP" >/dev/null
     [ ${#KEEP[@]} -gt 0 ] && compose_extract_blocks "${DOCKER_COMPOSE_FILE}.bak" "${KEEP[@]}" >> "$TMP"
+    # Réseaux privés des utilisateurs (déclarations, Traefik et Homarr)
+    [ "$USE_TRAEFIK" = true ] && { compose_sync_user_nets "$TMP" || true; }
 else
     # Service d'un utilisateur ou bloc personnalisé : retrait du bloc exact
-    awk -v name="${NAME}:" '
-        /^  [^ #]/ { skip = ($1 == name) }
+    # (Prowlarr : avec le FlareSolverr de l'utilisateur)
+    EXTRA=""; [[ "$NAME" == prowlarr-* ]] && EXTRA="flaresolverr-${NAME#prowlarr-}:"
+    awk -v name="${NAME}:" -v extra="$EXTRA" '
+        /^  [^ #]/ { skip = ($1 == name || (extra != "" && $1 == extra)) }
         /^[^ ]/    { skip = 0 }
         !skip      { print }
     ' "$DOCKER_COMPOSE_FILE" > "$TMP"
@@ -75,6 +79,7 @@ if ! compose_validate "$TMP"; then
 fi
 mv "$TMP" "$DOCKER_COMPOSE_FILE"
 docker rm -f "$NAME" >/dev/null 2>&1 || true
+[[ "$NAME" == prowlarr-* ]] && { docker rm -f "flaresolverr-${NAME#prowlarr-}" >/dev/null 2>&1 || true; }
 
 # Tableau de bord Homarr de l'utilisateur à jour
 usr=${NAME##*-}

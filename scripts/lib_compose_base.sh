@@ -264,9 +264,6 @@ _block_flaresolverr() {
     ports:
       - "${ADMIN_BIND:-127.0.0.1}:8191:8191"
 EOF
-    # Backend interne (proxy de résolution) : joignable par les *arr via son
-    # nom d'hôte, jamais publié sur Internet
-    [ "$USE_TRAEFIK" = "true" ] && printf '    networks:\n      - traefik_proxy\n'
     echo "    restart: unless-stopped"
 }
 
@@ -474,7 +471,8 @@ compose_base_content() {
     _block_authelia
     _block_homarr
     [ "${INSTALL_PLEX:-false}" = true ]        && _block_plex
-    _block_flaresolverr
+    # Mode Traefik : un FlareSolverr par utilisateur ayant Prowlarr (lib_services.sh)
+    [ "$USE_TRAEFIK" = "true" ] || _block_flaresolverr
     [ "${INSTALL_SCRUTINY:-false}" = true ]    && _block_scrutiny
     [ "${INSTALL_UPTIME_KUMA:-false}" = true ] && _block_uptime_kuma
     [ "${INSTALL_WATCHTOWER:-false}" = true ]  && _block_watchtower

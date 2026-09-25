@@ -384,18 +384,15 @@ add_user_service_menu() {
     echo -e "${CYAN}Services disponibles:${NC}"
     echo "  1. sonarr    - Séries TV"
     echo "  2. radarr    - Films"
-    echo "  3. readarr   - Livres"
-    echo "  4. bazarr    - Sous-titres"
-    echo "  5. prowlarr  - Indexeurs"
-    echo "  6. seerr     - Demandes de films/séries (connexion Jellyfin/Plex)"
-    echo "  7. calibre   - Bibliothèque ebooks"
+    echo "  3. prowlarr  - Indexeurs"
+    echo "  4. seerr     - Demandes de films/séries (connexion Jellyfin/Plex)"
+    echo "  5. calibre   - Bibliothèque ebooks"
     echo ""
 
     read -r -p "Service à ajouter (numéro ou nom): " service
     case "$service" in
-        1) service=sonarr ;;  2) service=radarr ;;   3) service=readarr ;;
-        4) service=bazarr ;;  5) service=prowlarr ;; 6) service=seerr ;;
-        7) service=calibre ;;
+        1) service=sonarr ;;  2) service=radarr ;;  3) service=prowlarr ;;
+        4) service=seerr ;;   5) service=calibre ;;
     esac
 
     if [ -z "$service" ]; then

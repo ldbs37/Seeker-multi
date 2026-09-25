@@ -11,7 +11,7 @@ vérifié sur Jellyfin 12.1 (et 10.11) avec le plugin SSO 4.0.0.4).
 | Assistant de démarrage | Terminé automatiquement, dans la langue de la seedbox |
 | Administrateur | Le premier administrateur seedbox (même nom, même mot de passe à l'installation) |
 | Compte de chaque utilisateur | Même nom et même mot de passe que la seedbox |
-| Bibliothèques | Pour chacun : *Séries TV*, *Films*, *Livres*, *Musique* dans son dossier (`data/users/<user>/tv`…) |
+| Bibliothèques | Pour chacun : *Séries TV* et *Films* dans son dossier (`data/users/<user>/tv`, `movies`) ; les anciennes bibliothèques *Livres* / *Musique* sont retirées (fichiers conservés) |
 | Cloisonnement | Chacun ne voit que SES bibliothèques ; les administrateurs voient tout |
 | Connexion web (mode Traefik) | Bouton **« Se connecter avec Authelia »** sur https://jellyfin.votre-domaine.com |
 | Applis TV / mobile | Mot de passe seedbox, ou **Quick Connect** |
