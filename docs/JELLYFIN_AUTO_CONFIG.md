@@ -54,6 +54,20 @@ depuis sa dernière connexion via Authelia à la connexion suivante.
 Dans l'appli : *Quick Connect* affiche un code ; dans Jellyfin (navigateur,
 connecté via Authelia) : *Paramètres → Quick Connect*, saisir le code.
 
+## Plugins installés
+
+Installés dans leur dernière version compatible (installation,
+`generate_traefik_labels.sh`, `add_service.sh jellyfin` ; réinstallés s'ils
+ont été retirés) :
+
+- **Intro Skipper** : bouton « Passer l'intro » (et génériques) sur les séries ;
+  les épisodes sont analysés par une tâche planifiée de Jellyfin ;
+- **Jellyfin Enhanced** : raccourcis clavier, améliorations de l'interface
+  (réglages : Tableau de bord → Extensions) ;
+- **File Transformation** : permet aux deux précédents de modifier
+  l'interface web sans écrire dans ses fichiers (en lecture seule dans le
+  conteneur).
+
 ## Seerr (demandes)
 
 Le Seerr de chaque utilisateur (`https://seerr-<user>.votre-domaine.com`)

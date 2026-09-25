@@ -844,6 +844,8 @@ deploy_services() {
                     || warn "Compte Jellyfin de ${INITIAL_USERS[$j]} incomplet"
             done
             jellyfin_sso_ensure || warn "Connexion Authelia de Jellyfin non configurée (relancez generate_traefik_labels.sh)"
+            # Intro Skipper, Jellyfin Enhanced (+ File Transformation)
+            jellyfin_plugins_ensure || warn "Plugins Jellyfin non installés (relancez generate_traefik_labels.sh)"
             log "✓ Jellyfin configuré (${INITIAL_USERS[0]} administrateur)"
         else
             warn "Jellyfin n'est pas prêt : relancez generate_traefik_labels.sh (ou terminez l'assistant sur http://<serveur>:8096)"

@@ -28,6 +28,13 @@ JF_SSO_GUID="505ce9d1-d916-42fa-86ca-673ef241d7df"
 JF_SSO_VERSION="4.0.0.4"
 JF_SSO_MANIFEST="https://raw.githubusercontent.com/9p4/jellyfin-plugin-sso/manifest-release/manifest.json"
 JF_SSO_PROVIDER="authelia"
+# Plugins de confort (nom affiché|GUID|dépôt), installés dans leur dernière
+# version compatible : File Transformation (modifie l'interface web sans
+# écrire dans ses fichiers, en lecture seule dans le conteneur ; requis par
+# les deux suivants), Intro Skipper (« Passer l'intro »), Jellyfin Enhanced
+JF_EXTRA_PLUGINS="File Transformation|5e87cc92-571a-4d8d-8d98-d2d4147f9f90|${JF_FT_MANIFEST:-https://www.iamparadox.dev/jellyfin/plugins/manifest.json}
+Intro Skipper|c83d86bb-a1e0-4c35-a113-e2101cf4ee6b|${JF_IS_MANIFEST:-https://intro-skipper.org/manifest.json}
+Jellyfin Enhanced|f69e946a-4b3c-4e9a-8f0a-8d7c1b2c4d9b|${JF_JE_MANIFEST:-https://raw.githubusercontent.com/n00bcodr/jellyfin-plugins/main/manifest.json}"
 JF_KEY=""
 
 # Enregistre la clé d'API (aussi lue par update_password.sh)
@@ -185,7 +192,61 @@ jellyfin_sync_all() {
         jellyfin_user_sync "$u" || echo "Jellyfin : compte de $u incomplet" >&2
     done
     jellyfin_sso_ensure || return 1
+    jellyfin_plugins_ensure || echo "Jellyfin : plugins de confort non installés (relancez generate_traefik_labels.sh)" >&2
     return 0
+}
+
+# Plugins de confort (JF_EXTRA_PLUGINS) : dépôts ajoutés, plugins manquants
+# installés (dernière version compatible, nom lu dans le dépôt), Jellyfin
+# redémarré s'il en a installé. Idempotent ; un plugin retiré à la main est
+# réinstallé.
+jellyfin_plugins_ensure() {
+    local plugins missing repos packages name guid manifest started=""
+    plugins=$(jf_api GET /Plugins) || return 1
+    missing=$(P="$plugins" L="$JF_EXTRA_PLUGINS" python3 -c '
+import json, os
+have = {p["Id"].replace("-", "").lower() for p in json.loads(os.environ["P"].lstrip("\ufeff"))}
+for line in os.environ["L"].splitlines():
+    name, guid, manifest = line.split("|", 2)
+    if guid.replace("-", "").lower() not in have:
+        print(line)')
+    [ -n "$missing" ] || return 0
+    repos=$(jf_api GET /Repositories | M="$missing" python3 -c '
+import json, os, sys
+r = json.loads(sys.stdin.read().lstrip("\ufeff"))
+urls = {x["Url"] for x in r}
+for line in os.environ["M"].splitlines():
+    name, guid, manifest = line.split("|", 2)
+    if manifest not in urls:
+        r.append({"Name": name, "Url": manifest, "Enabled": True}); urls.add(manifest)
+print(json.dumps(r))') || return 1
+    jf_api POST /Repositories "$repos" >/dev/null || return 1
+    # Paquets proposés par les dépôts (nom exact, requis par l'installation)
+    packages=$(mktemp) || return 1
+    jf_api GET /Packages > "$packages" || { rm -f "$packages"; return 1; }
+    while IFS='|' read -r name guid manifest; do
+        name=$(G="$guid" python3 -c '
+import json, os, sys
+g = os.environ["G"].replace("-", "").lower()
+print(next((p["name"] for p in json.loads(open(sys.argv[1]).read().lstrip("\ufeff")) if p.get("guid", "").replace("-", "").lower() == g), ""))' "$packages")
+        [ -n "$name" ] || { echo "Jellyfin : plugin $guid absent de $manifest" >&2; continue; }
+        jf_api POST "/Packages/Installed/$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))' "$name")?assemblyGuid=$guid&repositoryUrl=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=""))' "$manifest")" >/dev/null \
+            && started+="$guid"$'\n' || echo "Jellyfin : installation du plugin « $name » impossible" >&2
+    done <<< "$missing"
+    rm -f "$packages"
+    [ -n "$started" ] || return 1
+    # Téléchargement (tâche de fond) : plugins listés une fois téléchargés,
+    # chargés au redémarrage
+    for _ in $(seq 1 60); do
+        jf_api GET /Plugins | M="$started" python3 -c '
+import json, os, sys
+have = {p["Id"].replace("-", "").lower() for p in json.loads(sys.stdin.read().lstrip("\ufeff"))}
+want = {l.replace("-", "").lower() for l in os.environ["M"].split()}
+sys.exit(0 if want <= have else 1)' 2>/dev/null && break
+        sleep 2
+    done
+    docker restart jellyfin >/dev/null 2>&1 || true
+    sleep 5; jellyfin_wait
 }
 
 # Bibliothèques d'un utilisateur : « <Libellé> (<user>) » sur
