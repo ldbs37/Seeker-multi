@@ -27,10 +27,3 @@ ne s'activent que **disque démonté** → passage par le **mode rescue**.
 
 `enable_quotas.sh` revérifie tout avant d'agir : si l'étape rescue n'a pas été
 faite, il réaffiche la procédure sans modifier `/etc/fstab`.
-
-## 2. Homarr 1.0 : intégrations (widgets)
-
-Les tuiles sont créées automatiquement (`homarr_provision.sh`). Reste possible :
-brancher les intégrations (qBittorrent, Sonarr, Radarr… : téléchargements en
-cours, calendrier) avec les adresses internes (`http://sonarr-<user>:8989/sonarr`…)
-et les clés d'API des *arr (lisibles dans leur config.xml).

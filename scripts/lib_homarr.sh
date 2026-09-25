@@ -201,3 +201,95 @@ homarr_prepare() {
     mkdir -p "$INSTALL_DIR/homarr/appdata"
     authelia_ensure_oidc "$INSTALL_DIR/authelia/configuration.yml"
 }
+
+#######################
+# Clés d'API des services, pour les intégrations Homarr (widgets
+# Téléchargements, Calendrier, Demandes, Jellyfin…). Lues dans la
+# configuration de chaque service ; créées si le service n'en a pas.
+#######################
+
+# Clé d'API qBittorrent (≥ 5.2, « Authorization: Bearer ») de $1. Créée au
+# besoin : qBittorrent réécrit sa configuration en s'arrêtant, donc conteneur
+# arrêté pendant l'écriture puis redémarré. Affiche la clé.
+qbit_ensure_api_key() {
+    local user="$1" conf key
+    conf="$INSTALL_DIR/data/users/$user/config/qbittorrent/qBittorrent/qBittorrent.conf"
+    [ -f "$conf" ] || return 1
+    key=$(sed -n 's/^WebUI\\APIKey=\(qbt_[A-Za-z0-9]\{28\}\)$/\1/p' "$conf" | head -1)
+    if [ -z "$key" ]; then
+        key="qbt_$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 28)"
+        docker stop "qbittorrent-$user" >/dev/null 2>&1 || true
+        ini_set "$conf" Preferences 'WebUI\APIKey' "$key"
+        chown "$(stat -c %u:%g "$(dirname "$conf")")" "$conf" 2>/dev/null || true
+        docker start "qbittorrent-$user" >/dev/null 2>&1 || true
+        # Interface prête (test de connexion de Homarr juste après)
+        for _ in $(seq 1 30); do
+            docker exec "qbittorrent-$user" curl -s -o /dev/null http://localhost:8080 2>/dev/null && break
+            sleep 1
+        done
+    fi
+    echo "$key"
+}
+
+# Attend (60 s max) le fichier $1 créé au premier démarrage du conteneur $2
+# (service tout juste ajouté) ; n'attend pas si le conteneur est arrêté.
+_wait_config() {
+    local i
+    for i in $(seq 1 30); do
+        [ -s "$1" ] && return 0
+        [ "$(docker inspect -f '{{.State.Running}}' "$2" 2>/dev/null)" = true ] || return 1
+        [ "$i" = 1 ] && echo "Attente de la configuration de $2..." >&2
+        sleep 2
+    done
+    return 1
+}
+
+# Clé d'API d'un *arr ($1=service, $2=utilisateur), dans son config.xml
+arr_api_key() {
+    _wait_config "$INSTALL_DIR/$1/$2/config.xml" "$1-$2" || return 0
+    sed -n 's|.*<ApiKey>\([0-9a-fA-F]\{32\}\)</ApiKey>.*|\1|p' "$INSTALL_DIR/$1/$2/config.xml" 2>/dev/null | head -1
+}
+
+# Clé d'API Seerr de $1 (settings.json, créée au premier démarrage)
+seerr_api_key() {
+    _wait_config "$INSTALL_DIR/seerr/$1/settings.json" "seerr-$1" || return 0
+    python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["main"]["apiKey"])' \
+        "$INSTALL_DIR/seerr/$1/settings.json" 2>/dev/null
+}
+
+# Clé d'API Jellyfin du serveur (administrateur). Enregistrée dans
+# $INSTALL_DIR/.jellyfin_api (aussi utilisé par update_password.sh) ; sinon
+# reprise d'une clé existante de Jellyfin, ou création (table ApiKeys, Jellyfin
+# arrêté le temps de l'écriture). Affiche la clé.
+jellyfin_ensure_api_key() {
+    local f="$INSTALL_DIR/.jellyfin_api" db key
+    key=$(sed -n 's/^JELLYFIN_API_KEY=\([0-9a-f]\{32\}\)$/\1/p' "$f" 2>/dev/null)
+    if [ -z "$key" ]; then
+        db=$(find "$INSTALL_DIR/jellyfin/config" -maxdepth 3 -name jellyfin.db 2>/dev/null | head -1)
+        [ -n "$db" ] || return 1
+        key=$(python3 -c '
+import sqlite3, sys
+db = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
+row = db.execute("select AccessToken from ApiKeys where Name = ? order by Id limit 1", ("seedbox",)).fetchone()
+print(row[0] if row else "")' "$db" 2>/dev/null)
+        if [ -z "$key" ]; then
+            key=$(openssl rand -hex 16)
+            docker stop jellyfin >/dev/null 2>&1 || true
+            python3 -c '
+import datetime, sqlite3, sys
+db = sqlite3.connect(sys.argv[1])
+now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+cols = {c[1] for c in db.execute("pragma table_info(ApiKeys)")}
+row = {"DateCreated": now, "DateLastActivity": now, "Name": "seedbox", "AccessToken": sys.argv[2]}
+row = {k: v for k, v in row.items() if k in cols}
+db.execute("insert into ApiKeys(%s) values (%s)" % (",".join(row), ",".join("?" * len(row))), list(row.values()))
+db.commit()' "$db" "$key"
+            local rc=$?
+            docker start jellyfin >/dev/null 2>&1 || true
+            [ "$rc" -eq 0 ] || return 1
+        fi
+        printf 'JELLYFIN_URL=http://localhost:8096\nJELLYFIN_API_KEY=%s\n' "$key" > "$f"
+        chmod 600 "$f"
+    fi
+    echo "$key"
+}

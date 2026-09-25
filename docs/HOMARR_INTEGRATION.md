@@ -29,17 +29,59 @@ sur Authelia, Homarr ne redemande rien.
 
 #### Tableaux de bord préconfigurés
 
-`scripts/homarr_provision.sh` crée pour chaque utilisateur un tableau de bord
-**`https://votre-domaine.com/boards/<user>`** — où renvoie
-`https://<user>.votre-domaine.com/` — avec une tuile par service installé
-(qBittorrent, Fichiers, Sonarr, Radarr, Seerr…), via l'API de Homarr et la
-clé créée par `homarr_bootstrap` (`--set-key '<id>.<jeton>'` permet d'en
-utiliser une autre, créée dans Homarr → Gestion → Outils → API).
+`scripts/homarr_provision.sh` construit tout, via l'API de Homarr et la clé
+créée par `homarr_bootstrap` (`--set-key '<id>.<jeton>'` permet d'en utiliser
+une autre, créée dans Homarr → Gestion → Outils → API).
 
-C'est automatique : ajout d'un utilisateur ou d'un service → tuile
-ajoutée ; suppression d'un utilisateur → tableau de bord, applis et groupe
-retirés. Idempotent (relançable sans doublon, personnalisations conservées).
-Retirer un service laisse sa tuile (à supprimer à la main).
+**Tableau de chaque utilisateur** — `https://votre-domaine.com/boards/<user>`,
+où renvoie `https://<user>.votre-domaine.com/` :
+
+| Élément | Contenu |
+|---------|---------|
+| Date et heure, météo | Prévisions sur 5 jours (Paris par défaut : à changer dans le widget) |
+| Tuiles | Chaque service installé + Jellyfin, avec voyant d'état (vert/rouge) |
+| Téléchargements | Torrents qBittorrent en cours : progression, vitesses, temps restant |
+| Prochaines sorties | Calendrier Sonarr / Radarr / Readarr |
+| Demandes | Statistiques et liste des demandes Seerr |
+| Serveur (admins) | Lien vers le tableau d'administration |
+
+**Tableau d'administration** — `https://votre-domaine.com/boards/admin-serveur`,
+réservé au groupe `admins` : charge CPU / RAM / réseau, santé et disques
+(via Dash. : `add_service.sh dashdot` s'il n'est pas installé), lectures en
+cours et derniers ajouts sur Jellyfin, tuiles des services système (Portainer,
+Authelia, Scrutiny, Duplicati…) avec voyant d'état.
+
+Les lectures en cours Jellyfin ne sont que sur le tableau d'administration :
+Homarr les lit avec la clé administrateur, elles montreraient à chacun ce que
+regardent les autres.
+
+**Intégrations automatiques** : Homarr joint chaque service par le réseau
+Docker (`http://sonarr-<user>:8989/sonarr`…, sans passer par Authelia), avec
+une clé d'API lue dans sa configuration :
+
+| Service | Clé |
+|---------|-----|
+| qBittorrent | `WebUI\APIKey` de `qBittorrent.conf`, créée au besoin (qBittorrent redémarré une fois) |
+| Sonarr, Radarr, Readarr | `ApiKey` de leur `config.xml` |
+| Seerr | `main.apiKey` de `settings.json` |
+| Jellyfin | Clé `seedbox` créée dans Jellyfin (redémarré une fois), gardée dans `/opt/seedbox/.jellyfin_api` |
+
+Chaque intégration n'est utilisable que par le groupe de son propriétaire.
+Homarr teste la connexion avant de l'enregistrer : un service pas encore prêt
+(Seerr non configuré…) est signalé et repris au passage suivant
+(`sudo /opt/seedbox/scripts/homarr_provision.sh --all`).
+
+**Mise en page** : grille de 10 colonnes sur ordinateur, disposition « Mobile »
+de 4 colonnes sous 800 px. La barre de recherche de Homarr (en haut) cherche
+dans les applis et, par défaut, sur DuckDuckGo.
+
+C'est automatique : ajout d'un utilisateur ou d'un service → éléments
+ajoutés ; suppression d'un utilisateur → tableau de bord, applis,
+intégrations et groupe retirés. Idempotent : relançable sans doublon. Après
+la première mise en page rien n'est déplacé (les éléments ajoutés se placent
+à la première place libre), et un widget supprimé par l'utilisateur n'est pas
+recréé (liste dans `/opt/seedbox/homarr/provision/<tableau>.keys`). Retirer un
+service laisse sa tuile (à supprimer à la main).
 
 **Cloisonnement** : chaque tableau de bord est **privé**, réservé au groupe
 personnel `u-<user>`. Ce groupe est ajouté au compte Authelia (add_user.sh ;

@@ -95,8 +95,12 @@ application). Portainer et Jellyfin : compte admin créé automatiquement.
 sudo ./homarr_provision.sh <user> | --all | --remove <user>
 sudo ./homarr_provision.sh --set-key '<id>.<jeton>'   # facultatif : clé créée à la main
 ```
-Tableau de bord Homarr partagé de chaque utilisateur (`https://<domaine>/boards/<user>`),
-une tuile par service ; appelé automatiquement par add_user/add_user_service/remove_user.
+Tableaux de bord Homarr : celui de chaque utilisateur (`https://<domaine>/boards/<user>` :
+tuiles, téléchargements, calendrier, demandes, météo) et celui des admins
+(`/boards/admin-serveur` : charge du serveur, Jellyfin, services système).
+Intégrations (clés d'API) branchées automatiquement ; appelé par
+add_user/add_user_service/remove_user. Relancer `--all` après avoir configuré
+Seerr ou installé Dash.
 
 ### `setup_api.sh` (mode Traefik)
 ```bash
