@@ -14,8 +14,8 @@
 #   administrateur : ses demandes sont validées automatiquement).
 # - Pays de diffusion et région de découverte : celui de la langue de la
 #   seedbox (France pour fr), s'ils ne sont pas déjà choisis.
-# - Sonarr / Radarr de l'utilisateur (clé d'API, profil HD-1080p ou premier
-#   profil, /data/tv et /data/movies), ajoutés s'ils manquent.
+# - Sonarr / Radarr de l'utilisateur (clé d'API, profil « Seedbox optimisé »,
+#   sinon HD-1080p ou premier profil, /data/tv et /data/movies), ajoutés s'ils manquent.
 # Vérifié sur Seerr 3.0.1 et 3.4.1, Jellyfin 12.1. Idempotent ; ne touche pas à un
 # Seerr déjà configuré à la main (hors ajout de Sonarr / Radarr manquants).
 #
@@ -59,11 +59,11 @@ _seerr_dvr() {
     local svc="$1" user="$2" key profiles
     key=$(arr_api_key "$svc" "$user"); [ -n "$key" ] || return 1
     profiles=$(arr_api "$svc" "$user" GET /qualityprofile) || return 1
-    P="$profiles" S="$svc" U="$user" K="$key" D="$DOMAIN" python3 -c '
+    P="$profiles" S="$svc" U="$user" K="$key" D="$DOMAIN" PROFILE="${ARR_PROFILE:-}" python3 -c '
 import json, os
 e = os.environ; svc = e["S"]
 ps = json.loads(e["P"])
-p = next((x for x in ps if x["name"] == "HD-1080p"), ps[0])
+p = next((x for x in ps if x["name"] == e["PROFILE"]), None) or next((x for x in ps if x["name"] == "HD-1080p"), ps[0])
 d = {"id": 0, "name": svc.capitalize(), "hostname": "%s-%s" % (svc, e["U"]),
      "port": 8989 if svc == "sonarr" else 7878, "apiKey": e["K"], "useSsl": False,
      "baseUrl": "/" + svc, "activeProfileId": p["id"], "activeProfileName": p["name"],
@@ -131,7 +131,13 @@ if s["jellyfin"].get("ip") == "jellyfin" and (s["main"].get("localLogin") or s["
     sys.exit(1)
 for k in ("sonarr", "radarr"):
     v = os.environ[k.upper()]
-    if v and not any(x.get("hostname") == json.loads(v)["hostname"] for x in s.get(k, [])):
+    if not v:
+        continue
+    new = json.loads(v)
+    for x in s.get(k, []):
+        if x.get("hostname") == new["hostname"] and x.get("activeProfileName") == "HD-1080p" != new["activeProfileName"]:
+            sys.exit(1)
+    if not any(x.get("hostname") == new["hostname"] for x in s.get(k, [])):
         sys.exit(1)' "$settings"; then
         seerr_session_refresh "$user"
         return 0
@@ -181,6 +187,12 @@ for key, env in (("sonarr", "SONARR"), ("radarr", "RADARR")):
         continue
     lst = s.setdefault(key, [])
     new = json.loads(e[env])
+    # Ancien profil par défaut (HD-1080p) → profil de la seedbox
+    for x in lst:
+        if x.get("hostname") == new["hostname"] and x.get("activeProfileName") == "HD-1080p" != new["activeProfileName"]:
+            x.update(activeProfileId=new["activeProfileId"], activeProfileName=new["activeProfileName"])
+            if "activeAnimeProfileId" in new:
+                x.update(activeAnimeProfileId=new["activeAnimeProfileId"], activeAnimeProfileName=new["activeAnimeProfileName"])
     if any(x.get("hostname") == new["hostname"] for x in lst):
         continue
     new["id"] = max([x["id"] for x in lst], default=-1) + 1

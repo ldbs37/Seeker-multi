@@ -27,6 +27,12 @@
 #   renommage est désactivé, réglage d'origine), films et séries déjà
 #   présents compris (renommés et déplacés ; fichiers liés à qBittorrent :
 #   le partage continue).
+# - Profil « Seedbox optimisé » (créé une fois, attribué aux médias déjà
+#   présents et utilisé par Seerr) : 720p minimum, 1080p, 4K ; au plus 4 Go
+#   par film (Radarr) ou 2 Go par heure d'épisode (Sonarr : taille rapportée
+#   à l'épisode, packs de saison compris) : une 4K n'est prise que
+#   « légère » ; bonus HEVC (x265) et 10 bits, taille préférée réduite
+#   (meilleur rapport qualité / place) ; mises à niveau jusqu'à la 4K.
 # Idempotent. Vérifié sur Sonarr 4.0.20, Radarr 6.4.4, Prowlarr 2.6.5 et
 # qBittorrent 5.2.3 (binaires officiels).
 #
@@ -232,6 +238,97 @@ for root, ids in groups.items():
     done
 }
 
+ARR_PROFILE="Seedbox optimisé"
+
+# Format personnalisé créé s'il manque. Affiche son id. $1=service
+# $2=utilisateur $3=nom $4=spécification (LanguageSpecification…) $5=champs (JSON)
+_arr_custom_format() {
+    local svc="$1" user="$2" name="$3" impl="$4" fields="$5" cfs id body
+    cfs=$(arr_api "$svc" "$user" GET /customformat) || return 1
+    id=$(C="$cfs" N="$name" python3 -c 'import json, os
+print(next((c["id"] for c in json.loads(os.environ["C"]) if c["name"] == os.environ["N"]), ""))')
+    [ -n "$id" ] && { echo "$id"; return 0; }
+    body=$(SCHEMA="$(arr_api "$svc" "$user" GET /customformat/schema)" N="$name" I="$impl" F="$fields" python3 -c '
+import json, os
+e = os.environ
+spec = next(s for s in json.loads(e["SCHEMA"]) if s["implementation"] == e["I"])
+vals = json.loads(e["F"])
+for f in spec["fields"]:
+    if f["name"] in vals:
+        f["value"] = vals[f["name"]]
+spec.update(name=e["N"], negate=False, required=True)
+print(json.dumps({"name": e["N"], "includeCustomFormatWhenRenaming": False, "specifications": [spec]}))') || return 1
+    arr_api "$svc" "$user" POST /customformat "$body" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])'
+}
+
+# Profil « Seedbox optimisé » (voir l'en-tête). $1=sonarr|radarr $2=utilisateur
+arr_quality_profile() {
+    local svc="$1" user="$2" hevc tenbit big="" profiles cfs defs body id kind=movie ids=movieIds
+    [ "$svc" = sonarr ] && { kind=series; ids=seriesIds; }
+    profiles=$(arr_api "$svc" "$user" GET /qualityprofile) || return 1
+    P="$profiles" N="$ARR_PROFILE" python3 -c 'import json, os, sys
+sys.exit(0 if any(p["name"] == os.environ["N"] for p in json.loads(os.environ["P"])) else 1)' && return 0
+    hevc=$(_arr_custom_format "$svc" "$user" HEVC ReleaseTitleSpecification '{"value": "\\b(HEVC|[xh][ ._-]?265)\\b"}') || return 1
+    tenbit=$(_arr_custom_format "$svc" "$user" "10 bits" ReleaseTitleSpecification '{"value": "\\b(10[ ._-]?bits?|Hi10P?)\\b"}') || return 1
+    [ "$svc" = radarr ] && { big=$(_arr_custom_format "$svc" "$user" "Plus de 4 Go" SizeSpecification '{"min": 4, "max": 10000}') || return 1; }
+    # Taille préférée réduite (Mo par minute ; film 1080p de 2 h : 2,4 Go) ;
+    # Sonarr : au plus 34 Mo/min (2 Go par heure d'épisode)
+    defs=$(arr_api "$svc" "$user" GET /qualitydefinition) || return 1
+    D="$defs" S="$svc" python3 -c '
+import json, os
+for d in json.loads(os.environ["D"]):
+    n = d["quality"]["name"]
+    pref = 10 if "720p" in n else 20 if "1080p" in n else 30 if "2160p" in n else None
+    if pref is None or "Remux" in n:
+        continue
+    if os.environ["S"] == "sonarr":
+        d["maxSize"] = 34
+        d["minSize"] = min(d.get("minSize") or 0, 2)
+    d["preferredSize"] = max(min(pref, d.get("maxSize") or pref), d.get("minSize") or 0)
+    print(json.dumps(d))' | while IFS= read -r body; do
+        arr_api "$svc" "$user" PUT "/qualitydefinition/$(printf '%s' "$body" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')" "$body" >/dev/null || exit 1
+    done || return 1
+    cfs=$(arr_api "$svc" "$user" GET /customformat) || return 1
+    body=$(SCHEMA="$(arr_api "$svc" "$user" GET /qualityprofile/schema)" C="$cfs" S="$svc" N="$ARR_PROFILE" \
+           HEVC="$hevc" TENBIT="$tenbit" BIG="$big" python3 -c '
+import json, os
+e = os.environ
+p = json.loads(e["SCHEMA"])
+# 720p minimum, jusqu à la 4K ; ni Remux, ni BR-DISK, ni Raw-HD
+wanted = {"HDTV-720p", "WEB 720p", "Bluray-720p", "HDTV-1080p", "WEB 1080p", "Bluray-1080p",
+          "HDTV-2160p", "WEB 2160p", "Bluray-2160p"}
+cutoff = None
+for i in p["items"]:
+    name = i["quality"]["name"] if i.get("quality") else i["name"]
+    i["allowed"] = name in wanted
+    for sub in i.get("items", []):
+        sub["allowed"] = i["allowed"]
+    if name == "Bluray-2160p":
+        cutoff = i["quality"]["id"]
+scores = {c["id"]: 0 for c in json.loads(e["C"])}
+for c in json.loads(e["C"]):
+    if c["name"] == "VF" and e["S"] == "sonarr":
+        scores[c["id"]] = 100
+scores[int(e["HEVC"])] = 20
+scores[int(e["TENBIT"])] = 20
+if e["BIG"]:
+    scores[int(e["BIG"])] = -10000
+p.update(name=e["N"], upgradeAllowed=True, cutoff=cutoff,
+         formatItems=[{"format": k, "score": v} for k, v in scores.items()],
+         minFormatScore=1 if e["S"] == "sonarr" else 0, cutoffFormatScore=10000, minUpgradeFormatScore=1)
+if e["S"] == "radarr":
+    p["language"] = {"id": 2, "name": "French"}
+p.pop("id", None)
+print(json.dumps(p))') || return 1
+    id=$(arr_api "$svc" "$user" POST /qualityprofile "$body" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])') || return 1
+    # Médias déjà présents : nouveau profil
+    body=$(arr_api "$svc" "$user" GET "/$kind" | K="$ids" Q="$id" python3 -c '
+import json, os, sys
+items = [m["id"] for m in json.load(sys.stdin)]
+print(json.dumps({os.environ["K"]: items, "qualityProfileId": int(os.environ["Q"])}) if items else "")') || return 1
+    [ -z "$body" ] || arr_api "$svc" "$user" PUT "/$kind/editor" "$body" >/dev/null
+}
+
 # Dossier racine. $1=service $2=utilisateur
 arr_root_folder() {
     local svc="$1" user="$2" path body qp mp
@@ -348,6 +445,7 @@ arr_chain() {
         if [ "$svc" != readarr ]; then
             arr_french_profiles "$svc" "$user" || { echo "$svc-$user : profils en français non appliqués" >&2; rc=1; }
             arr_naming "$svc" "$user" || { echo "$svc-$user : nommage pour Jellyfin non appliqué" >&2; rc=1; }
+            arr_quality_profile "$svc" "$user" || { echo "$svc-$user : profil « $ARR_PROFILE » non créé" >&2; rc=1; }
         fi
         if [ -n "$qkey" ]; then
             arr_download_client "$svc" "$user" "$qkey" || { echo "$svc-$user : client qBittorrent non ajouté" >&2; rc=1; }

@@ -74,7 +74,7 @@ est configuré par `arr_setup.sh` (`lib_seerr.sh`) :
   « Déconnexion » de Seerr déconnecte d'Authelia ;
 - adresse : `https://seerr-<user>.votre-domaine.com` (Seerr ne gère pas de
   sous-chemin) ;
-- ses Sonarr / Radarr (profil HD-1080p, `/data/tv`, `/data/movies`) ; leurs
+- ses Sonarr / Radarr (profil « Seedbox optimisé », `/data/tv`, `/data/movies`) ; leurs
   profils sont en français (Radarr : langue « French » ; Sonarr : format
   personnalisé « VF » exigé). Les MULTi comptent comme françaises si
   l'indexeur l'indique (réglage « Multi Languages »).
@@ -84,6 +84,17 @@ est configuré par `arr_setup.sh` (`lib_seerr.sh`) :
   (Année) - S01E01 - Titre Qualité.mkv` pour les séries. Jellyfin lit
   l'identifiant et ne devine plus. Les fichiers sont liés (pas copiés) à ceux
   de qBittorrent : le partage continue.
+
+Profil « Seedbox optimisé » (Sonarr / Radarr, créé une fois, attribué aux
+médias existants et utilisé par Seerr) :
+
+- qualités : 720p minimum, 1080p, 4K (préférée si elle respecte la taille) ;
+  ni Remux, ni BR-DISK ;
+- taille : au plus 4 Go par film (Radarr), 2 Go par heure d'épisode (Sonarr,
+  packs de saison compris) : une 4K n'est prise que « légère » ;
+- meilleur rapport qualité / place : bonus HEVC (x265) et 10 bits, taille
+  préférée réduite (film 1080p de 2 h : environ 2,4 Go) ;
+- mises à niveau automatiques jusqu'à la 4K ; toujours en français.
 
 Un torrent ajouté à la main dans qBittorrent reste dans `downloads/` (hors
 bibliothèques). Pour qu'il arrive rangé dans Jellyfin : ajouter le film ou la
