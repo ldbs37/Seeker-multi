@@ -131,6 +131,9 @@ fi
 case "$SERVICE" in
     jellyfin)   info "Accès : https://jellyfin.$DOMAIN" ;;
     watchtower) info "Mises à jour automatiques chaque nuit à 4h" ;;
+    duplicati)
+        info "Accès (administrateurs, SSO) : https://duplicati.$DOMAIN"
+        info "Mot de passe de Duplicati : sudo grep DUPLICATI_PASSWORD $ENV_FILE" ;;
     *)
         sub=$SERVICE; [ "$SERVICE" = uptime-kuma ] && sub=uptime
         info "Accès (administrateurs, SSO) : https://${sub}.$DOMAIN"

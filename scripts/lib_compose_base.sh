@@ -298,6 +298,11 @@ _block_duplicati() {
       - PUID=${ADMIN_UID}
       - PGID=${ADMIN_GID}
       - TZ=${TZ}
+      # Duplicati 2.1+ : sans clé de chiffrement des réglages, une nouvelle
+      # installation reste bloquée au démarrage (Bad Gateway) ; secrets du .env
+      - SETTINGS_ENCRYPTION_KEY=${DUPLICATI_ENCRYPTION_KEY}
+      - DUPLICATI__WEBSERVICE_PASSWORD=${DUPLICATI_PASSWORD}
+      - DUPLICATI__WEBSERVICE_ALLOWED_HOSTNAMES=duplicati.${DOMAIN}
     volumes:
       - ./duplicati/config:/config
       - ./data:/source:ro
@@ -382,13 +387,25 @@ EOF
     echo "    restart: unless-stopped"
 }
 
+# Secrets de Duplicati dans le .env (créés une fois, conservés ensuite par
+# write_env_file) : clé de chiffrement des réglages, mot de passe de
+# l'interface (en plus d'Authelia)
+duplicati_env_ensure() {
+    local env="$INSTALL_DIR/.env"
+    grep -q '^DUPLICATI_ENCRYPTION_KEY=.' "$env" 2>/dev/null \
+        || echo "DUPLICATI_ENCRYPTION_KEY=$(openssl rand -hex 32)" >> "$env"
+    grep -q '^DUPLICATI_PASSWORD=.' "$env" 2>/dev/null \
+        || echo "DUPLICATI_PASSWORD=$(openssl rand -base64 18 | tr -d '/+=' | cut -c1-20)" >> "$env"
+    chmod 600 "$env"
+}
+
 # Crée les dossiers de données des services système sélectionnés
 _system_dirs() {
     mkdir -p "$INSTALL_DIR/authelia" "$INSTALL_DIR/data/users"
     mkdir -p "$INSTALL_DIR/homarr/appdata"
     [ "${INSTALL_SCRUTINY:-false}" = true ]    && mkdir -p "$INSTALL_DIR/scrutiny/config" "$INSTALL_DIR/scrutiny/influxdb"
     [ "${INSTALL_UPTIME_KUMA:-false}" = true ] && mkdir -p "$INSTALL_DIR/uptime-kuma"
-    [ "${INSTALL_DUPLICATI:-false}" = true ]   && mkdir -p "$INSTALL_DIR/duplicati/config"
+    [ "${INSTALL_DUPLICATI:-false}" = true ]   && { mkdir -p "$INSTALL_DIR/duplicati/config"; duplicati_env_ensure; }
     [ "${INSTALL_DASHDOT:-false}" = true ]     && mkdir -p "$INSTALL_DIR/dashdot"
     [ "${INSTALL_PORTAINER:-false}" = true ]   && mkdir -p "$INSTALL_DIR/portainer"
     if [ "${INSTALL_JELLYFIN:-false}" = true ]; then
