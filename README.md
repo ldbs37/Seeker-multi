@@ -26,7 +26,7 @@ Une solution **simple et efficace** de seedbox multi-utilisateurs avec authentif
 - 📖 **Calibre-web** - Bibliothèque ebooks
 
 **Tout est préconfiguré** :
-- 🔐 Connexion unique via Authelia : aucune page de connexion (Seerr : identifiants Jellyfin)
+- 🔐 Connexion unique via Authelia : aucune page de connexion, Seerr compris
 - 🔗 Sonarr / Radarr → qBittorrent, dossiers `tv/` et `movies/`
 - 🔍 Prowlarr → Sonarr / Radarr, avec son FlareSolverr
 - 📝 Seerr → Jellyfin (seulement vos bibliothèques) et Sonarr / Radarr ; demandes validées automatiquement
