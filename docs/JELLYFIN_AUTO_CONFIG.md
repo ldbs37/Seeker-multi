@@ -60,8 +60,10 @@ Le Seerr de chaque utilisateur (`https://seerr-<user>.votre-domaine.com`)
 est configuré par `arr_setup.sh` (`lib_seerr.sh`) :
 
 - relié à Jellyfin par son adresse publique (`https://jellyfin.votre-domaine.com`,
-  port 443, SSL) et la **clé d'API Jellyfin « Seerr »** (Tableau de bord
-  Jellyfin → Clés API ; créée si elle manque), commune à tous les Seerr ;
+  port 443, SSL) et une **clé d'API récupérée dans Jellyfin** (Tableau de
+  bord → Clés API ; aucune n'est créée) : celle déjà réglée dans Seerr si
+  Jellyfin la connaît, sinon une clé dont le nom contient « seerr », sinon
+  celle de la seedbox ;
   seules les bibliothèques de l'utilisateur sont cochées. NB : clé
   administrateur de Jellyfin, lisible par chaque utilisateur dans les
   réglages de son Seerr ;

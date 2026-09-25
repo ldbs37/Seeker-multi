@@ -3,8 +3,8 @@
 # lib_seerr.sh — Seerr d'un utilisateur, configuré automatiquement (Jellyfin)
 #
 # - Jellyfin : adresse publique (https://jellyfin.<domaine>) et clé d'API
-#   Jellyfin « Seerr » (tableau de bord Jellyfin → Clés API ; créée si elle
-#   manque), commune à tous les Seerr. Seules les bibliothèques de
+#   récupérée dans Jellyfin (Tableau de bord → Clés API : celle déjà réglée
+#   dans Seerr, sinon une clé « …seerr… », sinon celle de la seedbox). Seules les bibliothèques de
 #   l'utilisateur sont cochées. NB : clé administrateur de Jellyfin, lisible
 #   par chaque utilisateur dans les réglages de son Seerr.
 # - Compte administrateur du Seerr = compte Jellyfin de l'utilisateur :
@@ -31,18 +31,22 @@ SEERR_DEVICE_PREFIX="seedbox-seerr-"
 # chaque nouvelle connexion depuis cet appareil
 SEERR_API_DEVICE_PREFIX="seedbox-seerr-api-"
 
-# Clé d'API Jellyfin « Seerr » (créée si elle manque). Affiche la clé.
+# Clé d'API existante de Jellyfin pour Seerr (aucune n'est créée) : celle
+# déjà réglée dans Seerr si Jellyfin la connaît, sinon une clé dont le nom
+# contient « seerr », sinon celle de la seedbox. Affiche la clé.
+# $1=clé actuelle du Seerr
 seerr_jellyfin_api_key() {
-    local keys key
-    keys=$(jf_api GET /Auth/Keys) || return 1
-    key=$(printf '%s' "$keys" | python3 -c 'import json,sys
-print(next((k["AccessToken"] for k in json.loads(sys.stdin.read().lstrip("\ufeff"))["Items"] if k["AppName"] == "Seerr"), ""))')
-    if [ -z "$key" ]; then
-        jf_api POST "/Auth/Keys?app=Seerr" >/dev/null || return 1
-        key=$(jf_api GET /Auth/Keys | python3 -c 'import json,sys
-print(next((k["AccessToken"] for k in json.loads(sys.stdin.read().lstrip("\ufeff"))["Items"] if k["AppName"] == "Seerr"), ""))')
-    fi
-    [ -n "$key" ] && echo "$key"
+    jf_api GET /Auth/Keys | CUR="${1:-}" python3 -c '
+import json, os, sys
+keys = json.loads(sys.stdin.read().lstrip("\ufeff")).get("Items", [])
+tok = {k["AccessToken"]: k.get("AppName", "") for k in keys}
+cur = os.environ["CUR"]
+pick = (cur if cur in tok else
+        next((t for t, n in tok.items() if "seerr" in n.lower()), "") or
+        next((t for t, n in tok.items() if n == "seedbox"), ""))
+if not pick:
+    sys.exit(1)
+print(pick)'
 }
 
 # Jeton Jellyfin au nom de $1 (Quick Connect). Affiche « <jeton> <userId> ».
@@ -118,9 +122,9 @@ print(json.dumps([{"id": f["ItemId"], "name": f["Name"], "enabled": True, "type"
             "$INSTALL_DIR/authelia/users_database.yml" 2>/dev/null)
     fi
 
-    # Clé d'API Jellyfin « Seerr » (Jellyfin indisponible : clé inchangée)
-    jellyfin_available && key=$(seerr_jellyfin_api_key)
-    [ "$state" = new ] && [ -z "$key" ] && { echo "Clé d'API Jellyfin « Seerr » non obtenue" >&2; return 1; }
+    # Clé d'API récupérée dans Jellyfin (Jellyfin indisponible : inchangée)
+    jellyfin_available && key=$(seerr_jellyfin_api_key "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("jellyfin", {}).get("apiKey", ""))' "$settings")")
+    [ "$state" = new ] && [ -z "$key" ] && { echo "Aucune clé d'API dans Jellyfin (Tableau de bord → Clés API)" >&2; return 1; }
 
     region=$(lang_jellyfin "$(seedbox_lang)" | cut -d' ' -f2)
     cid=$(seerr_secret "$user" SEERR_CLIENT_ID)
