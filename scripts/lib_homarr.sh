@@ -108,6 +108,46 @@ authelia_ensure_user_groups() {
     rm -f "$tmp"; return 1
 }
 
+# Groupe administrateur « admins » (nom du groupe Authelia) avec le droit
+# « admin » dans Homarr, s'il n'existe aucun groupe administrateur une fois
+# l'assistant terminé (étape de l'assistant sautée/ratée : plus aucun admin,
+# donc impossible de créer une clé d'API). Reproduit exactement l'étape
+# « group » de l'assistant (createInitialExternalGroup) ; les membres sont
+# synchronisés depuis Authelia à la connexion. Retour 0 si corrigé.
+homarr_ensure_admin_group() {
+    local db="$INSTALL_DIR/homarr/appdata/db/db.sqlite" state
+    [ -f "$db" ] || return 1
+    state=$(python3 - "$db" << 'PY'
+import sqlite3, sys
+db = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
+try:
+    step = db.execute("select step from onboarding").fetchone()
+    admin = db.execute('select 1 from "groupPermission" where permission = ?', ("admin",)).fetchone()
+except sqlite3.Error:
+    print("inconnu"); sys.exit()
+print("ok" if admin or not step or step[0] != "finish" else "manquant")
+PY
+)
+    [ "$state" = manquant ] || return 1
+    docker stop homarr >/dev/null 2>&1 || true
+    cp -p "$db" "$db.bak-$(date +%Y%m%d%H%M%S)"
+    python3 - "$db" << 'PY'
+import secrets, sqlite3, sys
+db = sqlite3.connect(sys.argv[1])
+row = db.execute('select id from "group" where name = ?', ("admins",)).fetchone()
+if row:
+    gid = row[0]
+else:
+    gid = secrets.token_hex(12)
+    pos = db.execute('select coalesce(max(position), 0) from "group"').fetchone()[0] + 1
+    db.execute('insert into "group"(id, name, position) values (?, ?, ?)', (gid, "admins", pos))
+db.execute('insert into "groupPermission"(group_id, permission) values (?, ?)', (gid, "admin"))
+db.commit()
+PY
+    docker start homarr >/dev/null 2>&1 || true
+    return 0
+}
+
 # Prépare Homarr partagé (secrets + OIDC Authelia). À appeler en mode Traefik,
 # après la génération du .env et de la configuration Authelia.
 # Retour 0 si la configuration Authelia a changé (redémarrage nécessaire).

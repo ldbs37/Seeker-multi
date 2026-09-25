@@ -14,6 +14,10 @@ sur Authelia, Homarr ne redemande rien.
   indiquer **`admins`** comme groupe administrateur (les groupes viennent
   d'Authelia).
 - Chaque utilisateur est créé dans Homarr à sa première connexion.
+- Si l'assistant n'a pas enregistré de groupe administrateur (Homarr n'a
+  alors plus aucun admin : création de jeton d'API impossible), la
+  migration (`generate_traefik_labels.sh`) crée le groupe `admins` avec le
+  droit admin, comme l'aurait fait l'assistant (sauvegarde de la base avant).
 - Mise en place (automatique à l'installation et par
   `generate_traefik_labels.sh`) : `scripts/lib_homarr.sh` ajoute au `.env`
   `HOMARR_SECRET_KEY` et `HOMARR_OIDC_SECRET`, et à la configuration Authelia
