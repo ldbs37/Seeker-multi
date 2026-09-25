@@ -29,9 +29,16 @@ DOMAIN=$(grep '^DOMAIN=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2)
 [ -n "$DOMAIN" ] || fail "DOMAIN absent de $INSTALL_DIR/.env"
 
 ADMIN=$(autoconfig_first_admin "$INSTALL_DIR")
-read -r -p "Compte administrateur Portainer [${ADMIN:-admin}]: " PT_USER
-PT_USER=${PT_USER:-${ADMIN:-admin}}
-read -r -s -p "Mot de passe Portainer de $PT_USER : " PT_PASS; echo
-
-portainer_sso_setup "$PT_USER" "$PT_PASS" "${ADMIN:-$PT_USER}" || exit 1
+info "Compte administrateur de Portainer (celui créé à l'installation, souvent « admin »)"
+for try in 1 2 3; do
+    read -r -p "Nom du compte Portainer [${ADMIN:-admin}]: " PT_USER
+    PT_USER=${PT_USER:-${ADMIN:-admin}}
+    read -r -s -p "Mot de passe Portainer de $PT_USER : " PT_PASS; echo
+    portainer_sso_setup "$PT_USER" "$PT_PASS" "${ADMIN:-$PT_USER}"
+    case $? in
+        0) break ;;
+        3) [ "$try" -lt 3 ] && continue; exit 1 ;;
+        *) exit 1 ;;
+    esac
+done
 info "https://portainer.$DOMAIN → « Login with OAuth » (connecté à Authelia : rien à saisir)"

@@ -221,7 +221,7 @@ Liens de partage publics FileBrowser Quantum : `…/drive/public/`.
 | Outil | Connexion après Authelia |
 |-------|--------------------------|
 | Duplicati | Aucune : Traefik présente un jeton (`webservice-pre-auth-tokens`, `DUPLICATI_PREAUTH_TOKEN` du `.env`) ; le mot de passe ne sert plus qu'en accès direct (tunnel SSH) |
-| Uptime Kuma | Aucune : réglage « disableAuth » (base SQLite) |
+| Uptime Kuma | Aucune : réglage « disableAuth » (base SQLite ou MariaDB intégrée) |
 | Portainer | Bouton « Login with OAuth » : un clic, rien à saisir (client OIDC `portainer` d'Authelia, réservé au groupe `admins` ; session de 7 jours). Portainer CE ne permet ni de masquer le formulaire classique ni la redirection automatique |
 
 Automatique à l'installation et avec `add_service.sh`. Installation

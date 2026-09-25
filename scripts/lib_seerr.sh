@@ -2,10 +2,11 @@
 #######################
 # lib_seerr.sh — Seerr d'un utilisateur, configuré automatiquement (Jellyfin)
 #
-# - Jellyfin : le Seerr de l'utilisateur reçoit un jeton À SON NOM (Quick
-#   Connect autorisé par la clé d'API seedbox, sans son mot de passe) : il ne
-#   voit que ses bibliothèques, et la clé administrateur de Jellyfin n'est
-#   jamais confiée à un Seerr (chacun y est administrateur et pourrait la lire).
+# - Jellyfin : adresse publique (https://jellyfin.<domaine>) et clé d'API
+#   récupérée dans Jellyfin (Tableau de bord → Clés API : celle déjà réglée
+#   dans Seerr, sinon une clé « …seerr… », sinon celle de la seedbox). Seules les bibliothèques de
+#   l'utilisateur sont cochées. NB : clé administrateur de Jellyfin, lisible
+#   par chaque utilisateur dans les réglages de son Seerr.
 # - Compte administrateur du Seerr = compte Jellyfin de l'utilisateur :
 #   connexion avec ses identifiants Jellyfin (= seedbox).
 # - Bibliothèques : ses « Séries TV (<user>) » et « Films (<user>) ».
@@ -25,15 +26,27 @@
 #######################
 
 SEERR_DEVICE_PREFIX="seedbox-seerr-"
-# Appareil du jeton confié à Seerr (clé d'API), distinct de celui de la
+# Appareil du jeton Jellyfin de l'utilisateur enregistré dans Seerr, distinct de celui de la
 # connexion de l'utilisateur : Jellyfin révoque les jetons d'un appareil à
 # chaque nouvelle connexion depuis cet appareil
 SEERR_API_DEVICE_PREFIX="seedbox-seerr-api-"
 
-# Jeton Jellyfin encore valide ? $1=jeton
-seerr_jellyfin_token_ok() {
-    [ -n "$1" ] && curl -fs -m 10 -o /dev/null \
-        -H "Authorization: MediaBrowser Token=\"$1\"" "$JELLYFIN_LOCAL_URL/Users/Me"
+# Clé d'API existante de Jellyfin pour Seerr (aucune n'est créée) : celle
+# déjà réglée dans Seerr si Jellyfin la connaît, sinon une clé dont le nom
+# contient « seerr », sinon celle de la seedbox. Affiche la clé.
+# $1=clé actuelle du Seerr
+seerr_jellyfin_api_key() {
+    jf_api GET /Auth/Keys | CUR="${1:-}" python3 -c '
+import json, os, sys
+keys = json.loads(sys.stdin.read().lstrip("\ufeff")).get("Items", [])
+tok = {k["AccessToken"]: k.get("AppName", "") for k in keys}
+cur = os.environ["CUR"]
+pick = (cur if cur in tok else
+        next((t for t, n in tok.items() if "seerr" in n.lower()), "") or
+        next((t for t, n in tok.items() if n == "seedbox"), ""))
+if not pick:
+    sys.exit(1)
+print(pick)'
 }
 
 # Jeton Jellyfin au nom de $1 (Quick Connect). Affiche « <jeton> <userId> ».
@@ -83,7 +96,7 @@ print(json.dumps(d))'
 # Configure le Seerr de $1 (conteneur arrêté pendant l'écriture). Retour 0
 # si configuré (ou déjà configuré).
 seerr_configure() {
-    local user="$1" dir="$INSTALL_DIR/seerr/$1" settings db tok="" jid="" libs="[]" info="{}" \
+    local user="$1" dir="$INSTALL_DIR/seerr/$1" settings db tok="" jid="" libs="[]" info="{}" key="" \
           sonarr="" radarr="" email state region cid
     settings="$dir/settings.json"; db="$dir/db/db.sqlite3"
     _wait_config "$settings" "seerr-$user" || return 1
@@ -109,24 +122,26 @@ print(json.dumps([{"id": f["ItemId"], "name": f["Name"], "enabled": True, "type"
             "$INSTALL_DIR/authelia/users_database.yml" 2>/dev/null)
     fi
 
-    # Seerr déjà configuré par la seedbox : jeton Jellyfin révoqué (ancienne
-    # version : même appareil que la connexion de l'utilisateur) → renouvelé
-    if [ "$state" = init ] && python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))["jellyfin"].get("ip") == "jellyfin" else 1)' "$settings" \
-        && ! seerr_jellyfin_token_ok "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["jellyfin"].get("apiKey", ""))' "$settings")" \
-        && jellyfin_available; then
-        read -r tok jid < <(seerr_jellyfin_token "$user") || true
-        [ -n "$tok" ] || echo "Jeton Jellyfin de $user non renouvelé" >&2
-    fi
+    # Clé d'API récupérée dans Jellyfin (Jellyfin indisponible : inchangée)
+    jellyfin_available && key=$(seerr_jellyfin_api_key "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("jellyfin", {}).get("apiKey", ""))' "$settings")")
+    [ "$state" = new ] && [ -z "$key" ] && { echo "Aucune clé d'API dans Jellyfin (Tableau de bord → Clés API)" >&2; return 1; }
 
     region=$(lang_jellyfin "$(seedbox_lang)" | cut -d' ' -f2)
     cid=$(seerr_secret "$user" SEERR_CLIENT_ID)
     # Déjà configuré et rien à changer : pas de redémarrage
-    if [ "$state" = init ] && [ -z "$tok" ] && CID="$cid" SONARR="$sonarr" RADARR="$radarr" python3 -c '
+    if [ "$state" = init ] && CID="$cid" D="$DOMAIN" KEY="$key" SONARR="$sonarr" RADARR="$radarr" python3 -c '
 import json, os, sys
 s = json.load(open(sys.argv[1]))
 if s.get("clientId") != os.environ["CID"] or s.get("sessionSecret") != os.environ["CID"]:
     sys.exit(1)
-if s["jellyfin"].get("ip") == "jellyfin" and (s["main"].get("localLogin") or s["main"].get("newPlexLogin")
+# Ancienne adresse interne (http://jellyfin:8096) → adresse publique
+if s["jellyfin"].get("ip") == "jellyfin":
+    sys.exit(1)
+if os.environ["KEY"] and s["jellyfin"].get("ip") == "jellyfin." + os.environ["D"] and s["jellyfin"].get("apiKey") != os.environ["KEY"]:
+    sys.exit(1)
+if s["jellyfin"].get("ip") == "jellyfin." + os.environ["D"] and (s["jellyfin"].get("port") != 443 or not s["jellyfin"].get("useSsl")):
+    sys.exit(1)
+if s["jellyfin"].get("ip") == "jellyfin." + os.environ["D"] and (s["main"].get("localLogin") or s["main"].get("newPlexLogin")
         or not s["main"].get("streamingRegion") or not s["main"].get("discoverRegion")):
     sys.exit(1)
 for k in ("sonarr", "radarr"):
@@ -143,7 +158,7 @@ for k in ("sonarr", "radarr"):
         return 0
     fi
     docker stop "seerr-$user" >/dev/null 2>&1 || true
-    CID="$cid" REGION="$region" ST="$state" TOK="$tok" JID="$jid" LIBS="$libs" INFO="$info" SONARR="$sonarr" RADARR="$radarr" \
+    CID="$cid" KEY="$key" REGION="$region" ST="$state" TOK="$tok" JID="$jid" LIBS="$libs" INFO="$info" SONARR="$sonarr" RADARR="$radarr" \
     U="$user" D="$DOMAIN" EMAIL="${email:-$user@$DOMAIN}" LANG_SB="$(seedbox_lang)" \
     DEV="${SEERR_DEVICE_PREFIX}${user}" python3 - "$settings" "$db" << 'PY'
 import json, os, sqlite3, sys
@@ -153,15 +168,13 @@ s = json.load(open(path))
 # automatique) : clientId jusqu'à Seerr 3.3, sessionSecret depuis 3.4
 s["clientId"] = e["CID"]
 s["sessionSecret"] = e["CID"]
-if e["ST"] == "init" and e["TOK"]:
-    s["jellyfin"]["apiKey"] = e["TOK"]
 if e["ST"] == "new":
     info = json.loads(e["INFO"].lstrip("﻿"))
     s["main"].update(mediaServerType=2, mediaServerLogin=True,
                      applicationUrl="https://seerr-%s.%s" % (e["U"], e["D"]), locale=e["LANG_SB"])
-    s["jellyfin"].update(name=info.get("ServerName", "Jellyfin"), ip="jellyfin", port=8096, useSsl=False,
+    s["jellyfin"].update(name=info.get("ServerName", "Jellyfin"), ip="jellyfin.%s" % e["D"], port=443, useSsl=True,
                          urlBase="", externalHostname="https://jellyfin.%s" % e["D"],
-                         libraries=json.loads(e["LIBS"]), serverId=info["Id"], apiKey=e["TOK"])
+                         libraries=json.loads(e["LIBS"]), serverId=info["Id"], apiKey=e["KEY"])
     s["public"]["initialized"] = True
     c = sqlite3.connect(db)
     fields = dict(email=e["EMAIL"], username=e["U"], jellyfinUsername=e["U"], jellyfinUserId=e["JID"],
@@ -173,9 +186,16 @@ if e["ST"] == "new":
         c.execute("insert into user (id, %s) values (1, %s)" % (", ".join(fields), ", ".join("?" * len(fields))),
                   list(fields.values()))
     c.commit()
+# Jellyfin par son adresse publique (https://jellyfin.<domaine>) ; ancienne
+# adresse interne remplacée
+if s["jellyfin"].get("ip") == "jellyfin":
+    s["jellyfin"].update(ip="jellyfin.%s" % e["D"], port=443, useSsl=True, urlBase="")
 # Seerr configuré par la seedbox : connexion Jellyfin seulement, pas de
 # connexion locale ni de nouveaux comptes
-if s["jellyfin"].get("ip") == "jellyfin":
+if s["jellyfin"].get("ip") == "jellyfin.%s" % e["D"]:
+    s["jellyfin"].update(port=443, useSsl=True)
+    if e["KEY"]:
+        s["jellyfin"]["apiKey"] = e["KEY"]
     s["main"].update(localLogin=False, newPlexLogin=False)
     # Pays de diffusion / région de découverte, sauf choix de l'utilisateur
     for k in ("streamingRegion", "discoverRegion"):

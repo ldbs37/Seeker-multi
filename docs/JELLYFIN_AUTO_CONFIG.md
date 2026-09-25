@@ -59,12 +59,14 @@ connecté via Authelia) : *Paramètres → Quick Connect*, saisir le code.
 Le Seerr de chaque utilisateur (`https://seerr-<user>.votre-domaine.com`)
 est configuré par `arr_setup.sh` (`lib_seerr.sh`) :
 
-- relié à Jellyfin par un **jeton au nom de l'utilisateur** (Quick Connect,
-  autorisé par la clé d'API seedbox) : il ne voit que ses bibliothèques, et
-  la clé administrateur de Jellyfin n'est jamais confiée à Seerr (chacun
-  est administrateur de son Seerr et pourrait la lire). Adresse interne
-  `http://jellyfin:8096`. Jeton révoqué (ancienne version) : renouvelé par
-  `arr_setup.sh` ;
+- relié à Jellyfin par son adresse publique (`https://jellyfin.votre-domaine.com`,
+  port 443, SSL) et une **clé d'API récupérée dans Jellyfin** (Tableau de
+  bord → Clés API ; aucune n'est créée) : celle déjà réglée dans Seerr si
+  Jellyfin la connaît, sinon une clé dont le nom contient « seerr », sinon
+  celle de la seedbox ;
+  seules les bibliothèques de l'utilisateur sont cochées. NB : clé
+  administrateur de Jellyfin, lisible par chaque utilisateur dans les
+  réglages de son Seerr ;
 - son administrateur = le compte Jellyfin de l'utilisateur ;
 - **connexion automatique** après Authelia : Seerr n'ayant ni OIDC ni
   authentification par en-tête, la seedbox fixe son secret de signature et

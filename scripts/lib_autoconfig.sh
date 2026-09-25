@@ -34,39 +34,49 @@ autoconfig_first_admin() {
 
 # Uptime Kuma sans page de connexion (réglage « disableAuth ») : accès déjà
 # réservé aux admins par Authelia. Compte créé s'il n'y en a pas (mot de
-# passe aléatoire, inutile ensuite). Base SQLite seulement. Vérifié sur
-# Uptime Kuma 2.5.5. $1=dossier d'installation $2=nom du compte
+# passe aléatoire, inutile ensuite). Base SQLite ou MariaDB intégrée. Vérifié
+# sur Uptime Kuma 2.5.5. $1=dossier d'installation $2=nom du compte
 autoconfig_uptime_kuma() {
-    local dir="${1:-/opt/seedbox}" user="${2:-admin}" data db hash state
-    data="$dir/uptime-kuma"; db="$data/kuma.db"
-    python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("type") == "sqlite" else 1)' \
-        "$data/db-config.json" 2>/dev/null || { info "Uptime Kuma : base autre que SQLite, connexion laissée telle quelle"; return 0; }
+    local dir="${1:-/opt/seedbox}" user="${2:-admin}" data type hash n
+    data="$dir/uptime-kuma"
+    type=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("type", ""))' "$data/db-config.json" 2>/dev/null)
+    case "$type" in
+        sqlite|embedded-mariadb) ;;
+        *) info "Uptime Kuma : base « ${type:-inconnue} » non prise en charge, connexion laissée telle quelle"; return 0 ;;
+    esac
+    # Requête SQL (sortie brute) sur la base d'Uptime Kuma
+    _kuma_sql() {
+        if [ "$type" = sqlite ]; then
+            python3 -c 'import sqlite3,sys
+c = sqlite3.connect(sys.argv[1])
+for r in c.execute(sys.argv[2]).fetchall(): print("\t".join(str(x) for x in r))
+c.commit()' "$data/kuma.db" "$1"
+        else
+            docker exec -u node uptime-kuma mariadb --socket=/app/data/run/mariadb.sock -u node -N -B kuma -e "$1"
+        fi
+    }
     # Base créée et à jour (tables présentes) au premier démarrage
     for _ in $(seq 1 60); do
-        python3 -c 'import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute("select 1 from setting limit 1"); c.execute("select 1 from user limit 1")' "$db" 2>/dev/null && break
+        _kuma_sql "select 1 from setting limit 1" >/dev/null 2>&1 && _kuma_sql "select 1 from user limit 1" >/dev/null 2>&1 && break
         sleep 2
     done
-    state=$(python3 -c 'import sqlite3,sys
-c = sqlite3.connect(sys.argv[1])
-r = c.execute("select value from setting where key = ?", ("disableAuth",)).fetchone()
-print("ok" if r and r[0] == "true" else "todo")' "$db" 2>/dev/null) || { warn "Uptime Kuma : base introuvable ($db)"; return 1; }
-    [ "$state" = ok ] && return 0
+    n=$(_kuma_sql "select count(*) from setting where \`key\` = 'disableAuth' and value = 'true'" 2>/dev/null) \
+        || { warn "Uptime Kuma : base injoignable ($type)"; return 1; }
+    [ "$n" = 1 ] && return 0
     log "Uptime Kuma : connexion unique (Authelia)..."
     hash=$(docker exec -e PW="$(openssl rand -hex 24)" uptime-kuma node -e 'console.log(require("bcryptjs").hashSync(process.env.PW, 10))' 2>/dev/null)
     [[ "$hash" == '$2'* ]] || { warn "Uptime Kuma : conteneur injoignable, connexion unique non appliquée"; return 1; }
-    docker stop uptime-kuma >/dev/null 2>&1 || true
-    H="$hash" U="$user" python3 - "$db" << 'PY' || { docker start uptime-kuma >/dev/null 2>&1; return 1; }
-import os, sqlite3, sys
-c = sqlite3.connect(sys.argv[1])
-if not c.execute("select 1 from user").fetchone():
-    c.execute("insert into user (username, password, active) values (?, ?, 1)", (os.environ["U"], os.environ["H"]))
-if c.execute("select 1 from setting where key = ?", ("disableAuth",)).fetchone():
-    c.execute("update setting set value = ? where key = ?", ("true", "disableAuth"))
-else:
-    c.execute("insert into setting (key, value, type) values (?, ?, ?)", ("disableAuth", "true", "general"))
-c.commit()
-PY
-    docker start uptime-kuma >/dev/null 2>&1 || true
+    [[ "$user" =~ ^[a-z0-9_-]+$ ]] || user="admin"
+    { [ "$(_kuma_sql "select count(*) from user")" != 0 ] \
+        || _kuma_sql "insert into user (username, password, active) values ('$user', '$hash', 1)"; } \
+        && if [ "$(_kuma_sql "select count(*) from setting where \`key\` = 'disableAuth'")" = 0 ]; then
+               _kuma_sql "insert into setting (\`key\`, value, type) values ('disableAuth', 'true', 'general')"
+           else
+               _kuma_sql "update setting set value = 'true' where \`key\` = 'disableAuth'"
+           fi \
+        || { warn "Uptime Kuma : réglage non enregistré"; return 1; }
+    # Redémarrage : Uptime Kuma garde ses réglages en mémoire
+    docker restart uptime-kuma >/dev/null 2>&1 || true
     log "✓ Uptime Kuma : ouvert directement après Authelia"
 }
 
@@ -122,6 +132,7 @@ EOF_PY
 }
 
 # Portainer : bouton « Login with OAuth » (Authelia ; déjà connecté : un
+# (retour 3 : compte ou mot de passe Portainer refusé)
 # clic, rien à saisir) et session de 7 jours. Le compte Portainer du même
 # nom (administrateur) est utilisé ; aucun compte créé automatiquement.
 # Portainer CE ne permet ni de masquer le formulaire classique ni la
@@ -137,7 +148,7 @@ autoconfig_portainer_sso() {
     jwt=$(U="$user" P="$pass" python3 -c 'import json,os; print(json.dumps({"Username": os.environ["U"], "Password": os.environ["P"]}))' \
         | curl -s -m 30 -X POST -H 'Content-Type: application/json' --data @- "$base/api/auth" \
         | python3 -c 'import json,sys; print(json.load(sys.stdin).get("jwt",""))' 2>/dev/null)
-    [ -n "$jwt" ] || { warn "Portainer : connexion refusée ($user) — mot de passe ?"; return 1; }
+    [ -n "$jwt" ] || { warn "Portainer : connexion refusée pour « $user » (nom du compte ou mot de passe Portainer incorrect)"; return 3; }
     if ! curl -s -m 30 -H "Authorization: Bearer $jwt" "$base/api/users" | N="$sso" python3 -c 'import json,os,sys
 sys.exit(0 if any(u["Username"].lower() == os.environ["N"].lower() for u in json.load(sys.stdin)) else 1)'; then
         body=$(N="$sso" P="$(openssl rand -hex 24)" python3 -c 'import json,os; print(json.dumps({"Username": os.environ["N"], "Password": os.environ["P"], "Role": 1}))')
