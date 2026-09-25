@@ -92,8 +92,18 @@ médias existants et utilisé par Seerr) :
   ni Remux, ni BR-DISK ;
 - taille : au plus 4 Go par film (Radarr), 2 Go par heure d'épisode (Sonarr,
   packs de saison compris) : une 4K n'est prise que « légère » ;
-- meilleur rapport qualité / place : bonus HEVC (x265) et 10 bits, taille
-  préférée réduite (film 1080p de 2 h : environ 2,4 Go) ;
+- meilleur rapport qualité / place : taille préférée réduite (film 1080p de
+  2 h : environ 2,4 Go) et formats personnalisés (liste `ARR_BONUS` de
+  `lib_arr.sh`, complétée dans un profil existant) :
+
+  | Format | Score |
+  |---|---|
+  | HEVC (x265, H.265), AV1, 10 bits | +20 |
+  | HDR / HDR10 / HDR10+, EAC3 (DD+), Atmos | +15 |
+  | IMAX, 5.1 / 7.1, VFF (TRUEFRENCH) | +10 |
+  | VFQ (doublage québécois) | -10 |
+  | 3D, upscale (fausse 4K) ; Radarr : plus de 4 Go | refusé |
+
 - mises à niveau automatiques jusqu'à la 4K ; toujours en français.
 
 Un torrent ajouté à la main dans qBittorrent reste dans `downloads/` (hors

@@ -31,7 +31,9 @@
 #   présents et utilisé par Seerr) : 720p minimum, 1080p, 4K ; au plus 4 Go
 #   par film (Radarr) ou 2 Go par heure d'épisode (Sonarr : taille rapportée
 #   à l'épisode, packs de saison compris) : une 4K n'est prise que
-#   « légère » ; bonus HEVC (x265) et 10 bits, taille préférée réduite
+#   « légère » ; bonus (ARR_BONUS : HEVC, AV1, 10 bits, HDR, EAC3, Atmos,
+#   IMAX, 5.1 / 7.1, VFF ; malus VFQ ; 3D et upscale refusés), taille
+#   préférée réduite
 #   (meilleur rapport qualité / place) ; mises à niveau jusqu'à la 4K.
 # Idempotent. Vérifié sur Sonarr 4.0.20, Radarr 6.4.4, Prowlarr 2.6.5 et
 # qBittorrent 5.2.3 (binaires officiels).
@@ -239,6 +241,34 @@ for root, ids in groups.items():
 }
 
 ARR_PROFILE="Seedbox optimisé"
+# Bonus du profil (nom;expression cherchée dans le nom de la release;score) :
+# meilleure qualité pour peu de place, doublage de France préféré ; 3D et
+# fausse 4K (upscale) refusées ; complétés dans un profil existant
+ARR_BONUS='HEVC;\b(HEVC|[xh][ ._-]?265)\b;20
+10 bits;\b(10[ ._-]?bits?|Hi10P?)\b;20
+HDR;\bHDR(10(\+|P(lus)?)?)?\b;15
+EAC3;\b(E-?AC-?3|DDP|DD\+);15
+Atmos;\bATMOS\b;15
+IMAX;\bIMAX\b;10
+5.1 / 7.1;(?<!\d)[57][ ._]1(?!\d);10
+AV1;\bAV1\b;20
+VFF;\b(VFF|TRUEFRENCH|VF2)\b;10
+VFQ;\bVFQ\b;-10
+3D;\b(3D|H?SBS|HOU)\b;-10000
+Upscale;\b(Upscaled?|AI[ ._-]?Upscal(e|ed)|Regrade[d]?)\b;-10000'
+
+# Formats bonus manquants créés ; affiche « id score » de ceux créés.
+# $1=service $2=utilisateur
+_arr_bonus_formats() {
+    local name re score id cfs
+    cfs=$(arr_api "$1" "$2" GET /customformat) || return 1
+    while IFS=';' read -r name re score; do
+        C="$cfs" N="$name" python3 -c 'import json, os, sys
+sys.exit(0 if any(c["name"] == os.environ["N"] for c in json.loads(os.environ["C"])) else 1)' && continue
+        id=$(_arr_custom_format "$1" "$2" "$name" ReleaseTitleSpecification "$(R="$re" python3 -c 'import json, os; print(json.dumps({"value": os.environ["R"]}))')") || return 1
+        echo "$id $score"
+    done <<< "$ARR_BONUS"
+}
 
 # Format personnalisé créé s'il manque. Affiche son id. $1=service
 # $2=utilisateur $3=nom $4=spécification (LanguageSpecification…) $5=champs (JSON)
@@ -263,13 +293,28 @@ print(json.dumps({"name": e["N"], "includeCustomFormatWhenRenaming": False, "spe
 
 # Profil « Seedbox optimisé » (voir l'en-tête). $1=sonarr|radarr $2=utilisateur
 arr_quality_profile() {
-    local svc="$1" user="$2" hevc tenbit big="" profiles cfs defs body id kind=movie ids=movieIds
+    local svc="$1" user="$2" bonus big="" profiles pid cfs defs body id kind=movie ids=movieIds
     [ "$svc" = sonarr ] && { kind=series; ids=seriesIds; }
     profiles=$(arr_api "$svc" "$user" GET /qualityprofile) || return 1
-    P="$profiles" N="$ARR_PROFILE" python3 -c 'import json, os, sys
-sys.exit(0 if any(p["name"] == os.environ["N"] for p in json.loads(os.environ["P"])) else 1)' && return 0
-    hevc=$(_arr_custom_format "$svc" "$user" HEVC ReleaseTitleSpecification '{"value": "\\b(HEVC|[xh][ ._-]?265)\\b"}') || return 1
-    tenbit=$(_arr_custom_format "$svc" "$user" "10 bits" ReleaseTitleSpecification '{"value": "\\b(10[ ._-]?bits?|Hi10P?)\\b"}') || return 1
+    pid=$(P="$profiles" N="$ARR_PROFILE" python3 -c 'import json, os
+print(next((p["id"] for p in json.loads(os.environ["P"]) if p["name"] == os.environ["N"]), ""))')
+    bonus=$(_arr_bonus_formats "$svc" "$user") || return 1
+    if [ -n "$pid" ]; then
+        # Profil existant : scores des nouveaux bonus seulement
+        [ -n "$bonus" ] || return 0
+        body=$(P="$profiles" I="$pid" B="$bonus" python3 -c '
+import json, os
+e = os.environ
+p = next(x for x in json.loads(e["P"]) if x["id"] == int(e["I"]))
+new = {int(a): int(b) for a, b in (l.split() for l in e["B"].splitlines())}
+items = {f["format"]: f for f in p.get("formatItems", [])}
+for fid, sc in new.items():
+    items.setdefault(fid, {"format": fid, "score": 0})["score"] = sc
+p["formatItems"] = list(items.values())
+print(json.dumps(p))') || return 1
+        arr_api "$svc" "$user" PUT "/qualityprofile/$pid" "$body" >/dev/null
+        return
+    fi
     [ "$svc" = radarr ] && { big=$(_arr_custom_format "$svc" "$user" "Plus de 4 Go" SizeSpecification '{"min": 4, "max": 10000}') || return 1; }
     # Taille préférée réduite (Mo par minute ; film 1080p de 2 h : 2,4 Go) ;
     # Sonarr : au plus 34 Mo/min (2 Go par heure d'épisode)
@@ -290,7 +335,7 @@ for d in json.loads(os.environ["D"]):
     done || return 1
     cfs=$(arr_api "$svc" "$user" GET /customformat) || return 1
     body=$(SCHEMA="$(arr_api "$svc" "$user" GET /qualityprofile/schema)" C="$cfs" S="$svc" N="$ARR_PROFILE" \
-           HEVC="$hevc" TENBIT="$tenbit" BIG="$big" python3 -c '
+           B="$bonus" BIG="$big" python3 -c '
 import json, os
 e = os.environ
 p = json.loads(e["SCHEMA"])
@@ -309,8 +354,9 @@ scores = {c["id"]: 0 for c in json.loads(e["C"])}
 for c in json.loads(e["C"]):
     if c["name"] == "VF" and e["S"] == "sonarr":
         scores[c["id"]] = 100
-scores[int(e["HEVC"])] = 20
-scores[int(e["TENBIT"])] = 20
+for l in e["B"].splitlines():
+    fid, sc = l.split()
+    scores[int(fid)] = int(sc)
 if e["BIG"]:
     scores[int(e["BIG"])] = -10000
 p.update(name=e["N"], upgradeAllowed=True, cutoff=cutoff,
