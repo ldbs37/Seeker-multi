@@ -180,6 +180,16 @@ internal_url() {
     echo "http://$1-$2:$(traefik_service_port "$1")$path"
 }
 
+# URL de test du voyant d'état d'une tuile : point de santé sans redirection
+# quand le service en a un (FileBrowser Quantum : /files → /files/, que le
+# test de Homarr signale en « fetch failed »)
+ping_url() {
+    case "$1" in
+        filebrowser) echo "$(internal_url "$1" "$2")/health" ;;
+        *) internal_url "$1" "$2" ;;
+    esac
+}
+
 # Corps JSON d'une appli. $1=nom $2=icône $3=lien $4=URL de test
 app_json() {
     A_N="$1" A_I="$2" A_H="$3" A_P="$4" python3 -c '
@@ -404,7 +414,7 @@ provision_user() {
     for s in $USER_SERVICES; do
         [ "$s" = homarr ] && continue
         has_service "$s-$user" || continue
-        id=$(ensure_app "$(app_name "$s" "$user")" "$(svc_icon "$s")" "$(service_url "$s")" "$(internal_url "$s" "$user")") \
+        id=$(ensure_app "$(app_name "$s" "$user")" "$(svc_icon "$s")" "$(service_url "$s")" "$(ping_url "$s" "$user")") \
             && app_spec "$id"
     done
     if has_service jellyfin; then
