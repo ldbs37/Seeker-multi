@@ -68,7 +68,6 @@ USER_ID=$(id -u "$USERNAME")
 USER_DIR="$INSTALL_DIR/data/users/$USERNAME"
 CONTAINER_NAME="${SERVICE}-${USERNAME}"
 # shellcheck disable=SC2034  # lue par les bibliothèques sourcées
-FB_PASSWORD_HASH=""
 
 if grep -q "^  ${CONTAINER_NAME}:" "$DOCKER_COMPOSE_FILE" \
    || docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then

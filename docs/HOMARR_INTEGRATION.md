@@ -91,7 +91,7 @@ tableau de bord, qui devient aussi sa page d'accueil. Les administrateurs
 (groupe `admins`) voient tout. Un utilisateur connecté avant la création de
 son groupe doit se reconnecter une fois.
 
-#### Connexion unique qBittorrent et Filebrowser
+#### Connexion unique qBittorrent et gestion de fichiers
 
 Ils ont leur propre écran de connexion ; en mode Traefik il est sauté,
 Authelia ayant déjà identifié l'utilisateur. Automatique à l'installation, à
@@ -105,10 +105,30 @@ existantes), sans ouvrir d'accès aux autres conteneurs :
   `traefik_proxy`, doivent toujours s'authentifier. La prise en charge du
   reverse-proxy de qBittorrent est désactivée (sinon un en-tête
   `X-Forwarded-For` forgé imiterait Traefik).
-- **Filebrowser** : authentification « proxy ». Traefik transmet le nom de
-  l'utilisateur (celui du routeur, contrôlé par Authelia) dans un en-tête au
-  nom **secret** (`SSO_HEADER` du `.env`), en écrasant toute valeur envoyée par
-  le client ; sans cet en-tête, Filebrowser refuse.
+- **FileBrowser Quantum** : authentification « proxy ». Traefik transmet le
+  nom de l'utilisateur (celui du routeur, contrôlé par Authelia) dans un
+  en-tête au nom **secret** (`SSO_HEADER` du `.env`), en écrasant toute valeur
+  envoyée par le client ; sans cet en-tête, l'accès est refusé.
+
+#### Gestion de fichiers : FileBrowser Quantum
+
+Remplace Filebrowser, archivé le 1er septembre 2026 (plus aucun correctif de
+sécurité). Une instance par utilisateur (`gtstef/filebrowser`, version
+stable), avec son UID, sur ses fichiers (`data/users/<user>`) :
+`https://<user>.votre-domaine.com/files`. Aperçus (images, vidéos, documents),
+recherche, mode sombre, en français. Configuration générée dans
+`data/users/<user>/config/filebrowser/config.yaml` (`lib_filebrowser.sh`).
+
+**Partage public** : clic droit sur un fichier ou un dossier → *Partager*
+(durée, mot de passe facultatifs). Le lien
+`https://<user>.votre-domaine.com/files/public/share/…` s'ouvre **sans
+compte** : c'est le seul chemin servi sans Authelia (routeur Traefik dédié,
+en-tête de connexion retiré). Traefik normalise les chemins avant de router :
+un `…/public/../` repasse par Authelia.
+
+Migration d'une installation existante : `generate_traefik_labels.sh --yes`
+(nouvelle base FileBrowser, fichiers inchangés ; les anciens réglages de
+Filebrowser ne sont pas repris).
 
 Le mot de passe reste valable pour les accès directs (applis mobiles
 qBittorrent…).
@@ -127,7 +147,7 @@ lui-même**, sans SSH ni intervention de l'admin, depuis la page
 des services » sur son Homarr).
 
 Services proposés : Sonarr, Radarr, Readarr, Bazarr, Prowlarr, Seerr,
-Calibre-Web. qBittorrent, Homarr et Filebrowser (services de base) ne sont
+Calibre-Web. qBittorrent, Homarr et la gestion de fichiers (services de base) ne sont
 pas concernés. Retirer un service **conserve ses données**.
 
 ### Activation

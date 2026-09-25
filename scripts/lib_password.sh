@@ -8,7 +8,7 @@
 # Portainer/Traefik) : aujourd'hui identique.
 #######################
 
-PASSWORD_MIN_LEN=12         # utilisateurs (= minimum par défaut de Filebrowser)
+PASSWORD_MIN_LEN=12         # utilisateurs
 PASSWORD_MIN_LEN_ADMIN=12   # administrateurs (groupe "admins" d'Authelia)
 
 # Règle en clair. $1 = true pour un administrateur

@@ -38,7 +38,7 @@ Ce sous-menu permet de gérer les utilisateurs de la seedbox :
 
 ### 1.1 Ajouter un utilisateur
 
-Crée un nouvel utilisateur avec ses services de base (qBittorrent, Homarr, Filebrowser).
+Crée un nouvel utilisateur avec ses services de base (qBittorrent, Homarr, FileBrowser Quantum).
 
 **Informations demandées:**
 - Nom d'utilisateur

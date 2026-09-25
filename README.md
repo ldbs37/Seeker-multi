@@ -16,7 +16,7 @@ Une solution **simple et efficace** de seedbox multi-utilisateurs avec authentif
 **Services Obligatoires (tous les utilisateurs) :**
 - 📥 **qBittorrent + VueTorrent** - Client torrent moderne
 - 🖥️ **Homarr** - Dashboard personnel avec auto-découverte
-- 📂 **Filebrowser** - Gestionnaire de fichiers web
+- 📂 **FileBrowser Quantum** - Gestionnaire de fichiers web (aperçus, recherche, liens de partage publics)
 
 **Services Optionnels (installables à la demande) :**
 - 📺 **Sonarr** - Gestion de séries TV
@@ -43,7 +43,7 @@ Une solution **simple et efficace** de seedbox multi-utilisateurs avec authentif
 
 ### 👥 Rôles Utilisateurs
 - **Administrateur** (premier utilisateur créé) : Accès aux services système + services utilisateur
-- **Utilisateurs Standard** : Accès uniquement aux services utilisateur (qBittorrent, Homarr, Filebrowser + optionnels)
+- **Utilisateurs Standard** : Accès uniquement aux services utilisateur (qBittorrent, Homarr, FileBrowser Quantum + optionnels)
 
 ### 🔒 Sécurité
 - **SSO (Single Sign-On)** - Un seul login pour tous les services (mode Traefik)
@@ -138,7 +138,7 @@ Le script vous guidera à travers la configuration :
 5. **Utilisateurs supplémentaires (optionnel)**
    - Créés comme utilisateurs standard
    - Choisissez les services optionnels à installer pour chaque utilisateur
-   - Services obligatoires : qBittorrent + Homarr + Filebrowser
+   - Services obligatoires : qBittorrent + Homarr + FileBrowser Quantum
 
 ## 🎮 Menu Interactif de Gestion
 
@@ -208,13 +208,13 @@ sudo ./add_user.sh admin 'Admin!Seedbox42' admin@example.com 1000 --admin
   (`^[a-z][a-z0-9]{0,31}$`) — il sert de sous-domaine et de nom de conteneur.
 - **Mot de passe** : 12 caractères minimum, dont 1 majuscule et 1 caractère
   spécial ; le même mot de passe sert à tous les
-  services (Linux, Authelia, qBittorrent, Filebrowser, Jellyfin). Le compte
+  services (Linux, Authelia, qBittorrent, gestion de fichiers, Jellyfin). Le compte
   admin de Portainer, distinct, demande aussi 12 caractères minimum.
 - **UID** : attribués à partir de 2001 ; chaque utilisateur reçoit un bloc de
   20 ports à partir de 20000 (voir [Accès aux services](#-accès-aux-services)).
 
 **Services installés automatiquement :**
-- **Tous les utilisateurs** : qBittorrent + Homarr + Filebrowser
+- **Tous les utilisateurs** : qBittorrent + Homarr + FileBrowser Quantum
 - **Services optionnels** : Choisis lors de la création (Sonarr, Radarr, etc.)
 - **Mode interactif** : Le script propose une sélection de services à installer
 
@@ -346,11 +346,11 @@ sudo ./update_password.sh <username> [nouveau_mot_de_passe]
 **Si le mot de passe n'est pas fourni, il sera demandé de manière sécurisée.**
 
 **Ce qui est mis à jour automatiquement :**
-- ✅ **Mot de passe du compte système** (compte de service sans accès SSH : les fichiers se gèrent via Filebrowser)
+- ✅ **Mot de passe du compte système** (compte de service sans accès SSH : les fichiers se gèrent via FileBrowser Quantum)
 - ✅ **Mot de passe Authelia** (authentification centralisée)
 - ✅ **Mot de passe Jellyfin** (si configuré avec clé API)
 - ✅ **Mot de passe qBittorrent** (hash PBKDF2 dans fichier config)
-- ✅ **Mot de passe Filebrowser** (via CLI dans le conteneur)
+- ✅ **Mot de passe du gestionnaire de fichiers** (mode port direct ; en mode Traefik, connexion unique)
 
 **Services *arr (Sonarr, Radarr, Prowlarr, etc.) :**
 - 💡 **Recommandé** : Désactiver l'authentification et s'appuyer sur Authelia
@@ -439,7 +439,7 @@ dossier sous le **même** montage `/data`. Sonarr/Radarr importent donc par
 `downloads/` pour le seed et dans `tv/`/`movies/` pour la bibliothèque).
 Dans Sonarr/Radarr, gardez *Settings → Media Management → Use Hardlinks
 instead of Copy* activé et choisissez `/data/tv` (ou `/data/movies`,
-`/data/books`) comme dossier racine. Filebrowser et Jellyfin affichent la
+`/data/books`) comme dossier racine. FileBrowser Quantum et Jellyfin affichent la
 taille des deux entrées, mais le quota ne compte le fichier qu'une fois.
 
 ## 🌐 Accès aux Services
@@ -485,7 +485,7 @@ Chaque utilisateur reçoit un bloc de 20 ports sans collision possible :
 |---------|----------|---------------------------|---------------------------|
 | qBittorrent (WebUI) | 0 | 20000 | 20020 |
 | Homarr | 1 | 20001 | 20021 |
-| Filebrowser | 2 | 20002 | 20022 |
+| FileBrowser Quantum | 2 | 20002 | 20022 |
 | Sonarr | 3 | 20003 | 20023 |
 | Radarr | 4 | 20004 | 20024 |
 | Readarr | 5 | 20005 | 20025 |
@@ -521,7 +521,7 @@ Traefik, Portainer, Scrutiny, Dashdot, Tautulli, Uptime Kuma et Duplicati sont
 #### Services Utilisateur (exemple pour user `john`)
 - **qBittorrent:** `https://john.votre-domaine.com/qbittorrent`
 - **Tableau de bord (Homarr partagé, connexion unique):** `https://votre-domaine.com` (`https://john.votre-domaine.com` y renvoie)
-- **Filebrowser:** `https://john.votre-domaine.com/files`
+- **Fichiers (FileBrowser Quantum):** `https://john.votre-domaine.com/files` — liens de partage publics en `…/files/public/share/…`
 - **Sonarr:** `https://john.votre-domaine.com/sonarr`
 - **Radarr:** `https://john.votre-domaine.com/radarr`
 - **Readarr:** `https://john.votre-domaine.com/readarr`

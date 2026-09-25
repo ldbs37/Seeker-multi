@@ -3,7 +3,7 @@
 #######################
 # Script de modification de mot de passe
 # Usage: ./update_password.sh <username> [nouveau_mot_de_passe]
-# Met à jour : système Linux, Authelia (SSO), qBittorrent, Filebrowser et,
+# Met à jour : système Linux, Authelia (SSO), qBittorrent, gestion de fichiers et,
 # si configuré, Jellyfin — tous avec le même mot de passe.
 #######################
 
@@ -27,13 +27,16 @@ INSTALL_DIR="/opt/seedbox"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AUTHELIA_DB="$INSTALL_DIR/authelia/users_database.yml"
 AUTHELIA_IMAGE="authelia/authelia:4.39.28"
-FILEBROWSER_IMAGE="filebrowser/filebrowser:v2.63.23"
 JELLYFIN_URL="http://localhost:8096"
 
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/lib_qbittorrent.sh" || error "lib_qbittorrent.sh introuvable"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/lib_password.sh" || error "lib_password.sh introuvable"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/lib_traefik.sh" || error "lib_traefik.sh introuvable"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/lib_filebrowser.sh" || error "lib_filebrowser.sh introuvable"
 
 if [ $# -lt 1 ]; then
     echo "Usage: $0 <username> [nouveau_mot_de_passe]"
@@ -140,25 +143,22 @@ if container_exists "$QB" && [ -f "$QB_CONF" ]; then
 fi
 
 #######################
-# 4. Filebrowser (base verrouillée tant que le serveur tourne)
+# 4. Gestion de fichiers (FileBrowser Quantum)
 #######################
+# Connexion unique (mode Traefik) : pas de mot de passe propre. Port direct :
+# mot de passe dans sa configuration, réappliqué au redémarrage.
 FB="filebrowser-$USERNAME"
-FB_CFG="$USER_DIR/config/filebrowser"
-if container_exists "$FB" && [ -f "$FB_CFG/filebrowser.db" ]; then
-    log "Mise à jour du mot de passe Filebrowser..."
-    docker stop "$FB" >/dev/null 2>&1 || true
-    fb_cli() {
-        docker run --rm --user "$USER_ID:$USER_ID" -v "$FB_CFG:/config" \
-            --entrypoint /bin/filebrowser "$FILEBROWSER_IMAGE" -d /config/filebrowser.db "$@"
-    }
-    # Minimum interne de Filebrowser aligné sur la règle seedbox (lib_password)
-    fb_cli config set --minimumPasswordLength "$PASSWORD_MIN_LEN" >/dev/null 2>&1 || true
-    if fb_cli users update "$USERNAME" --password "$NEW_PASSWORD" >/dev/null 2>&1; then
-        UPDATED+=("Filebrowser")
+FB_CFG="$USER_DIR/config/filebrowser/config.yaml"
+traefik_detect "$INSTALL_DIR/.env"
+if container_exists "$FB" && [ -f "$FB_CFG" ] && grep -qE '^      enabled: true$' <(sed -n '/^    password:/,/^    [a-z]/p' "$FB_CFG"); then
+    log "Mise à jour du mot de passe du gestionnaire de fichiers..."
+    if fbq_write_config "$FB_CFG" "$USERNAME" "$NEW_PASSWORD"; then
+        chown "$USER_ID:$USER_ID" "$FB_CFG"
+        docker restart "$FB" >/dev/null 2>&1 || warn "Échec du redémarrage de $FB"
+        UPDATED+=("Fichiers")
     else
-        warn "Impossible de mettre à jour Filebrowser (Paramètres → Gestion des utilisateurs)"
+        warn "Impossible de mettre à jour le gestionnaire de fichiers"
     fi
-    docker start "$FB" >/dev/null 2>&1 || warn "Échec du redémarrage de $FB"
 fi
 
 #######################

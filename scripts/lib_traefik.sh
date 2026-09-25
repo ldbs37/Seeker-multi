@@ -51,7 +51,7 @@ traefik_service_path() {
 # Port interne (dans le conteneur) d'un service en mode Traefik
 traefik_service_port() {
     case "$1" in
-        homarr) echo 7575 ;;      qbittorrent) echo 8080 ;;  filebrowser) echo 80 ;;
+        homarr) echo 7575 ;;      qbittorrent) echo 8080 ;;  filebrowser) echo 8080 ;;
         sonarr) echo 8989 ;;      radarr) echo 7878 ;;       readarr) echo 8787 ;;
         bazarr) echo 6767 ;;      prowlarr) echo 9696 ;;     seerr) echo 5055 ;;
         calibre) echo 8083 ;;
@@ -124,6 +124,17 @@ traefik_user_labels() {
                 echo "      - \"traefik.http.middlewares.${r}-sso.headers.customrequestheaders.${sso_hdr}=${user}\""
                 mw="${mw},${r}-sso"
             fi
+            # Liens de partage publics (FileBrowser Quantum) : seul chemin servi
+            # SANS Authelia ; accès anonyme, en-tête de connexion retiré (valeur vide)
+            echo "      - \"traefik.http.routers.${r}-public.rule=Host(\`${host}\`) && PathPrefix(\`${path}/public/\`)\""
+            echo "      - \"traefik.http.routers.${r}-public.entrypoints=websecure\""
+            echo "      - \"traefik.http.routers.${r}-public.tls.certresolver=letsencrypt\""
+            echo "      - \"traefik.http.routers.${r}-public.service=${r}\""
+            if [ -n "$sso_hdr" ]; then
+                echo "      - \"traefik.http.middlewares.${r}-anon.headers.customrequestheaders.${sso_hdr}=\""
+                echo "      - \"traefik.http.routers.${r}-public.middlewares=${r}-anon\""
+            fi
+            echo "      - \"traefik.http.routers.${r}.service=${r}\""
             ;;
     esac
     echo "      - \"traefik.http.routers.${r}.middlewares=${mw}\""
@@ -176,7 +187,7 @@ traefik_prepare_app() {
 #    (liste blanche /32), sur un réseau dédié « seedbox_sso » où Traefik a une
 #    adresse fixe. Prise en charge du reverse-proxy désactivée : sinon un
 #    conteneur pourrait se faire passer pour Traefik (X-Forwarded-For).
-#  - Filebrowser : authentification « proxy » par un en-tête au nom SECRET
+#  - FileBrowser Quantum : authentification « proxy » par un en-tête au nom SECRET
 #    (SSO_HEADER du .env), posé par Traefik avec le nom de l'utilisateur du
 #    routeur (déjà contrôlé par Authelia) ; inconnu des autres conteneurs.
 # Sans ces réglages (ancienne installation non migrée), les deux services
@@ -266,18 +277,13 @@ qbit_sso_configure() {
     ini_set "$1" Preferences 'WebUI\ReverseProxySupportEnabled' 'false'
 }
 
-# Filebrowser : authentification par l'en-tête posé par Traefik. Base
-# verrouillée tant que le serveur tourne : conteneur arrêté puis relancé.
-# $1=utilisateur $2=UID $3=image Filebrowser
+# FileBrowser Quantum : configuration régénérée (connexion unique par
+# l'en-tête) puis conteneur redémarré s'il existe. $1=utilisateur
 filebrowser_sso_configure() {
-    local user="$1" uid="$2" image="$3" cfg header rc
+    local user="$1" cfg
     cfg="$INSTALL_DIR/data/users/$user/config/filebrowser"
-    header=$(sso_header)
-    [ -n "$header" ] && [ -f "$cfg/filebrowser.db" ] || return 1
-    docker stop "filebrowser-$user" >/dev/null 2>&1 || true
-    docker run --rm --user "$uid:$uid" -v "$cfg:/config" --entrypoint /bin/filebrowser "$image" \
-        -d /config/filebrowser.db config set --auth.method=proxy --auth.header="$header" >/dev/null 2>&1
-    rc=$?
-    docker start "filebrowser-$user" >/dev/null 2>&1 || true
-    return $rc
+    [ -n "$(sso_header)" ] || return 1
+    fbq_write_config "$cfg/config.yaml" "$user" || return 1
+    chown -R "$(id -u "$user"):$(id -g "$user")" "$cfg" 2>/dev/null || true
+    docker restart "filebrowser-$user" >/dev/null 2>&1 || true
 }

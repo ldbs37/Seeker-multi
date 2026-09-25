@@ -7,14 +7,18 @@
 # add_user_service.sh.
 #
 # Pré-requis (variables) : USERNAME USER_ID USER_DIR INSTALL_DIR TZ USE_TRAEFIK
-#                          DOMAIN ; FB_PASSWORD_HASH pour filebrowser.
-# Dépendances : lib_ports.sh, lib_traefik.sh (sourcées par l'appelant).
+#                          DOMAIN.
+# Dépendances : lib_ports.sh, lib_traefik.sh (sourcées par l'appelant) ;
+# lib_filebrowser.sh (sourcée ici).
 #
 # Organisation des données d'un utilisateur ($USER_DIR, monté sur /data) :
 #   downloads/ tv/ movies/ books/ config/
 # Un montage /data unique pour qBittorrent et les *arr permet les imports par
 # hardlink (pas de copie : l'espace disque n'est pas doublé pendant le seed).
 #######################
+
+# shellcheck source=lib_filebrowser.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib_filebrowser.sh"
 
 # shellcheck disable=SC2034  # lue par les bibliothèques sourcées
 USER_SERVICES="qbittorrent homarr filebrowser sonarr radarr readarr bazarr prowlarr seerr calibre"
@@ -23,7 +27,8 @@ service_image() {
     case "$1" in
         qbittorrent) echo "linuxserver/qbittorrent:5.2.3" ;;
         homarr)      echo "ghcr.io/ajnart/homarr:0.16.1" ;;
-        filebrowser) echo "filebrowser/filebrowser:v2.63.23" ;;
+        # FileBrowser Quantum (Filebrowser d'origine archivé le 2026-09-01)
+        filebrowser) echo "$FBQ_IMAGE" ;;
         sonarr)      echo "linuxserver/sonarr:4.0.20" ;;
         radarr)      echo "linuxserver/radarr:6.4.4" ;;
         readarr)     echo "lscr.io/linuxserver/readarr:develop" ;;
@@ -67,6 +72,9 @@ service_prepare() {
             fi
             ;;
         homarr) mkdir -p "$USER_DIR/config/homarr-icons" ;;
+        filebrowser)
+            # Mot de passe utile en mode port direct seulement (sinon connexion unique)
+            fbq_write_config "$cfg/config.yaml" "$USERNAME" "$pass" ;;
     esac
     [ "$USE_TRAEFIK" = true ] && traefik_prepare_app "$svc" "$cfg" "$USER_ID"
     chown -R "$USER_ID:$USER_ID" "$cfg" "$USER_DIR"/{downloads,tv,movies,books} \
@@ -110,16 +118,8 @@ service_block() {
             echo "      - TORRENTING_PORT=${tport}"
             ;;
         filebrowser)
-            echo "      - FB_ROOT=/srv"
-            echo "      - FB_DATABASE=/config/filebrowser.db"
-            echo "      - FB_PORT=80"
-            echo "      - FB_ADDRESS=0.0.0.0"
-            # Compte initial = identifiants seedbox (appliqué uniquement à la
-            # création de la base ; sans effet ensuite)
-            echo "      - FB_USERNAME=${USERNAME}"
-            # bcrypt : "$" doublés pour docker-compose
-            [ -n "${FB_PASSWORD_HASH:-}" ] && echo "      - FB_PASSWORD=${FB_PASSWORD_HASH//\$/\$\$}"
-            [ "$USE_TRAEFIK" = true ] && echo "      - FB_BASE_URL=/files"
+            # Configuration (et base) : config.yaml généré par lib_filebrowser.sh
+            echo "      - FILEBROWSER_CONFIG=/home/filebrowser/data/config.yaml"
             ;;
     esac
     echo "    volumes:"
@@ -132,7 +132,7 @@ service_block() {
             echo "      - ${USER_DIR}/config/homarr-icons:/app/public/icons" ;;
         filebrowser)
             echo "      - ${USER_DIR}:/srv"
-            echo "      - ${cfg}:/config" ;;
+            echo "      - ${cfg}:/home/filebrowser/data" ;;
         prowlarr)
             echo "      - ${cfg}:/config" ;;
         seerr)
@@ -160,6 +160,17 @@ service_block() {
         echo "      timeout: 5s"
         echo "      retries: 3"
         echo "      start_period: 30s"
+    fi
+    if [ "$svc" = filebrowser ]; then
+        # Le HEALTHCHECK de l'image teste le port 80 ; ici 8080 (+ /files)
+        local hpath="/health"
+        [ "$USE_TRAEFIK" = true ] && hpath="$(traefik_service_path filebrowser)/health"
+        echo "    healthcheck:"
+        echo "      test: [\"CMD\", \"curl\", \"-fs\", \"http://localhost:${FBQ_PORT}${hpath}\"]"
+        echo "      interval: 30s"
+        echo "      timeout: 5s"
+        echo "      retries: 3"
+        echo "      start_period: 20s"
     fi
     [ "$USE_TRAEFIK" = true ] && traefik_user_labels "$svc" "$USERNAME"
     echo "    restart: unless-stopped"

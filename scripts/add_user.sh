@@ -119,8 +119,6 @@ AUTHELIA_HASH=$(docker run --rm "$AUTHELIA_IMAGE" authelia crypto hash generate 
                 | grep 'Digest:' | awk '{print $2}') || true
 [[ "$AUTHELIA_HASH" == \$argon2* ]] || error "Impossible de générer le hash Authelia (image $AUTHELIA_IMAGE accessible ?)"
 
-FB_PASSWORD_HASH=$(htpasswd -nbBC 10 "" "$PASSWORD" 2>/dev/null | cut -d: -f2 | tr -d '\n') || true
-[[ "$FB_PASSWORD_HASH" == \$2* ]] || error "Impossible de générer le hash Filebrowser (paquet apache2-utils requis)"
 
 #######################
 # Sélection des services (menu affiché sur stderr : la sélection seule est lue)
@@ -266,16 +264,6 @@ log "Démarrage des conteneurs..."
 cd "$INSTALL_DIR"
 compose_cmd up -d
 
-# Filebrowser : connexion unique via Traefik (base créée au premier démarrage)
-if [ "$USE_TRAEFIK" = true ] && [ -n "$(sso_header)" ]; then
-    for _ in $(seq 1 15); do
-        [ -f "$USER_DIR/config/filebrowser/filebrowser.db" ] && break
-        sleep 1
-    done
-    filebrowser_sso_configure "$USERNAME" "$USER_ID" "$(service_image filebrowser)" \
-        || warn "Filebrowser : connexion unique non appliquée (connexion par mot de passe)"
-fi
-
 # Authelia relit sa base utilisateurs au redémarrage
 docker restart authelia >/dev/null 2>&1 || warn "Redémarrez Authelia pour activer le compte : docker restart authelia"
 
@@ -308,10 +296,11 @@ done
 echo ""
 if [ "$USE_TRAEFIK" = true ]; then
     info "🏠 Tableau de bord : https://$DOMAIN (connexion unique Authelia)"
-    info "💡 Connexion : identifiez-vous sur https://auth.$DOMAIN (SSO)."
-    info "   qBittorrent et Filebrowser demandent ensuite les mêmes identifiants."
+    info "💡 Connexion : identifiez-vous sur https://auth.$DOMAIN (SSO) ;"
+    info "   qBittorrent et les fichiers s'ouvrent ensuite sans mot de passe."
+    info "   Partage public : clic droit sur un fichier → Partager (lien https://$USERNAME.$DOMAIN/files/public/…)."
 else
-    info "💡 qBittorrent et Filebrowser : mêmes identifiants que la seedbox."
+    info "💡 qBittorrent et le gestionnaire de fichiers : mêmes identifiants que la seedbox."
 fi
 echo ""
 info "Pour ajouter d'autres services plus tard:"

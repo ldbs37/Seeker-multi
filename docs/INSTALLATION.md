@@ -262,7 +262,7 @@ Cela créera automatiquement:
 Mode port direct uniquement (en mode Traefik, tout passe par
 `https://alice.votre-domaine.com/...`). Le premier utilisateur (UID 2001)
 obtient le bloc 20000-20019 :
-- qBittorrent: `20000` · Homarr: `20001` · Filebrowser: `20002`
+- qBittorrent: `20000` · Homarr: `20001` · Fichiers (FileBrowser Quantum): `20002`
 - Sonarr: `20003` · Radarr: `20004` · Readarr: `20005`
 - Bazarr: `20006` · Prowlarr: `20007` · Seerr: `20008` · Calibre: `20009`
 - Port torrent entrant (TCP/UDP) : `20010`

@@ -151,7 +151,7 @@ svc_label() {
         calibre) echo "Calibre-Web" ;;     *) echo "$1" ;;
     esac
 }
-svc_icon() { case "$1" in calibre) echo "calibre-web" ;; *) echo "$1" ;; esac; }
+svc_icon() { case "$1" in calibre) echo "calibre-web" ;; filebrowser) echo "filebrowser-quantum" ;; *) echo "$1" ;; esac; }
 app_name() { echo "$(svc_label "$1") ($2)"; }   # applis globales : suffixe utilisateur
 
 # Services système : libellé|icône|sous-domaine|port interne
@@ -188,19 +188,19 @@ print(json.dumps({"name": os.environ["A_N"], "description": None, "iconUrl": os.
                   "href": os.environ["A_H"], "pingUrl": os.environ["A_P"]}))'
 }
 
-# Appli Homarr (globale) : créée si absente ; voyant d'état ajouté aux
-# applis des versions précédentes. $1=nom $2=icône (nom ou URL) $3=lien
+# Appli Homarr (globale) : créée si absente ; mise à jour si son URL de test
+# a changé (voyant d'état absent des versions précédentes, port modifié…). $1=nom $2=icône (nom ou URL) $3=lien
 # $4=URL de test. Affiche son id.
 ensure_app() {
     local name="$1" icon="$2" href="$3" ping="$4" found body apps
     [[ "$icon" == http* ]] || icon="$ICON_BASE/$icon.svg"
     # Liste relue à chaque appel (souvent appelée dans un sous-shell $(...))
     apps=$(hapi GET /apps) || { warn "Liste des applis impossible (HTTP $(http_code))" >&2; return 1; }
-    found=$(J="$apps" N="$name" python3 -c '
+    found=$(J="$apps" N="$name" P="$ping" python3 -c '
 import json, os
 for a in json.loads(os.environ["J"] or "[]"):
     if a.get("name") == os.environ["N"]:
-        print(a["id"], 1 if a.get("pingUrl") else 0); break')
+        print(a["id"], 1 if (a.get("pingUrl") or "") == os.environ["P"] else 0); break')
     if [ -n "$found" ]; then
         if [ "${found#* }" = 0 ] && [ -n "$ping" ]; then
             hapi PATCH "/apps/${found% *}" "$(app_json "$name" "$icon" "$href" "$ping")" >/dev/null || true

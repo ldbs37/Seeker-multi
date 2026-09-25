@@ -2,7 +2,7 @@
 
 ## 🎯 Objectif
 
-Protéger **tous les services** (y compris qBittorrent et Filebrowser) avec Authelia, sans avoir à gérer des mots de passe séparés pour chaque service.
+Protéger **tous les services** (y compris qBittorrent et la gestion de fichiers) avec Authelia, sans avoir à gérer des mots de passe séparés pour chaque service.
 
 ## 📊 Comparaison des Architectures
 
@@ -38,7 +38,7 @@ Protéger **tous les services** (y compris qBittorrent et Filebrowser) avec Auth
 - ✅ **Un seul mot de passe** : Celui d'Authelia
 - ✅ **SSL automatique** : Let's Encrypt via Traefik
 - ✅ **URLs propres** : `user.domain.fr/service`
-- ✅ **Protection complète** : Filebrowser, qBittorrent, *arr, etc.
+- ✅ **Protection complète** : fichiers, qBittorrent, *arr, etc.
 
 ---
 
@@ -200,85 +200,20 @@ notifier:
       - "traefik.http.middlewares.authelia.forwardauth.authResponseHeaders=Remote-User,Remote-Groups,Remote-Name,Remote-Email"
 ```
 
-### 4. Protéger qBittorrent avec Authelia
+### 4. qBittorrent et gestion de fichiers : connexion unique
 
-**Ajouter labels à qBittorrent dans docker-compose.yml :**
+**Automatique** (installation, `add_user.sh`, `generate_traefik_labels.sh`) :
+ne pas désactiver leur authentification à la main. Une liste blanche
+`0.0.0.0/0` ou un `noauth` laisseraient les autres conteneurs (les *arr d'un
+autre utilisateur…) piloter qBittorrent ou lire les fichiers sans passer par
+Authelia.
 
-```yaml
-  qbittorrent-user1:
-    image: linuxserver/qbittorrent:latest
-    container_name: qbittorrent-user1
-    networks:
-      - traefik_proxy
-    environment:
-      - PUID=1001
-      - PGID=1001
-      - TZ=Europe/Paris
-      - WEBUI_PORT=8080
-    volumes:
-      - /opt/seedbox/data/users/user1:/data
-      - /opt/seedbox/data/users/user1/config/qBittorrent:/config
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.qbit-user1.rule=Host(`user1.${DOMAIN}`) && PathPrefix(`/qbittorrent`)"
-      - "traefik.http.routers.qbit-user1.entrypoints=websecure"
-      - "traefik.http.routers.qbit-user1.tls.certresolver=letsencrypt"
-      - "traefik.http.services.qbit-user1.loadbalancer.server.port=8080"
+- **qBittorrent** : seule l'adresse fixe de Traefik, sur le réseau interne
+  dédié `seedbox_sso`, est dispensée de mot de passe.
+- **FileBrowser Quantum** : connexion par un en-tête au nom secret posé par
+  Traefik après Authelia ; liens de partage publics sous `…/files/public/`.
 
-      # Protection Authelia
-      - "traefik.http.routers.qbit-user1.middlewares=authelia@docker"
-    restart: unless-stopped
-    # Ne plus exposer le port directement
-    # ports:
-    #   - "8090:8080"
-```
-
-**Désactiver l'authentification qBittorrent :**
-
-```bash
-# Éditer le fichier de configuration
-nano /opt/seedbox/data/users/user1/config/qBittorrent/qBittorrent.conf
-
-# Chercher et modifier :
-[Preferences]
-WebUI\AuthSubnetWhitelistEnabled=true
-WebUI\AuthSubnetWhitelist=0.0.0.0/0
-# Ou simplement supprimer la ligne WebUI\Password_PBKDF2
-```
-
-### 5. Protéger Filebrowser avec Authelia
-
-```yaml
-  filebrowser-user1:
-    image: filebrowser/filebrowser:latest
-    container_name: filebrowser-user1
-    networks:
-      - traefik_proxy
-    environment:
-      - PUID=1001
-      - PGID=1001
-      - TZ=Europe/Paris
-    volumes:
-      - /opt/seedbox/data/users/user1:/srv
-      - /opt/seedbox/filebrowser/user1:/database
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.fb-user1.rule=Host(`user1.${DOMAIN}`) && PathPrefix(`/files`)"
-      - "traefik.http.routers.fb-user1.entrypoints=websecure"
-      - "traefik.http.routers.fb-user1.tls.certresolver=letsencrypt"
-      - "traefik.http.services.fb-user1.loadbalancer.server.port=80"
-
-      # Protection Authelia
-      - "traefik.http.routers.fb-user1.middlewares=authelia@docker"
-    restart: unless-stopped
-```
-
-**Désactiver l'authentification Filebrowser :**
-
-```bash
-# Commande dans le conteneur
-docker exec filebrowser-user1 filebrowser config set --auth.method=noauth
-```
+Détails : [HOMARR_INTEGRATION.md](HOMARR_INTEGRATION.md#connexion-unique-qbittorrent-et-gestion-de-fichiers).
 
 ### 6. Protéger Services *arr avec Authelia
 
@@ -378,7 +313,7 @@ Connexion à https://auth.votre-domain.fr
  ↓
 Accès automatique à TOUS les services :
  • https://user1.votre-domain.fr/qbittorrent  → qBittorrent sans login
- • https://user1.votre-domain.fr/files        → Filebrowser sans login
+ • https://user1.votre-domain.fr/files        → FileBrowser Quantum sans login
  • https://user1.votre-domain.fr/sonarr       → Sonarr sans login
  • https://user1.votre-domain.fr/radarr       → Radarr sans login
  • etc.

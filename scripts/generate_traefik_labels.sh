@@ -105,8 +105,6 @@ if homarr_prepare; then AUTHELIA_CHANGED=true; fi
 # Groupes personnels u-<user> (droits sur les tableaux de bord Homarr)
 authelia_ensure_user_groups "$INSTALL_DIR/authelia/users_database.yml" && AUTHELIA_CHANGED=true
 compose_extract_blocks "${DOCKER_COMPOSE_FILE}.pre-migration" traefik >> "$TMP"
-# shellcheck disable=SC2034  # lue par les bibliothèques sourcées
-FB_PASSWORD_HASH=""
 for e in "${USER_ENTRIES[@]}"; do
     svc=${e%%:*}; USERNAME=${e#*:}
     USER_ID=$(id -u "$USERNAME"); USER_DIR="$INSTALL_DIR/data/users/$USERNAME"
@@ -150,6 +148,11 @@ for e in "${USER_ENTRIES[@]}"; do
                 ini_set "$conf" Preferences 'WebUI\TrustedReverseProxiesList' "$PROXY_NET"
                 chown "$USER_ID:$USER_ID" "$conf"
             fi ;;
+        filebrowser)
+            # FileBrowser Quantum (remplace Filebrowser, archivé) : configuration
+            # avec connexion unique ; nouvelle base (fichiers inchangés)
+            fbq_write_config "$cfg/config.yaml" "$USERNAME"
+            chown -R "$USER_ID:$USER_ID" "$cfg" ;;
         *) traefik_prepare_app "$svc" "$cfg" "$USER_ID" ;;
     esac
     DONE_USERS[$USERNAME]=1
@@ -173,20 +176,6 @@ fi
 for u in "${!DONE_USERS[@]}"; do
     "$SCRIPT_DIR/configure_homarr.sh" "$u" >/dev/null 2>&1 || warn "Homarr de $u non régénéré"
 done
-
-# Filebrowser : connexion par l'en-tête posé par Traefik (base modifiée
-# conteneur arrêté ; sans effet si déjà fait)
-if [ "$SSO_OK" = true ]; then
-    for e in "${USER_ENTRIES[@]}"; do
-        [ "${e%%:*}" = filebrowser ] || continue
-        u=${e#*:}
-        if filebrowser_sso_configure "$u" "$(id -u "$u")" "$(service_image filebrowser)"; then
-            log "✓ Filebrowser ($u) : connexion unique"
-        else
-            warn "Filebrowser ($u) : connexion unique non appliquée (mot de passe conservé)"
-        fi
-    done
-fi
 
 # Accueil https://<domaine> (Homarr partagé) : règle d'accès + redirection
 # après connexion (configurations Authelia antérieures), client OIDC

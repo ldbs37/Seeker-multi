@@ -11,7 +11,7 @@ Le plus simple reste le menu : `sudo /opt/seedbox/menu.sh`.
 sudo ./add_user.sh <username> <password> <email> [quota_gb] [--admin]
 ```
 Crée le compte système (UID ≥ 2001), le compte Authelia, les dossiers, le
-quota projet et les services de base **qBittorrent + Homarr + Filebrowser**,
+quota projet et les services de base **qBittorrent + Homarr + FileBrowser Quantum**,
 tous avec les mêmes identifiants. En terminal interactif, propose ensuite les
 services optionnels.
 
@@ -52,7 +52,7 @@ Retire conteneurs, blocs du `docker-compose.yml`, compte Authelia, règle de
 pare-feu, quota et compte système. Refuse de supprimer le dernier administrateur.
 
 > Les comptes seedbox sont des **comptes de service sans shell** (pas d'accès
-> SSH/SFTP) : les fichiers se gèrent via Filebrowser.
+> SSH/SFTP) : les fichiers se gèrent via FileBrowser Quantum.
 
 ### `remove_service.sh`
 ```bash
@@ -66,7 +66,7 @@ services de base d'un utilisateur ne peuvent pas être retirés ainsi.
 ```bash
 sudo ./update_password.sh <username> [nouveau_mot_de_passe]
 ```
-Met à jour : Linux, Authelia, qBittorrent, Filebrowser et Jellyfin (si clé API).
+Met à jour : Linux, Authelia, qBittorrent, gestionnaire de fichiers (mode port direct) et Jellyfin (si clé API).
 Sans mot de passe en argument, il est demandé de façon masquée.
 
 ### `update_quota.sh` / `enable_quotas.sh`
@@ -137,7 +137,7 @@ Bloc de 20 ports par utilisateur : `20000 + (UID − 2001) × 20 + décalage`.
 |---------|----------|----------|----------|
 | qBittorrent | 0 | 20000 | 20020 |
 | Homarr | 1 | 20001 | 20021 |
-| Filebrowser | 2 | 20002 | 20022 |
+| FileBrowser Quantum | 2 | 20002 | 20022 |
 | Sonarr | 3 | 20003 | 20023 |
 | Radarr | 4 | 20004 | 20024 |
 | Readarr | 5 | 20005 | 20025 |
@@ -174,7 +174,7 @@ utilisez `/data/tv`, `/data/movies` ou `/data/books` comme dossier racine et
 Sourcées par les scripts, source unique de vérité :
 `lib_ports.sh` (UID/ports), `lib_services.sh` (blocs compose utilisateur),
 `lib_traefik.sh` (routage), `lib_compose_base.sh` (services système),
-`lib_qbittorrent.sh` (hash PBKDF2), `lib_autoconfig.sh` (Portainer/Jellyfin),
+`lib_qbittorrent.sh` (hash PBKDF2), `lib_filebrowser.sh` (FileBrowser Quantum), `lib_autoconfig.sh` (Portainer/Jellyfin),
 `lib_quota.sh` (quotas projet).
 
 ## 🛠️ Dépannage
