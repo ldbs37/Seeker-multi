@@ -206,10 +206,10 @@ sudo ./add_user.sh admin 'Admin!Seedbox42' admin@example.com 1000 --admin
 **Règles :**
 - **Nom d'utilisateur** : minuscules et chiffres, commence par une lettre
   (`^[a-z][a-z0-9]{0,31}$`) — il sert de sous-domaine et de nom de conteneur.
-- **Mot de passe** : 12 caractères minimum, dont 1 majuscule et 1 caractère
+- **Mot de passe** : 8 caractères minimum, dont 1 majuscule et 1 caractère
   spécial ; le même mot de passe sert à tous les
   services (Linux, Authelia, qBittorrent, gestion de fichiers, Jellyfin). Le compte
-  admin de Portainer, distinct, demande aussi 12 caractères minimum.
+  admin de Portainer, distinct, demande 12 caractères minimum.
 - **UID** : attribués à partir de 2001 ; chaque utilisateur reçoit un bloc de
   20 ports à partir de 20000 (voir [Accès aux services](#-accès-aux-services)).
 

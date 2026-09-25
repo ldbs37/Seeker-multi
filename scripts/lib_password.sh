@@ -3,13 +3,15 @@
 # lib_password.sh — Règle de mot de passe des comptes seedbox (source unique)
 #
 # Utilisée par install.sh, add_user.sh, update_password.sh et menu.sh.
-# Le même mot de passe sert à Linux, Authelia, qBittorrent, Filebrowser et
-# Jellyfin. Minimum distinct possible pour les administrateurs (accès
-# Portainer/Traefik) : aujourd'hui identique.
+# Le même mot de passe sert à Linux, Authelia, qBittorrent, la gestion de
+# fichiers (FileBrowser Quantum, minimum aligné) et Jellyfin ; aucun n'exige
+# plus de 8 caractères (qBittorrent : 6). Minimum distinct possible pour les
+# administrateurs : aujourd'hui identique. (Portainer a son propre mot de
+# passe administrateur, 12 caractères minimum, demandé à part.)
 #######################
 
-PASSWORD_MIN_LEN=12         # utilisateurs
-PASSWORD_MIN_LEN_ADMIN=12   # administrateurs (groupe "admins" d'Authelia)
+PASSWORD_MIN_LEN=8          # utilisateurs
+PASSWORD_MIN_LEN_ADMIN=8    # administrateurs (groupe "admins" d'Authelia)
 
 # Règle en clair. $1 = true pour un administrateur
 password_policy() {

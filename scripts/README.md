@@ -16,7 +16,7 @@ tous avec les mêmes identifiants. En terminal interactif, propose ensuite les
 services optionnels.
 
 - `username` : `^[a-z][a-z0-9]{0,31}$` (sert de sous-domaine et de nom de conteneur)
-- `password` : 12 caractères minimum, dont 1 majuscule et 1 caractère spécial
+- `password` : 8 caractères minimum, dont 1 majuscule et 1 caractère spécial
 - `quota_gb` : 500 par défaut, 0 = illimité (quotas à activer avant, voir `enable_quotas.sh`)
 - `--admin` : membre du groupe `admins` d'Authelia (accès Traefik, Portainer…)
 
