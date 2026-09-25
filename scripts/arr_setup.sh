@@ -11,6 +11,7 @@
 #
 # Usage: arr_setup.sh <user>   # un utilisateur
 #        arr_setup.sh --all    # tous les utilisateurs
+#        arr_setup.sh --seerr-sessions   # prolonge les sessions Seerr (timer quotidien)
 #######################
 
 set -u
@@ -31,10 +32,18 @@ for lib in lib_ports lib_traefik lib_services lib_qbittorrent lib_homarr lib_arr
     source "$SCRIPT_DIR/$lib.sh"
 done
 
-[ $# -eq 1 ] || { echo "Usage: $0 <user> | --all"; exit 1; }
+[ $# -eq 1 ] || { echo "Usage: $0 <user> | --all | --seerr-sessions"; exit 1; }
 [[ $EUID -eq 0 ]] || fail "Ce script doit être exécuté en tant que root"
 [ -f "$DOCKER_COMPOSE_FILE" ] || fail "docker-compose.yml introuvable ($DOCKER_COMPOSE_FILE)"
 traefik_require "$ENV_FILE"
+
+# Prolongation des sessions Seerr (connexion automatique), sans redémarrage
+if [ "$1" = --seerr-sessions ]; then
+    for u in $(sed -n 's/^  seerr-\([a-z_][a-z0-9_-]*\):$/\1/p' "$DOCKER_COMPOSE_FILE"); do
+        seerr_session_refresh "$u" || warn "Session Seerr de $u non prolongée"
+    done
+    exit 0
+fi
 
 if [ "$1" = --all ]; then
     USERS=$(sed -n 's/^  \(sonarr\|radarr\|readarr\|prowlarr\|calibre\|seerr\)-\([a-z_][a-z0-9_-]*\):$/\2/p' "$DOCKER_COMPOSE_FILE" | sort -u)
@@ -60,7 +69,8 @@ for u in $USERS; do
     fi
     if grep -q "^  seerr-$u:" "$DOCKER_COMPOSE_FILE"; then
         if seerr_configure "$u"; then
-            log "✓ $u : Seerr (Jellyfin, ses bibliothèques, Sonarr/Radarr)"
+            seerr_sessions_timer_ensure
+            log "✓ $u : Seerr (Jellyfin, ses bibliothèques, Sonarr/Radarr, connexion automatique)"
         else
             warn "$u : configuration de Seerr incomplète (relancez : $0 $u)"; RC=1
         fi

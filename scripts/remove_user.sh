@@ -158,6 +158,9 @@ else
     info "Données conservées dans $INSTALL_DIR/data/users/$USERNAME"
 fi
 
+# Secrets de la connexion automatique à Seerr
+rm -f "${INSTALL_DIR:?}/secrets/seerr-${USERNAME:?}.env"
+
 # 7) Compte système (et son groupe)
 log "Suppression de l'utilisateur système..."
 USER_HOME=$(getent passwd "$USERNAME" | cut -d: -f6)

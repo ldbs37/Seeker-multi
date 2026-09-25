@@ -49,6 +49,36 @@ traefik_require() {
     exit 1
 }
 
+# Seerr : connexion automatique. Seerr n'a ni OIDC ni authentification par
+# en-tête ; chaque Seerr n'a qu'un utilisateur (son propriétaire). La seedbox
+# lui fixe son secret de signature (clientId) et crée une session pour son
+# administrateur (lib_seerr.sh) ; Traefik présente cette session (cookie
+# connect.sid) à chaque requête passée par Authelia. Secrets (root) :
+# $INSTALL_DIR/secrets/seerr-<user>.env. $1=utilisateur $2=SEERR_CLIENT_ID|SEERR_SESSION_ID
+seerr_secret() {
+    local f="$INSTALL_DIR/secrets/seerr-$1.env" v
+    mkdir -p "$INSTALL_DIR/secrets"; chmod 700 "$INSTALL_DIR/secrets"
+    v=$(grep "^$2=" "$f" 2>/dev/null | cut -d= -f2-)
+    if [ -z "$v" ]; then
+        case "$2" in
+            SEERR_CLIENT_ID) v=$(python3 -c 'import uuid; print(uuid.uuid4())') ;;
+            *) v=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))') ;;
+        esac
+        echo "$2=$v" >> "$f"
+    fi
+    chmod 600 "$f"
+    echo "$v"
+}
+
+# Cookie de session Seerr signé (express-session / cookie-signature) de $1
+seerr_session_cookie() {
+    CID=$(seerr_secret "$1" SEERR_CLIENT_ID) SID=$(seerr_secret "$1" SEERR_SESSION_ID) python3 -c '
+import base64, hashlib, hmac, os
+sid = os.environ["SID"]
+sig = base64.b64encode(hmac.new(os.environ["CID"].encode(), sid.encode(), hashlib.sha256).digest()).decode().rstrip("=")
+print("connect.sid=s:%s.%s" % (sid, sig))'
+}
+
 # Chemin public d'un service ("" = racine, "SUBDOMAIN" = sous-domaine dédié)
 traefik_service_path() {
     case "$1" in
@@ -254,6 +284,30 @@ traefik_user_labels() {
             echo "      - \"traefik.http.middlewares.${r}-noref.headers.customrequestheaders.Referer=\""
             mw="${mw},${r}-slash,${r}-strip,${r}-noref"
             ;;
+        seerr)
+            # Connexion automatique : session du propriétaire (seerr_secret) ;
+            # tout cookie envoyé par le navigateur est remplacé
+            echo "      - \"traefik.http.middlewares.${r}-sess.headers.customrequestheaders.Cookie=$(seerr_session_cookie "$user")\""
+            mw="${mw},${r}-sess"
+            # « Déconnexion » de Seerr : déconnexion d'Authelia (la session
+            # injectée, elle, doit rester valide)
+            echo "      - \"traefik.http.routers.${r}-logout.rule=Host(\`${host}\`) && Path(\`/api/v1/auth/logout\`)\""
+            echo "      - \"traefik.http.routers.${r}-logout.entrypoints=websecure\""
+            echo "      - \"traefik.http.routers.${r}-logout.tls.certresolver=letsencrypt\""
+            echo "      - \"traefik.http.routers.${r}-logout.service=authelia@docker\""
+            echo "      - \"traefik.http.middlewares.${r}-logout.replacepath.path=/api/logout\""
+            echo "      - \"traefik.http.routers.${r}-logout.middlewares=${r}-logout\""
+            echo "      - \"traefik.http.routers.${r}.service=${r}\""
+            # Seerr ne gère pas de sous-chemin : https://<user>.<domaine>/seerr
+            # renvoie vers son sous-domaine
+            echo "      - \"traefik.http.routers.${r}-path.rule=Host(\`${user}.${DOMAIN}\`) && PathPrefix(\`/seerr\`)\""
+            echo "      - \"traefik.http.routers.${r}-path.entrypoints=websecure\""
+            echo "      - \"traefik.http.routers.${r}-path.tls.certresolver=letsencrypt\""
+            echo "      - \"traefik.http.routers.${r}-path.service=${r}\""
+            echo "      - \"traefik.http.middlewares.${r}-path.redirectregex.regex=^.*\$\$\""
+            echo "      - \"traefik.http.middlewares.${r}-path.redirectregex.replacement=https://${host}/\""
+            echo "      - \"traefik.http.routers.${r}-path.middlewares=authelia@docker,${r}-path\""
+            ;;
         calibre)
             echo "      - \"traefik.http.middlewares.${r}-hdr.headers.customrequestheaders.X-Script-Name=/calibre\""
             # Connexion unique : utilisateur du routeur (contrôlé par Authelia)
@@ -368,15 +422,32 @@ sso_env_ensure() {
 
 # Réseau dédié Traefik ↔ qBittorrent, sur un sous-réseau sans chevauchement
 # (réseaux Docker et routes de l'hôte). Adresse fixe de Traefik :
-# TRAEFIK_SSO_IP du .env. Idempotent.
+# TRAEFIK_SSO_IP du .env (.2), HORS de la plage distribuée aux autres
+# conteneurs (--ip-range : seconde moitié du sous-réseau) — sinon un
+# qBittorrent démarré avant Traefik pouvait prendre son adresse (« Address
+# already in use », Traefik ne démarrait plus). Un réseau créé sans cette
+# plage (versions précédentes) est recréé : ses conteneurs sont supprimés,
+# `compose up` les recrée. Idempotent.
 sso_net_ensure() {
-    local env="$INSTALL_DIR/.env" subnet ip used
+    local env="$INSTALL_DIR/.env" subnet ip used range cur c
     sso_env_ensure || return 1
-    if ! docker network inspect "$SSO_NET" >/dev/null 2>&1; then
+    if docker network inspect "$SSO_NET" >/dev/null 2>&1; then
+        subnet=$(docker network inspect "$SSO_NET" -f '{{(index .IPAM.Config 0).Subnet}}' 2>/dev/null)
+        cur=$(docker network inspect "$SSO_NET" -f '{{(index .IPAM.Config 0).IPRange}}' 2>/dev/null)
+        range=$(_sso_ip_range "$subnet")
+        if [ -n "$range" ] && [ "$cur" != "$range" ]; then
+            echo "Réseau $SSO_NET recréé (adresse de Traefik réservée)" >&2
+            for c in $(docker network inspect "$SSO_NET" -f '{{range .Containers}}{{.Name}} {{end}}' 2>/dev/null); do
+                docker rm -f "$c" >/dev/null 2>&1 || true
+            done
+            docker network rm "$SSO_NET" >/dev/null || return 1
+            docker network create --internal --subnet "$subnet" --ip-range "$range" "$SSO_NET" >/dev/null || return 1
+        fi
+    else
         used=$(_used_subnets)
         subnet=$(_free_subnet "$used" 172.31.254.0/24 10.254.254.0/24 192.168.254.0/24 172.30.254.0/24)
         [ -n "$subnet" ] || { echo "Aucun sous-réseau libre pour $SSO_NET" >&2; return 1; }
-        docker network create --internal --subnet "$subnet" "$SSO_NET" >/dev/null || return 1
+        docker network create --internal --subnet "$subnet" --ip-range "$(_sso_ip_range "$subnet")" "$SSO_NET" >/dev/null || return 1
     fi
     subnet=$(docker network inspect "$SSO_NET" -f '{{(index .IPAM.Config 0).Subnet}}' 2>/dev/null)
     ip=$(python3 -c 'import ipaddress,sys; print(ipaddress.ip_network(sys.argv[1])[2])' "$subnet" 2>/dev/null)
@@ -384,6 +455,12 @@ sso_net_ensure() {
     sed -i '/^TRAEFIK_SSO_IP=/d' "$env"
     echo "TRAEFIK_SSO_IP=$ip" >> "$env"
     chmod 600 "$env"
+}
+
+# Plage distribuée par Docker sur le réseau dédié : seconde moitié du
+# sous-réseau $1 (l'adresse fixe de Traefik, .2, n'en fait pas partie)
+_sso_ip_range() {
+    python3 -c 'import ipaddress,sys; print(list(ipaddress.ip_network(sys.argv[1]).subnets(prefixlen_diff=1))[1])' "$1" 2>/dev/null
 }
 
 # Ajoute au compose le réseau dédié : déclaration, et Traefik à son adresse

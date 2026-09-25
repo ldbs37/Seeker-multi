@@ -74,7 +74,7 @@ print(json.dumps(d))'
 # si configuré (ou déjà configuré).
 seerr_configure() {
     local user="$1" dir="$INSTALL_DIR/seerr/$1" settings db tok="" jid="" libs="[]" info="{}" \
-          sonarr="" radarr="" email state region
+          sonarr="" radarr="" email state region cid
     settings="$dir/settings.json"; db="$dir/db/db.sqlite3"
     _wait_config "$settings" "seerr-$user" || return 1
     for _ in $(seq 1 30); do [ -s "$db" ] && break; sleep 2; done
@@ -100,10 +100,13 @@ print(json.dumps([{"id": f["ItemId"], "name": f["Name"], "enabled": True, "type"
     fi
 
     region=$(lang_jellyfin "$(seedbox_lang)" | cut -d' ' -f2)
+    cid=$(seerr_secret "$user" SEERR_CLIENT_ID)
     # Déjà configuré et rien à changer : pas de redémarrage
-    if [ "$state" = init ] && SONARR="$sonarr" RADARR="$radarr" python3 -c '
+    if [ "$state" = init ] && CID="$cid" SONARR="$sonarr" RADARR="$radarr" python3 -c '
 import json, os, sys
 s = json.load(open(sys.argv[1]))
+if s.get("clientId") != os.environ["CID"]:
+    sys.exit(1)
 if s["jellyfin"].get("ip") == "jellyfin" and (s["main"].get("localLogin") or s["main"].get("newPlexLogin")
         or not s["main"].get("streamingRegion") or not s["main"].get("discoverRegion")):
     sys.exit(1)
@@ -111,15 +114,18 @@ for k in ("sonarr", "radarr"):
     v = os.environ[k.upper()]
     if v and not any(x.get("hostname") == json.loads(v)["hostname"] for x in s.get(k, [])):
         sys.exit(1)' "$settings"; then
+        seerr_session_refresh "$user"
         return 0
     fi
     docker stop "seerr-$user" >/dev/null 2>&1 || true
-    REGION="$region" ST="$state" TOK="$tok" JID="$jid" LIBS="$libs" INFO="$info" SONARR="$sonarr" RADARR="$radarr" \
+    CID="$cid" REGION="$region" ST="$state" TOK="$tok" JID="$jid" LIBS="$libs" INFO="$info" SONARR="$sonarr" RADARR="$radarr" \
     U="$user" D="$DOMAIN" EMAIL="${email:-$user@$DOMAIN}" LANG_SB="$(seedbox_lang)" \
     DEV="${SEERR_DEVICE_PREFIX}${user}" python3 - "$settings" "$db" << 'PY'
 import json, os, sqlite3, sys
 e = os.environ; path, db = sys.argv[1], sys.argv[2]
 s = json.load(open(path))
+# Secret de signature des sessions fixé par la seedbox (connexion automatique)
+s["clientId"] = e["CID"]
 if e["ST"] == "new":
     info = json.loads(e["INFO"].lstrip("﻿"))
     s["main"].update(mediaServerType=2, mediaServerLogin=True,
@@ -160,6 +166,50 @@ for key, env in (("sonarr", "SONARR"), ("radarr", "RADARR")):
 open(path, "w").write(json.dumps(s, indent=1))
 PY
     local rc=$?
+    seerr_session_refresh "$user" || rc=1
     docker start "seerr-$user" >/dev/null 2>&1 || true
     return $rc
+}
+
+# Session de l'administrateur (id 1) présentée par Traefik : créée ou
+# prolongée (Seerr la raccourcit à 30 jours à chaque usage). Possible Seerr
+# en marche. $1=utilisateur
+seerr_session_refresh() {
+    local db="$INSTALL_DIR/seerr/$1/db/db.sqlite3"
+    [ -s "$db" ] || return 1
+    SID=$(seerr_secret "$1" SEERR_SESSION_ID) python3 - "$db" << 'PY'
+import json, os, sqlite3, sys
+c = sqlite3.connect(sys.argv[1], timeout=30)
+sess = {"cookie": {"originalMaxAge": 2592000000, "expires": "2100-01-01T00:00:00.000Z",
+                   "httpOnly": True, "path": "/", "sameSite": "lax"}, "userId": 1}
+c.execute("insert or replace into session (id, expiredAt, json) values (?, ?, ?)",
+          (os.environ["SID"], 4102444800000, json.dumps(sess)))
+c.commit()
+PY
+}
+
+# Prolongation quotidienne des sessions Seerr (timer systemd)
+seerr_sessions_timer_ensure() {
+    command -v systemctl >/dev/null 2>&1 || return 0
+    [ -f /etc/systemd/system/seedbox-seerr-sessions.timer ] && return 0
+    cat > /etc/systemd/system/seedbox-seerr-sessions.service << EOF
+[Unit]
+Description=Seedbox - prolongation des sessions Seerr (connexion automatique)
+
+[Service]
+Type=oneshot
+ExecStart=$SCRIPT_DIR/arr_setup.sh --seerr-sessions
+EOF
+    cat > /etc/systemd/system/seedbox-seerr-sessions.timer << 'EOF'
+[Unit]
+Description=Seedbox - prolongation quotidienne des sessions Seerr
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+    systemctl daemon-reload >/dev/null 2>&1 && systemctl enable --now seedbox-seerr-sessions.timer >/dev/null 2>&1 || true
 }

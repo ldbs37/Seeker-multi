@@ -26,15 +26,12 @@ Une solution **simple et efficace** de seedbox multi-utilisateurs avec authentif
 - 📖 **Calibre-web** - Bibliothèque ebooks
 
 **Tout est préconfiguré** :
-- 🔐 Connexion unique via Authelia : aucune page de connexion (Seerr : identifiants Jellyfin)
+- 🔐 Connexion unique via Authelia : aucune page de connexion, Seerr compris
 - 🔗 Sonarr / Radarr → qBittorrent, dossiers `tv/` et `movies/`
 - 🔍 Prowlarr → Sonarr / Radarr, avec son FlareSolverr
 - 📝 Seerr → Jellyfin (seulement vos bibliothèques) et Sonarr / Radarr ; demandes validées automatiquement
 - 📖 Calibre-web → bibliothèque `books/`
 - 🛡️ Chaque utilisateur a son réseau Docker privé : les autres ne peuvent pas joindre ses services
-
-> Readarr (abandonné par ses auteurs), Bazarr, Plex et Tautulli ne sont plus
-> proposés ; une installation existante les conserve.
 
 ### 🛡️ Services Système (accès administrateur)
 - 🔐 **Authelia** - Authentification centralisée
@@ -644,11 +641,13 @@ Pour plus d'informations, consultez la documentation dans `/docs` :
 Les services suivants créent automatiquement le compte administrateur :
 - ✓ **Portainer** - Le script collecte les identifiants et crée le compte admin via l'API
 - ✓ **Jellyfin** - Auto-configuration via l'API de démarrage Jellyfin
+- ✓ **Duplicati** - Sauvegarde chiffrée de la configuration, chaque nuit (destination à remplacer par une distante)
+- ✓ **Scrutiny** - Disques derrière un contrôleur RAID détectés, premier relevé immédiat
 
 ### Services Nécessitant Configuration Manuelle
 
 Ces services requièrent une configuration via l'interface web au premier accès :
-- ⚠️ **Uptime Kuma**, **Duplicati**
+- ⚠️ **Uptime Kuma**
 
 Voir [AUTO_CONFIGURATION.md](docs/AUTO_CONFIGURATION.md) pour les détails complets.
 
