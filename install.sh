@@ -824,6 +824,8 @@ deploy_services() {
     if [ "$INSTALL_PORTAINER" = true ] && [ -n "$PORTAINER_USER" ] && [ -n "$PORTAINER_PASSWORD" ]; then
         autoconfig_portainer "$PORTAINER_USER" "$PORTAINER_PASSWORD" || true
     fi
+    # Scrutiny : disques derrière un contrôleur RAID, premier relevé
+    [ "$INSTALL_SCRUTINY" = true ] && { autoconfig_scrutiny "$INSTALL_DIR" || true; }
     # Jellyfin : administrateur = premier utilisateur (même mot de passe),
     # comptes et bibliothèques privées de chacun, connexion via Authelia
     if [ "$INSTALL_JELLYFIN" = true ]; then

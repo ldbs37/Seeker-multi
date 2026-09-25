@@ -1,7 +1,8 @@
 #!/bin/bash
 #######################
 # lib_autoconfig.sh — Création automatique des comptes administrateur
-# Portainer et Jellyfin via leur API (utilisée par install.sh et add_service.sh).
+# Portainer et Jellyfin via leur API, disques de Scrutiny (utilisée par
+# install.sh et add_service.sh).
 # À sourcer. Requiert les fonctions log/warn/info de l'appelant.
 #######################
 
@@ -82,4 +83,48 @@ autoconfig_jellyfin() {
         *)       warn "Création admin Jellyfin échouée (HTTP $code) — terminez l'assistant sur http://<serveur>:8096"
                  return 1 ;;
     esac
+}
+
+# Scrutiny : disques derrière un contrôleur RAID matériel (LSI/Dell PERC…).
+# Le système n'y voit qu'un disque virtuel sans SMART ; les disques physiques
+# sont joignables par /dev/sg*. Écrit collector.yaml (disque virtuel ignoré,
+# disques physiques ajoutés) s'il n'existe pas, puis lance un premier relevé
+# (sinon rien avant minuit). $1 = INSTALL_DIR (défaut /opt/seedbox)
+autoconfig_scrutiny() {
+    local dir="${1:-/opt/seedbox}" cfg d out serials="" ignore="" devs="" type _
+    cfg="$dir/scrutiny/config/collector.yaml"
+    for _ in $(seq 1 30); do docker exec scrutiny true >/dev/null 2>&1 && break; sleep 2; done
+    docker exec scrutiny true >/dev/null 2>&1 || { warn "Scrutiny ne répond pas : configuration des disques non faite"; return 1; }
+    if [ ! -f "$cfg" ]; then
+        # Disques « blocs » : virtuels (sans SMART) à ignorer, numéros de série des autres
+        for d in /dev/sd? /dev/nvme?n1; do
+            [ -e "$d" ] || continue
+            out=$(docker exec scrutiny smartctl -i "$d" 2>/dev/null)
+            if grep -qi "Virtual Disk\|lacks SMART" <<< "$out"; then
+                ignore+="  - device: $d"$'\n'"    ignore: true"$'\n'
+            else
+                serials+=" $(sed -n 's/^Serial [Nn]umber: *//p' <<< "$out")"
+            fi
+        done
+        # Disques physiques derrière le contrôleur (pas déjà vus en /dev/sd*)
+        if [ -n "$ignore" ]; then
+            for d in /dev/sg*; do
+                [ -e "$d" ] || continue
+                out=$(docker exec scrutiny smartctl -i "$d" 2>/dev/null)
+                grep -q "SMART support is: *Enabled" <<< "$out" || continue
+                grep -qi "Virtual Disk" <<< "$out" && continue
+                [[ " $serials " == *" $(sed -n 's/^Serial [Nn]umber: *//p' <<< "$out") "* ]] && continue
+                type=scsi; grep -q "^Device Model:" <<< "$out" && type=sat
+                devs+="  - device: $d"$'\n'"    type: '$type'"$'\n'
+            done
+        fi
+        if [ -n "$devs" ]; then
+            printf 'version: 1\n# Généré par la seedbox : contrôleur RAID matériel\ndevices:\n%s%s' "$ignore" "$devs" > "$cfg"
+            log "Scrutiny : disques physiques derrière le contrôleur RAID ajoutés ($(grep -c 'type:' "$cfg"))"
+        fi
+    fi
+    # Premier relevé (ensuite : chaque nuit)
+    docker exec scrutiny scrutiny-collector-metrics run >/dev/null 2>&1 \
+        && log "Scrutiny : premier relevé des disques effectué" \
+        || warn "Scrutiny : premier relevé en échec (docker exec scrutiny scrutiny-collector-metrics run)"
 }

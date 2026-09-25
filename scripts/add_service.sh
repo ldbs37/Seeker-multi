@@ -104,6 +104,7 @@ compose_cmd up -d "$SERVICE"
 
 case "$SERVICE" in
     portainer) autoconfig_portainer "$ADMIN_USER" "$ADMIN_PASS" || true ;;
+    scrutiny)  autoconfig_scrutiny "$INSTALL_DIR" || true ;;
     jellyfin)
         # Comptes et bibliothèques de chaque utilisateur, administrateur =
         # premier administrateur seedbox, connexion via Authelia (client OIDC)
