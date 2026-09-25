@@ -79,6 +79,12 @@ Quotas **projet** : la limite porte sur le dossier `data/users/<user>`.
 ### `configure_jellyfin_user.sh <user> [mdp]`
 Crée/met à jour son compte Jellyfin (accès limité à ses bibliothèques).
 
+### `portainer_sso.sh`
+Installation existante : connexion à Portainer via Authelia (client OIDC
+réservé au groupe `admins`, bouton « Login with OAuth », session de 7 jours).
+Demande une fois le compte et le mot de passe administrateur de Portainer.
+Une nouvelle installation (ou `add_service.sh portainer`) le fait seule.
+
 ### `arr_setup.sh <user> | --all`
 Configuration automatique des applis d'un utilisateur (lancée par
 `add_user.sh`, `add_user_service.sh` et `generate_traefik_labels.sh`) :

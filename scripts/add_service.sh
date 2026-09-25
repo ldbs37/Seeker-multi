@@ -103,9 +103,12 @@ cd "$INSTALL_DIR"
 compose_cmd up -d "$SERVICE"
 
 case "$SERVICE" in
-    portainer) autoconfig_portainer "$ADMIN_USER" "$ADMIN_PASS" || true ;;
+    portainer)
+        autoconfig_portainer "$ADMIN_USER" "$ADMIN_PASS" \
+            && { portainer_sso_setup "$ADMIN_USER" "$ADMIN_PASS" "$(autoconfig_first_admin "$INSTALL_DIR")" || true; } || true ;;
     scrutiny)  autoconfig_scrutiny "$INSTALL_DIR" || true ;;
     duplicati) autoconfig_duplicati "$INSTALL_DIR" || true ;;
+    uptime-kuma) autoconfig_uptime_kuma "$INSTALL_DIR" "$(autoconfig_first_admin "$INSTALL_DIR")" || true ;;
     jellyfin)
         # Comptes et bibliothèques de chaque utilisateur, administrateur =
         # premier administrateur seedbox, connexion via Authelia (client OIDC)
