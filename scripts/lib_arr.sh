@@ -13,6 +13,9 @@
 # - Prowlarr : pousse ses indexeurs vers Sonarr / Radarr / Readarr (clés
 #   d'API) ; SON FlareSolverr (flaresolverr-<user>, sur son réseau) comme
 #   proxy des indexeurs portant l'étiquette « flaresolverr ».
+# - Interface en français (dates au format français, semaine commençant le
+#   lundi ; Radarr : titres et résumés des films en français), appliquée
+#   seulement tant que l'interface est en anglais (réglage d'origine).
 # Idempotent. Vérifié sur Sonarr 4.0.20, Radarr 6.4.4, Prowlarr 2.6.5 et
 # qBittorrent 5.2.3 (binaires officiels).
 #
@@ -88,6 +91,28 @@ d.update(authenticationMethod="external", authenticationRequired="enabled")
 print(json.dumps(d))')
     case $? in 0) ;; 3) return 0 ;; *) return 1 ;; esac
     arr_api "$svc" "$user" PUT /config/host "$host" >/dev/null
+}
+
+# Interface en français, tant qu'elle est en anglais (réglage d'origine :
+# un autre choix de l'utilisateur est conservé). Langues : identifiant
+# (Sonarr, Radarr, Readarr : 2 = français) ou code (Prowlarr : « fr »).
+# $1=service $2=utilisateur
+arr_french() {
+    local svc="$1" user="$2" ui
+    ui=$(arr_api "$svc" "$user" GET /config/ui) || return 1
+    ui=$(U="$ui" python3 -c '
+import json, os, sys
+d = json.loads(os.environ["U"])
+if d.get("uiLanguage") not in (1, "en"):
+    sys.exit(3)
+d["uiLanguage"] = "fr" if isinstance(d["uiLanguage"], str) else 2
+d.update(firstDayOfWeek=1, calendarWeekColumnHeader="ddd D/M", shortDateFormat="DD/MM/YYYY",
+         longDateFormat="dddd, D MMMM YYYY", timeFormat="HH:mm")
+if d.get("movieInfoLanguage") == 1:
+    d["movieInfoLanguage"] = 2
+print(json.dumps(d))')
+    case $? in 0) ;; 3) return 0 ;; *) return 1 ;; esac
+    arr_api "$svc" "$user" PUT /config/ui "$ui" >/dev/null
 }
 
 # Dossier racine. $1=service $2=utilisateur
@@ -196,6 +221,7 @@ arr_chain() {
         else
             arr_external "$svc" "$user" || { echo "$svc-$user : connexion unique non appliquée" >&2; rc=1; }
         fi
+        arr_french "$svc" "$user" || { echo "$svc-$user : interface en français non appliquée" >&2; rc=1; }
     done
     qkey=""
     grep -q "^  qbittorrent-$user:" "$INSTALL_DIR/docker-compose.yml" 2>/dev/null && qkey=$(qbit_ensure_api_key "$user")
