@@ -111,7 +111,13 @@ traefik_user_labels() {
             echo "      - \"traefik.http.middlewares.${r}-slash.redirectregex.regex=^(https?://[^/]+/qbittorrent)\$\$\""
             echo "      - \"traefik.http.middlewares.${r}-slash.redirectregex.replacement=\$\${1}/\""
             echo "      - \"traefik.http.middlewares.${r}-strip.stripprefix.prefixes=/qbittorrent\""
-            mw="${mw},${r}-slash,${r}-strip"
+            # Retour d'Authelia après connexion : le navigateur envoie
+            # « Referer: https://auth.<domaine>/ », que la protection CSRF de
+            # qBittorrent rejette (« Unauthorized » jusqu'au rafraîchissement).
+            # Referer retiré ; le contrôle par l'en-tête Origin (requêtes POST
+            # et inter-sites) reste actif.
+            echo "      - \"traefik.http.middlewares.${r}-noref.headers.customrequestheaders.Referer=\""
+            mw="${mw},${r}-slash,${r}-strip,${r}-noref"
             ;;
         calibre)
             echo "      - \"traefik.http.middlewares.${r}-hdr.headers.customrequestheaders.X-Script-Name=/calibre\""
