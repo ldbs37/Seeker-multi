@@ -123,28 +123,37 @@ vuetorrent_ensure() {
         rm -rf "${dir:?}.old"; [ -d "$dir" ] && mv "$dir" "$dir.old"
         mv "$dir.new" "$dir" && rm -rf "${dir:?}.old"
         rm -rf "${tmp:?}"
-        vuetorrent_set_lang || true
+        vuetorrent_set_defaults || true
         return 0
     fi
     rm -rf "${tmp:?}"
     [ -d "$dir/public" ]    # version précédente encore utilisable
 }
 
-# Langue par défaut de VueTorrent (lib_lang.sh) : au premier chargement
-# (réglages vides dans le navigateur), langue pré-remplie ; chacun la change
-# ensuite dans VueTorrent. Script inséré dans index.html de la copie
-# partagée ; idempotent (remplacé à chaque appel).
-vuetorrent_set_lang() {
-    local html="$INSTALL_DIR/vuetorrent/public/index.html"
+# Réglages par défaut de VueTorrent, gardés dans le navigateur (clé
+# vuetorrent_webuiSettings) : script inséré dans index.html de la copie
+# partagée (idempotent, remplacé à chaque appel), qui complète ce qui manque
+# sans toucher au reste :
+#  - langue (lib_lang.sh), au premier chargement seulement ; chacun la
+#    change ensuite dans VueTorrent ;
+#  - mode Traefik : bouton « Déconnexion » → déconnexion Authelia puis
+#    accueil (sinon Authelia, toujours connecté, rouvre aussitôt qBittorrent).
+vuetorrent_set_defaults() {
+    local html="$INSTALL_DIR/vuetorrent/public/index.html" domain="" logout=""
     [ -f "$html" ] || return 1
-    VT_LANG="$(seedbox_lang)" python3 -c '
-import os, re, sys
+    if grep -q '^USE_TRAEFIK=true' "$INSTALL_DIR/.env" 2>/dev/null; then
+        domain=$(grep '^DOMAIN=' "$INSTALL_DIR/.env" | cut -d= -f2)
+        [ -n "$domain" ] && logout="https://auth.${domain}/logout?rd=https://${domain}/"
+    fi
+    VT_LANG="$(seedbox_lang)" VT_LOGOUT="$logout" python3 -c '
+import json, os, re, sys
 p = sys.argv[1]; s = open(p, encoding="utf-8").read()
-s = re.sub(r"<!-- seedbox-lang -->.*?<!-- /seedbox-lang -->", "", s, flags=re.S)
-tag = ("<!-- seedbox-lang --><script>try{var k=\"vuetorrent_webuiSettings\";"
-       "if(!localStorage.getItem(k))localStorage.setItem(k,JSON.stringify({language:\"%s\"}))}"
-       "catch(e){}</script><!-- /seedbox-lang -->" % os.environ["VT_LANG"])
-s = s.replace("<head>", "<head>" + tag, 1)
+s = re.sub(r"<!-- seedbox-(lang|defaults) -->.*?<!-- /seedbox-(lang|defaults) -->", "", s, flags=re.S)
+js = ("try{var k=\"vuetorrent_webuiSettings\",v=localStorage.getItem(k),o=v?JSON.parse(v):{};"
+      "if(!v)o.language=%s;var u=%s;if(u&&!o.logoutUrl)o.logoutUrl=u;"
+      "localStorage.setItem(k,JSON.stringify(o))}catch(e){}"
+      % (json.dumps(os.environ["VT_LANG"]), json.dumps(os.environ["VT_LOGOUT"])))
+s = s.replace("<head>", "<head><!-- seedbox-defaults --><script>" + js + "</script><!-- /seedbox-defaults -->", 1)
 open(p, "w", encoding="utf-8").write(s)' "$html"
 }
 

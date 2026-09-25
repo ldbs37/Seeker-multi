@@ -94,7 +94,7 @@ AUTHELIA_DB="$INSTALL_DIR/authelia/users_database.yml"
 #######################
 TMP="${DOCKER_COMPOSE_FILE%.yml}.new.yml"
 # Interface VueTorrent de qBittorrent (montée par les blocs générés ci-dessous)
-if vuetorrent_ensure; then vuetorrent_set_lang || true
+if vuetorrent_ensure; then vuetorrent_set_defaults || true
 else warn "VueTorrent non téléchargé : interface d'origine de qBittorrent"; fi
 generate_docker_compose "$TMP"           # services système + .env (USE_TRAEFIK=true)
 # Connexion unique qBittorrent/Filebrowser : réseau dédié et en-tête secret
