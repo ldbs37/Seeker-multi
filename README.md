@@ -21,23 +21,19 @@ Une solution **simple et efficace** de seedbox multi-utilisateurs avec authentif
 **Services Optionnels (installables à la demande) :**
 - 📺 **Sonarr** - Gestion de séries TV
 - 🎬 **Radarr** - Gestion de films
-- 🔍 **Prowlarr** - Gestion d'indexeurs (+ son FlareSolverr)
-- 📝 **Seerr** - Demandes de films/séries (successeur d'Overseerr, connexion Jellyfin/Plex/Emby)
+- 🔍 **Prowlarr** - Gestion d'indexeurs
+- 📝 **Seerr** - Demandes de films/séries (successeur d'Overseerr)
 - 📖 **Calibre-web** - Bibliothèque ebooks
 
-En mode Traefik, tout est **préconfiguré** (`scripts/arr_setup.sh`) :
-connexion unique via Authelia (aucune page de connexion), dossiers racine
-(`/data/tv`, `/data/movies`), qBittorrent comme client de téléchargement,
-indexeurs Prowlarr envoyés vers Sonarr et Radarr, FlareSolverr, bibliothèque
-Calibre-web (`books/`), **Seerr** relié à Jellyfin (au nom de l'utilisateur :
-seulement ses bibliothèques ; connexion avec ses identifiants Jellyfin) et à
-ses Sonarr / Radarr. Les services de chaque utilisateur sont sur **son
-réseau Docker privé** (`seedbox_u_<user>`) : ceux des autres utilisateurs ne
-peuvent pas les joindre.
+**Tout est préconfiguré** (mode Traefik) :
+- 🔐 Connexion unique via Authelia : aucune page de connexion (Seerr : identifiants Jellyfin)
+- 🔗 Sonarr / Radarr → qBittorrent, dossiers `tv/` et `movies/`
+- 🔍 Prowlarr → Sonarr / Radarr, avec son FlareSolverr
+- 📝 Seerr → Jellyfin (seulement vos bibliothèques) et Sonarr / Radarr ; demandes validées automatiquement
+- 📖 Calibre-web → bibliothèque `books/`
+- 🛡️ Chaque utilisateur a son réseau Docker privé : les autres ne peuvent pas joindre ses services
 
-Readarr (abandonné par ses auteurs) et Bazarr ne sont plus proposés ; une
-installation existante continue de fonctionner et se retire avec
-`remove_service.sh`.
+> Readarr (abandonné par ses auteurs) et Bazarr ne sont plus proposés.
 
 ### 🛡️ Services Système (accès administrateur)
 - 🔐 **Authelia** - Authentification centralisée
