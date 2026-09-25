@@ -33,9 +33,6 @@ Une solution **simple et efficace** de seedbox multi-utilisateurs avec authentif
 - 📖 Calibre-web → bibliothèque `books/`
 - 🛡️ Chaque utilisateur a son réseau Docker privé : les autres ne peuvent pas joindre ses services
 
-> Readarr (abandonné par ses auteurs), Bazarr, Plex et Tautulli ne sont plus
-> proposés ; une installation existante les conserve.
-
 ### 🛡️ Services Système (accès administrateur)
 - 🔐 **Authelia** - Authentification centralisée
 - 🎥 **Jellyfin** - Serveur de streaming (comptes et bibliothèques privées automatiques, connexion via Authelia — voir [docs/JELLYFIN_AUTO_CONFIG.md](docs/JELLYFIN_AUTO_CONFIG.md))
