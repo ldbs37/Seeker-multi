@@ -298,7 +298,7 @@ if [ "$USE_TRAEFIK" = true ]; then
     info "🏠 Tableau de bord : https://$DOMAIN (connexion unique Authelia)"
     info "💡 Connexion : identifiez-vous sur https://auth.$DOMAIN (SSO) ;"
     info "   qBittorrent et les fichiers s'ouvrent ensuite sans mot de passe."
-    info "   Partage public : clic droit sur un fichier → Partager (lien https://$USERNAME.$DOMAIN/files/public/…)."
+    info "   Partage public : clic droit sur un fichier → Partager (lien https://$USERNAME.$DOMAIN/drive/public/…)."
 else
     info "💡 qBittorrent et le gestionnaire de fichiers : mêmes identifiants que la seedbox."
 fi

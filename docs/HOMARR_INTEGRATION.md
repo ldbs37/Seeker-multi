@@ -115,13 +115,13 @@ existantes), sans ouvrir d'accès aux autres conteneurs :
 Remplace Filebrowser, archivé le 1er septembre 2026 (plus aucun correctif de
 sécurité). Une instance par utilisateur (`gtstef/filebrowser`, version
 stable), avec son UID, sur ses fichiers (`data/users/<user>`) :
-`https://<user>.votre-domaine.com/files`. Aperçus (images, vidéos, documents),
+`https://<user>.votre-domaine.com/drive` (l'ancienne adresse `/files` y redirige). Aperçus (images, vidéos, documents),
 recherche, mode sombre, en français. Configuration générée dans
 `data/users/<user>/config/filebrowser/config.yaml` (`lib_filebrowser.sh`).
 
 **Partage public** : clic droit sur un fichier ou un dossier → *Partager*
 (durée, mot de passe facultatifs). Le lien
-`https://<user>.votre-domaine.com/files/public/share/…` s'ouvre **sans
+`https://<user>.votre-domaine.com/drive/public/share/…` s'ouvre **sans
 compte** : c'est le seul chemin servi sans Authelia (routeur Traefik dédié,
 en-tête de connexion retiré). Traefik normalise les chemins avant de router :
 un `…/public/../` repasse par Authelia.

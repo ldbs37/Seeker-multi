@@ -1001,7 +1001,7 @@ main() {
         info "🏠 Tableau de bord (Homarr, connexion unique) : https://$DOMAIN"
         echo "     (préconfiguré : chaque utilisateur arrive sur son tableau de bord privé)"
         info "👥 Chaque utilisateur : https://<utilisateur>.$DOMAIN renvoie au tableau de bord"
-        echo "     qBittorrent …/qbittorrent · Filebrowser …/files · Sonarr …/sonarr · Radarr …/radarr"
+        echo "     qBittorrent …/qbittorrent · Fichiers …/drive · Sonarr …/sonarr · Radarr …/radarr"
         echo "     (connexion unique : qBittorrent et Filebrowser s'ouvrent sans redemander de mot de passe)"
         info "⏳ Certificats Let's Encrypt obtenus au premier accès (DNS *.${DOMAIN} requis)"
     else

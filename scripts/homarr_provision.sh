@@ -181,7 +181,7 @@ internal_url() {
 }
 
 # URL de test du voyant d'état d'une tuile : point de santé sans redirection
-# quand le service en a un (FileBrowser Quantum : /files → /files/, que le
+# quand le service en a un (FileBrowser Quantum : /drive → /drive/, que le
 # test de Homarr signale en « fetch failed »)
 ping_url() {
     case "$1" in

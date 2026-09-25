@@ -169,7 +169,7 @@ service_block() {
         echo "      start_period: 30s"
     fi
     if [ "$svc" = filebrowser ]; then
-        # Le HEALTHCHECK de l'image teste le port 80 ; ici 8080 (+ /files)
+        # Le HEALTHCHECK de l'image teste le port 80 ; ici 8080 (+ /drive)
         local hpath="/health"
         [ "$USE_TRAEFIK" = true ] && hpath="$(traefik_service_path filebrowser)/health"
         echo "    healthcheck:"

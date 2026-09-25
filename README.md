@@ -521,7 +521,7 @@ Traefik, Portainer, Scrutiny, Dashdot, Tautulli, Uptime Kuma et Duplicati sont
 #### Services Utilisateur (exemple pour user `john`)
 - **qBittorrent:** `https://john.votre-domaine.com/qbittorrent`
 - **Tableau de bord (Homarr partagé, connexion unique):** `https://votre-domaine.com` (`https://john.votre-domaine.com` y renvoie)
-- **Fichiers (FileBrowser Quantum):** `https://john.votre-domaine.com/files` — liens de partage publics en `…/files/public/share/…`
+- **Fichiers (FileBrowser Quantum):** `https://john.votre-domaine.com/drive` — liens de partage publics en `…/drive/public/share/…` (ancienne adresse `/files` redirigée)
 - **Sonarr:** `https://john.votre-domaine.com/sonarr`
 - **Radarr:** `https://john.votre-domaine.com/radarr`
 - **Readarr:** `https://john.votre-domaine.com/readarr`

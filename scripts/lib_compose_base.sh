@@ -101,7 +101,7 @@ EOF
 # via Authelia (OIDC, voir lib_homarr.sh). Authelia y redirige après une
 # connexion directe (default_redirection_url) ; https://<user>.<domaine>/
 # renvoie au tableau de bord de l'utilisateur (routeur de priorité minimale :
-# les autres routeurs du même hôte — /qbittorrent, /files… — et les
+# les autres routeurs du même hôte — /qbittorrent, /drive… — et les
 # sous-domaines nommés restent prioritaires).
 _block_homarr() {
     [ "$USE_TRAEFIK" = "true" ] || return 0

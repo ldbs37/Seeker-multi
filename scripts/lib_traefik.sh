@@ -8,7 +8,7 @@
 # Schéma d'URL (par chemin) :
 #   https://<user>.<domaine>/                -> Homarr (tableau de bord)
 #   https://<user>.<domaine>/qbittorrent     -> qBittorrent (préfixe retiré)
-#   https://<user>.<domaine>/files           -> Filebrowser (FB_BASEURL)
+#   https://<user>.<domaine>/drive           -> FileBrowser Quantum (baseURL ; /files redirigé)
 #   https://<user>.<domaine>/sonarr …        -> *arr (UrlBase pré-configurée)
 #   https://<user>.<domaine>/bazarr          -> Bazarr (base_url pré-configurée)
 #   https://<user>.<domaine>/calibre         -> Calibre-Web (en-tête X-Script-Name)
@@ -41,7 +41,7 @@ traefik_service_path() {
     case "$1" in
         homarr)      echo "" ;;
         qbittorrent) echo "/qbittorrent" ;;
-        filebrowser) echo "/files" ;;
+        filebrowser) echo "/drive" ;;
         sonarr|radarr|readarr|bazarr|prowlarr|calibre) echo "/$1" ;;
         seerr)       echo "SUBDOMAIN" ;;
         *) return 1 ;;
@@ -135,6 +135,14 @@ traefik_user_labels() {
                 echo "      - \"traefik.http.routers.${r}-public.middlewares=${r}-anon\""
             fi
             echo "      - \"traefik.http.routers.${r}.service=${r}\""
+            # Ancienne adresse /files (Filebrowser d'origine) → /drive
+            echo "      - \"traefik.http.routers.${r}-old.rule=Host(\`${host}\`) && PathPrefix(\`/files\`)\""
+            echo "      - \"traefik.http.routers.${r}-old.entrypoints=websecure\""
+            echo "      - \"traefik.http.routers.${r}-old.tls.certresolver=letsencrypt\""
+            echo "      - \"traefik.http.routers.${r}-old.service=${r}\""
+            echo "      - \"traefik.http.middlewares.${r}-old.redirectregex.regex=^(https?://[^/]+)/files(.*)\$\$\""
+            echo "      - \"traefik.http.middlewares.${r}-old.redirectregex.replacement=\$\${1}${path}\$\${2}\""
+            echo "      - \"traefik.http.routers.${r}-old.middlewares=${r}-old\""
             ;;
     esac
     echo "      - \"traefik.http.routers.${r}.middlewares=${mw}\""

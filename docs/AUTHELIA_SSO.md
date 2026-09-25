@@ -211,7 +211,7 @@ Authelia.
 - **qBittorrent** : seule l'adresse fixe de Traefik, sur le réseau interne
   dédié `seedbox_sso`, est dispensée de mot de passe.
 - **FileBrowser Quantum** : connexion par un en-tête au nom secret posé par
-  Traefik après Authelia ; liens de partage publics sous `…/files/public/`.
+  Traefik après Authelia ; liens de partage publics sous `…/drive/public/`.
 
 Détails : [HOMARR_INTEGRATION.md](HOMARR_INTEGRATION.md#connexion-unique-qbittorrent-et-gestion-de-fichiers).
 
@@ -313,7 +313,7 @@ Connexion à https://auth.votre-domain.fr
  ↓
 Accès automatique à TOUS les services :
  • https://user1.votre-domain.fr/qbittorrent  → qBittorrent sans login
- • https://user1.votre-domain.fr/files        → FileBrowser Quantum sans login
+ • https://user1.votre-domain.fr/drive        → FileBrowser Quantum sans login
  • https://user1.votre-domain.fr/sonarr       → Sonarr sans login
  • https://user1.votre-domain.fr/radarr       → Radarr sans login
  • etc.

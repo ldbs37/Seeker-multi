@@ -10,7 +10,8 @@
 #
 # Mode Traefik : connexion unique par l'en-tête secret posé par Traefik après
 # Authelia (auth « proxy », voir lib_traefik.sh) ; mot de passe désactivé.
-# Liens de partage publics sous https://<user>.<domaine>/files/public/…,
+# Servi sous https://<user>.<domaine>/drive (l'appli ajoute /files/<source>
+# à ses propres adresses). Liens de partage publics sous …/drive/public/…,
 # seul chemin servi sans Authelia (routeur dédié, lib_traefik.sh).
 # Mode port direct : connexion par mot de passe (identifiants seedbox).
 #######################
@@ -38,8 +39,8 @@ fbq_write_config() {
     mkdir -p "$(dirname "$file")"
     key=$(_fbq_get "$file" key); [ -n "$key" ] || key=$(openssl rand -hex 32)
     if [ "${USE_TRAEFIK:-false}" = true ]; then
-        # externalUrl avec le chemin de base : sinon lien de partage en « //files »
-        base="/files"; ext="https://${user}.${DOMAIN}/files"
+        # externalUrl avec le chemin de base : sinon lien de partage en « //drive »
+        base=$(traefik_service_path filebrowser); ext="https://${user}.${DOMAIN}${base}"
         header=$(sso_header 2>/dev/null || true)
     fi
     if [ -n "$header" ]; then
