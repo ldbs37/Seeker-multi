@@ -15,6 +15,11 @@
 # ADMIN_BIND=0.0.0.0 dans .env pour les exposer (déconseillé : pas d'auth).
 #######################
 
+# Services système retirés par une version précédente (remplacés) : jamais
+# conservés comme blocs « personnalisés » lors d'une reconstruction
+# (home : redirection nginx, remplacée par le Homarr partagé)
+# shellcheck disable=SC2034  # lue par les scripts qui sourcent cette lib
+SYSTEM_SERVICES_OBSOLETE="home"
 SYSTEM_SERVICES="authelia homarr plex flaresolverr scrutiny uptime-kuma watchtower duplicati jellyfin dashdot tautulli portainer"
 
 # Variable INSTALL_* correspondant à un service système optionnel

@@ -55,7 +55,7 @@ if FLAG=$(system_service_flag "$NAME"); then
     printf -v "$FLAG" '%s' false
     KEEP=()
     while read -r n; do
-        [[ " $SYSTEM_SERVICES " == *" $n "* ]] || KEEP+=("$n")
+        [[ " $SYSTEM_SERVICES $SYSTEM_SERVICES_OBSOLETE " == *" $n "* ]] || KEEP+=("$n")
     done < <(compose_service_names "$DOCKER_COMPOSE_FILE")
     cp "$ENV_FILE" "$ENV_FILE.bak"
     generate_docker_compose "$TMP" >/dev/null

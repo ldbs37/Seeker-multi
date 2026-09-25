@@ -57,6 +57,8 @@ detect_system_services "$DOCKER_COMPOSE_FILE"
 USER_ENTRIES=(); CUSTOM=(); DROPPED=()
 for n in "${NAMES[@]}"; do
     [[ " $SYSTEM_SERVICES traefik " == *" $n "* ]] && continue
+    # Service système obsolète (remplacé) : retiré, pas conservé
+    [[ " $SYSTEM_SERVICES_OBSOLETE " == *" $n "* ]] && { DROPPED+=("$n"); continue; }
     svc=${n%-*}; usr=${n##*-}
     if [[ "$n" == *-* ]] && [[ " $USER_SERVICES " == *" $svc "* ]] && id "$usr" &>/dev/null; then
         # Mode Traefik : Homarr partagé ; les Homarr individuels sont retirés
@@ -170,7 +172,7 @@ if [ "$AUTHELIA_CHANGED" = true ]; then
         && log "✓ Authelia : connexion unique Homarr + redirection vers le tableau de bord" \
         || warn "Redémarrez Authelia : docker restart authelia"
 fi
-[ ${#DROPPED[@]} -gt 0 ] && info "Homarr individuels retirés (remplacés par https://$DOMAIN) : ${DROPPED[*]}"
+[ ${#DROPPED[@]} -gt 0 ] && info "Services remplacés, retirés (données conservées) : ${DROPPED[*]}"
 
 log "${GREEN}✓${NC} Migration terminée"
 info "Portail SSO : https://auth.$DOMAIN"

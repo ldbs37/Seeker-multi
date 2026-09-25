@@ -85,7 +85,7 @@ printf -v "$FLAG" '%s' true
 # Blocs conservés tels quels : tout ce qui n'est pas un service système
 KEEP=()
 while read -r n; do
-    [[ " $SYSTEM_SERVICES " == *" $n "* ]] || KEEP+=("$n")
+    [[ " $SYSTEM_SERVICES $SYSTEM_SERVICES_OBSOLETE " == *" $n "* ]] || KEEP+=("$n")
 done < <(compose_service_names "$DOCKER_COMPOSE_FILE")
 
 TMP="${DOCKER_COMPOSE_FILE%.yml}.new.yml"
