@@ -28,7 +28,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DOCKER_COMPOSE_FILE="$INSTALL_DIR/docker-compose.yml"
 ENV_FILE="$INSTALL_DIR/.env"
 
-for lib in lib_ports lib_traefik lib_qbittorrent lib_services lib_compose_base lib_homarr lib_password; do
+for lib in lib_ports lib_traefik lib_qbittorrent lib_services lib_compose_base lib_homarr lib_password lib_autoconfig; do
     [ -f "$SCRIPT_DIR/$lib.sh" ] || error "$lib.sh introuvable dans $SCRIPT_DIR"
     # shellcheck source=/dev/null
     source "$SCRIPT_DIR/$lib.sh"
@@ -192,6 +192,15 @@ if [ "$AUTHELIA_CHANGED" = true ]; then
     docker restart authelia >/dev/null 2>&1 \
         && log "✓ Authelia : connexion unique Homarr + redirection vers le tableau de bord" \
         || warn "Redémarrez Authelia : docker restart authelia"
+fi
+# Outils d'administration sans deuxième connexion (Duplicati : jeton
+# présenté par Traefik, déjà dans le compose)
+if grep -q "^  uptime-kuma:" "$DOCKER_COMPOSE_FILE"; then
+    autoconfig_uptime_kuma "$INSTALL_DIR" "$(autoconfig_first_admin "$INSTALL_DIR")" || true
+fi
+if grep -q "^  portainer:" "$DOCKER_COMPOSE_FILE" \
+    && ! grep -q "client_id: 'portainer'" "$INSTALL_DIR/authelia/configuration.yml" 2>/dev/null; then
+    info "Portainer via Authelia (une fois, mot de passe Portainer demandé) : sudo $SCRIPT_DIR/portainer_sso.sh"
 fi
 [ ${#DROPPED[@]} -gt 0 ] && info "Services remplacés, retirés (données conservées) : ${DROPPED[*]}"
 

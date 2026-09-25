@@ -212,9 +212,21 @@ inutile, et il est vérifié avant.
 | Sonarr, Radarr, Prowlarr | Mode « External » : aucune page de connexion (l'API exige toujours sa clé) |
 | qBittorrent | Seule l'adresse fixe de Traefik, sur le réseau interne `seedbox_sso`, est dispensée de mot de passe |
 | FileBrowser Quantum, Calibre-web | En-tête au nom secret posé par Traefik après Authelia (nom de l'utilisateur) |
-| Seerr | Compte Jellyfin |
+| Seerr | Session du propriétaire présentée par Traefik (connexion automatique) |
 
 Liens de partage publics FileBrowser Quantum : `…/drive/public/`.
+
+### 5. Outils d'administration (groupe `admins`)
+
+| Outil | Connexion après Authelia |
+|-------|--------------------------|
+| Duplicati | Aucune : Traefik présente un jeton (`webservice-pre-auth-tokens`, `DUPLICATI_PREAUTH_TOKEN` du `.env`) ; le mot de passe ne sert plus qu'en accès direct (tunnel SSH) |
+| Uptime Kuma | Aucune : réglage « disableAuth » (base SQLite) |
+| Portainer | Bouton « Login with OAuth » : un clic, rien à saisir (client OIDC `portainer` d'Authelia, réservé au groupe `admins` ; session de 7 jours). Portainer CE ne permet ni de masquer le formulaire classique ni la redirection automatique |
+
+Automatique à l'installation et avec `add_service.sh`. Installation
+existante : `generate_traefik_labels.sh` (Duplicati, Uptime Kuma), puis une
+fois `sudo scripts/portainer_sso.sh` (demande le mot de passe Portainer).
 
 ## 🌐 Réseaux Docker
 

@@ -296,7 +296,7 @@ _block_duplicati() {
     container_name: duplicati
     environment:
       # root : lit toute la configuration (.env, Authelia… en 600 root) ;
-      # accès réservé aux admins (Authelia) + mot de passe Duplicati
+      # accès réservé aux admins (Authelia)
       - PUID=0
       - PGID=0
       - TZ=${TZ}
@@ -305,6 +305,10 @@ _block_duplicati() {
       - SETTINGS_ENCRYPTION_KEY=${DUPLICATI_ENCRYPTION_KEY}
       - DUPLICATI__WEBSERVICE_PASSWORD=${DUPLICATI_PASSWORD}
       - DUPLICATI__WEBSERVICE_ALLOWED_HOSTNAMES=duplicati.${DOMAIN}
+      # Connexion unique : Traefik présente ce jeton (après Authelia) ;
+      # le mot de passe ne sert plus qu'en accès direct (tunnel SSH)
+      - DUPLICATI__WEBSERVICE_PRE_AUTH_TOKENS=${DUPLICATI_PREAUTH_TOKEN}
+      - DUPLICATI__WEBSERVICE_SUPPRESS_WELCOME_PAGE=true
     volumes:
       - ./duplicati/config:/config
       - ./data:/source:ro
@@ -316,7 +320,11 @@ _block_duplicati() {
     ports:
       - "${ADMIN_BIND:-127.0.0.1}:8200:8200"
 EOF
-    _sys_labels duplicati duplicati 8200 true
+    _sys_labels duplicati duplicati 8200 false
+    # Authelia, puis jeton de connexion de Duplicati (« Authorization:
+    # PreAuth … », reconnu par son interface : pas de page de connexion)
+    echo "      - \"traefik.http.middlewares.duplicati-auth.headers.customrequestheaders.Authorization=PreAuth \${DUPLICATI_PREAUTH_TOKEN}\""
+    echo "      - \"traefik.http.routers.duplicati.middlewares=authelia@docker,duplicati-auth\""
     echo "    restart: unless-stopped"
 }
 
@@ -416,6 +424,9 @@ duplicati_env_ensure() {
     # Phrase de chiffrement des sauvegardes (indispensable pour restaurer)
     grep -q '^DUPLICATI_BACKUP_PASSPHRASE=.' "$env" 2>/dev/null \
         || echo "DUPLICATI_BACKUP_PASSPHRASE=$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-28)" >> "$env"
+    # Jeton de connexion présenté par Traefik (connexion unique)
+    grep -qE '^DUPLICATI_PREAUTH_TOKEN=[0-9a-f]{64}$' "$env" 2>/dev/null \
+        || echo "DUPLICATI_PREAUTH_TOKEN=$(openssl rand -hex 32)" >> "$env"
     chmod 600 "$env"
 }
 
@@ -424,7 +435,13 @@ _system_dirs() {
     mkdir -p "$INSTALL_DIR/authelia" "$INSTALL_DIR/data/users"
     mkdir -p "$INSTALL_DIR/homarr/appdata"
     [ "${INSTALL_SCRUTINY:-false}" = true ]    && mkdir -p "$INSTALL_DIR/scrutiny/config" "$INSTALL_DIR/scrutiny/influxdb"
-    [ "${INSTALL_UPTIME_KUMA:-false}" = true ] && mkdir -p "$INSTALL_DIR/uptime-kuma"
+    if [ "${INSTALL_UPTIME_KUMA:-false}" = true ]; then
+        mkdir -p "$INSTALL_DIR/uptime-kuma"
+        # Base SQLite (sinon écran de choix de la base au premier démarrage) ;
+        # jamais sur une base existante
+        [ -e "$INSTALL_DIR/uptime-kuma/db-config.json" ] || [ -e "$INSTALL_DIR/uptime-kuma/kuma.db" ] \
+            || printf '{\n    "type": "sqlite"\n}\n' > "$INSTALL_DIR/uptime-kuma/db-config.json"
+    fi
     if [ "${INSTALL_DUPLICATI:-false}" = true ]; then
         mkdir -p "$INSTALL_DIR/duplicati/config" "$INSTALL_DIR/duplicati/backups"
         chown "${ADMIN_UID}:${ADMIN_GID}" "$INSTALL_DIR/duplicati/backups" 2>/dev/null || true

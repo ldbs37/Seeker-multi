@@ -824,12 +824,15 @@ deploy_services() {
 
     # Comptes administrateur Portainer / Jellyfin (API, avec attente)
     if [ "$INSTALL_PORTAINER" = true ] && [ -n "$PORTAINER_USER" ] && [ -n "$PORTAINER_PASSWORD" ]; then
-        autoconfig_portainer "$PORTAINER_USER" "$PORTAINER_PASSWORD" || true
+        autoconfig_portainer "$PORTAINER_USER" "$PORTAINER_PASSWORD" \
+            && { portainer_sso_setup "$PORTAINER_USER" "$PORTAINER_PASSWORD" "${INITIAL_USERS[0]}" || true; } || true
     fi
     # Scrutiny : disques derrière un contrôleur RAID, premier relevé
     [ "$INSTALL_SCRUTINY" = true ] && { autoconfig_scrutiny "$INSTALL_DIR" || true; }
     # Duplicati : sauvegarde de la configuration, chaque nuit
     [ "$INSTALL_DUPLICATI" = true ] && { autoconfig_duplicati "$INSTALL_DIR" || true; }
+    # Uptime Kuma : ouvert directement après Authelia
+    [ "$INSTALL_UPTIME_KUMA" = true ] && { autoconfig_uptime_kuma "$INSTALL_DIR" "${INITIAL_USERS[0]}" || true; }
     # Jellyfin : administrateur = premier utilisateur (même mot de passe),
     # comptes et bibliothèques privées de chacun, connexion via Authelia
     if [ "$INSTALL_JELLYFIN" = true ]; then

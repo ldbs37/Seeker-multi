@@ -1,8 +1,9 @@
 #!/bin/bash
 #######################
 # lib_autoconfig.sh — Création automatique des comptes administrateur
-# Portainer et Jellyfin via leur API, disques de Scrutiny (utilisée par
-# install.sh et add_service.sh).
+# Portainer et Jellyfin via leur API, disques de Scrutiny, sauvegarde
+# Duplicati, connexion unique d'Uptime Kuma (utilisée par install.sh,
+# add_service.sh et generate_traefik_labels.sh).
 # À sourcer. Requiert les fonctions log/warn/info de l'appelant.
 #######################
 
@@ -22,6 +23,154 @@ wait_for_url() {
         sleep 2; t=$((t + 2))
     done
     return 1
+}
+
+# Premier compte du groupe « admins » d'Authelia (affiche son nom).
+# $1=dossier d'installation
+autoconfig_first_admin() {
+    awk '/^  [a-z][a-z0-9]*:[[:space:]]*$/ { u = $1; sub(/:$/, "", u) }
+         /^      - admins[[:space:]]*$/ && u != "" { print u; exit }' "${1:-/opt/seedbox}/authelia/users_database.yml" 2>/dev/null
+}
+
+# Uptime Kuma sans page de connexion (réglage « disableAuth ») : accès déjà
+# réservé aux admins par Authelia. Compte créé s'il n'y en a pas (mot de
+# passe aléatoire, inutile ensuite). Base SQLite seulement. Vérifié sur
+# Uptime Kuma 2.5.5. $1=dossier d'installation $2=nom du compte
+autoconfig_uptime_kuma() {
+    local dir="${1:-/opt/seedbox}" user="${2:-admin}" data db hash state
+    data="$dir/uptime-kuma"; db="$data/kuma.db"
+    python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("type") == "sqlite" else 1)' \
+        "$data/db-config.json" 2>/dev/null || { info "Uptime Kuma : base autre que SQLite, connexion laissée telle quelle"; return 0; }
+    # Base créée et à jour (tables présentes) au premier démarrage
+    for _ in $(seq 1 60); do
+        python3 -c 'import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute("select 1 from setting limit 1"); c.execute("select 1 from user limit 1")' "$db" 2>/dev/null && break
+        sleep 2
+    done
+    state=$(python3 -c 'import sqlite3,sys
+c = sqlite3.connect(sys.argv[1])
+r = c.execute("select value from setting where key = ?", ("disableAuth",)).fetchone()
+print("ok" if r and r[0] == "true" else "todo")' "$db" 2>/dev/null) || { warn "Uptime Kuma : base introuvable ($db)"; return 1; }
+    [ "$state" = ok ] && return 0
+    log "Uptime Kuma : connexion unique (Authelia)..."
+    hash=$(docker exec -e PW="$(openssl rand -hex 24)" uptime-kuma node -e 'console.log(require("bcryptjs").hashSync(process.env.PW, 10))' 2>/dev/null)
+    [[ "$hash" == '$2'* ]] || { warn "Uptime Kuma : conteneur injoignable, connexion unique non appliquée"; return 1; }
+    docker stop uptime-kuma >/dev/null 2>&1 || true
+    H="$hash" U="$user" python3 - "$db" << 'PY' || { docker start uptime-kuma >/dev/null 2>&1; return 1; }
+import os, sqlite3, sys
+c = sqlite3.connect(sys.argv[1])
+if not c.execute("select 1 from user").fetchone():
+    c.execute("insert into user (username, password, active) values (?, ?, 1)", (os.environ["U"], os.environ["H"]))
+if c.execute("select 1 from setting where key = ?", ("disableAuth",)).fetchone():
+    c.execute("update setting set value = ? where key = ?", ("true", "disableAuth"))
+else:
+    c.execute("insert into setting (key, value, type) values (?, ?, ?)", ("disableAuth", "true", "general"))
+c.commit()
+PY
+    docker start uptime-kuma >/dev/null 2>&1 || true
+    log "✓ Uptime Kuma : ouvert directement après Authelia"
+}
+
+# Client OIDC « portainer » dans la configuration Authelia (s'il manque),
+# réservé au groupe admins. $1 = configuration.yml. Retour 0 si modifiée
+# (redémarrage d'Authelia).
+authelia_ensure_oidc_portainer() {
+    local cfg="$1" env="$INSTALL_DIR/.env" secret hash
+    [ -f "$cfg" ] && grep -q '^identity_providers:' "$cfg" || return 1
+    grep -q "client_id: 'portainer'" "$cfg" && return 1
+    grep -qE '^PORTAINER_OIDC_SECRET=[0-9a-f]{64}$' "$env" \
+        || echo "PORTAINER_OIDC_SECRET=$(openssl rand -hex 32)" >> "$env"
+    chmod 600 "$env"
+    secret=$(grep '^PORTAINER_OIDC_SECRET=' "$env" | cut -d= -f2)
+    hash=$(${AUTHELIA_BIN:-docker run --rm authelia/authelia:4.39.28 authelia} crypto hash generate pbkdf2 \
+        --variant sha512 --password "$secret" 2>/dev/null | awk '/Digest:/{print $2}')
+    [[ "$hash" == '$pbkdf2-sha512$'* ]] || { echo "hachage du secret OIDC Portainer impossible" >&2; return 2; }
+    AE_DOMAIN="$DOMAIN" AE_HASH="$hash" python3 - "$cfg" << 'EOF_PY'
+import os, re, sys
+path = sys.argv[1]; s = open(path).read()
+# Politique « admins » (groupe admins seulement) : sinon tout compte Authelia
+# pourrait obtenir un code pour ce client
+if not re.search(r"^    authorization_policies:\n", s, re.M):
+    pol = ("    authorization_policies:\n"
+           "      admins:\n"
+           "        default_policy: 'deny'\n"
+           "        rules:\n"
+           "          - policy: 'one_factor'\n"
+           "            subject: 'group:admins'\n")
+    s = re.sub(r"^(    clients:\n)", lambda m: pol + m.group(1), s, count=1, flags=re.M)
+client = (
+    "      - client_id: 'portainer'\n"
+    "        client_name: 'Portainer'\n"
+    "        client_secret: '%s'\n"
+    "        public: false\n"
+    "        authorization_policy: 'admins'\n"
+    "        consent_mode: 'implicit'\n"
+    "        redirect_uris:\n"
+    "          - 'https://portainer.%s'\n"
+    "        scopes:\n"
+    "          - 'openid'\n"
+    "          - 'profile'\n"
+    "          - 'email'\n"
+    "        userinfo_signed_response_alg: 'none'\n"
+    "        token_endpoint_auth_method: 'client_secret_post'\n"
+) % (os.environ["AE_HASH"], os.environ["AE_DOMAIN"])
+s2 = re.sub(r"^(    clients:\n)", lambda m: m.group(1) + client, s, count=1, flags=re.M)
+if s2 == s:
+    sys.exit(1)
+open(path, "w").write(s2)
+EOF_PY
+    chmod 600 "$cfg"
+}
+
+# Portainer : bouton « Login with OAuth » (Authelia ; déjà connecté : un
+# clic, rien à saisir) et session de 7 jours. Le compte Portainer du même
+# nom (administrateur) est utilisé ; aucun compte créé automatiquement.
+# Portainer CE ne permet ni de masquer le formulaire classique ni la
+# redirection automatique. Vérifié sur Portainer CE 2.45.1 et Authelia
+# 4.39. $1=utilisateur Portainer (admin) $2=mot de passe $3=compte Authelia
+# de l'administrateur (défaut $1) : compte Portainer administrateur du même
+# nom créé s'il manque (la connexion OAuth retrouve le compte par son nom)
+autoconfig_portainer_sso() {
+    local user="$1" pass="$2" sso="${3:-$1}" base="${PORTAINER_URL:-http://localhost:9000}" secret jwt body code
+    secret=$(grep '^PORTAINER_OIDC_SECRET=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2)
+    [ -n "$secret" ] && [ -n "${DOMAIN:-}" ] || { warn "Portainer : client OIDC absent d'Authelia"; return 1; }
+    wait_for_url "$base/api/status" 90 || { warn "Portainer ne répond pas : connexion Authelia non configurée"; return 1; }
+    jwt=$(U="$user" P="$pass" python3 -c 'import json,os; print(json.dumps({"Username": os.environ["U"], "Password": os.environ["P"]}))' \
+        | curl -s -m 30 -X POST -H 'Content-Type: application/json' --data @- "$base/api/auth" \
+        | python3 -c 'import json,sys; print(json.load(sys.stdin).get("jwt",""))' 2>/dev/null)
+    [ -n "$jwt" ] || { warn "Portainer : connexion refusée ($user) — mot de passe ?"; return 1; }
+    if ! curl -s -m 30 -H "Authorization: Bearer $jwt" "$base/api/users" | N="$sso" python3 -c 'import json,os,sys
+sys.exit(0 if any(u["Username"].lower() == os.environ["N"].lower() for u in json.load(sys.stdin)) else 1)'; then
+        body=$(N="$sso" P="$(openssl rand -hex 24)" python3 -c 'import json,os; print(json.dumps({"Username": os.environ["N"], "Password": os.environ["P"], "Role": 1}))')
+        code=$(curl -s -m 30 -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $jwt" \
+            -H 'Content-Type: application/json' --data "$body" "$base/api/users")
+        [ "$code" = 200 ] || { warn "Portainer : compte administrateur « $sso » non créé (HTTP $code)"; return 1; }
+    fi
+    body=$(S="$secret" D="$DOMAIN" A="${AUTHELIA_URL:-https://auth.$DOMAIN}" R="${PORTAINER_PUBLIC_URL:-https://portainer.$DOMAIN}" python3 -c '
+import json, os
+e = os.environ; a = e["A"]
+print(json.dumps({"AuthenticationMethod": 3, "UserSessionTimeout": "168h", "OAuthSettings": {
+    "ClientID": "portainer", "ClientSecret": e["S"],
+    "AuthorizationURI": a + "/api/oidc/authorization", "AccessTokenURI": a + "/api/oidc/token",
+    "ResourceURI": a + "/api/oidc/userinfo", "RedirectURI": e["R"], "LogoutURI": a + "/logout",
+    "UserIdentifier": "preferred_username", "Scopes": "openid profile email",
+    "OAuthAutoCreateUsers": False, "DefaultTeamID": 0, "SSO": True, "AuthStyle": 1}}))')
+    code=$(curl -s -m 30 -o /dev/null -w '%{http_code}' -X PUT -H "Authorization: Bearer $jwt" \
+        -H 'Content-Type: application/json' --data "$body" "$base/api/settings")
+    [ "$code" = 200 ] || { warn "Portainer : réglages OAuth refusés (HTTP $code)"; return 1; }
+    log "✓ Portainer : connexion via Authelia (bouton « Login with OAuth »)"
+}
+
+# Client OIDC d'Authelia (Authelia redémarré si ajouté) puis connexion
+# Portainer via Authelia. $1=utilisateur Portainer (admin) $2=mot de passe
+# $3=compte Authelia de l'administrateur
+portainer_sso_setup() {
+    local cfg="$INSTALL_DIR/authelia/configuration.yml"
+    if authelia_ensure_oidc_portainer "$cfg"; then
+        docker restart authelia >/dev/null 2>&1 || { warn "Redémarrez Authelia : docker restart authelia"; return 1; }
+        sleep 5
+    fi
+    grep -q "client_id: 'portainer'" "$cfg" 2>/dev/null || { warn "Portainer : fournisseur OIDC d'Authelia absent"; return 1; }
+    autoconfig_portainer_sso "$@"
 }
 
 # Crée l'administrateur Portainer. $1=utilisateur $2=mot de passe (≥12)
