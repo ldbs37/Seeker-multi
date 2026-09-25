@@ -16,12 +16,11 @@
 # - Interface en français (dates au format français, semaine commençant le
 #   lundi ; Radarr : titres et résumés des films en français), appliquée
 #   seulement tant que l'interface est en anglais (réglage d'origine).
-# - Téléchargements en français : formats personnalisés « VF » (FRENCH,
-#   TRUEFRENCH, VFF…) et « MULTi » (VF + VO) exigés par tous les profils de
-#   qualité (score minimal 1 ; MULTi préféré) ; Radarr : langue des profils
-#   « Original » remplacée par « Toutes » (sinon un film étranger en VF serait
-#   refusé). Appliqué une fois, à la création des formats : les réglages
-#   modifiés ensuite sont conservés.
+# - Téléchargements en français : Radarr, langue des profils « Original »
+#   → « French » ; Sonarr (profils sans langue), format personnalisé « VF »
+#   (langue française) exigé par les profils, ajouté une fois. Les MULTi sont
+#   reconnues comme françaises si l'indexeur l'indique (Multi Languages).
+#   Réglages modifiés ensuite conservés.
 # Idempotent. Vérifié sur Sonarr 4.0.20, Radarr 6.4.4, Prowlarr 2.6.5 et
 # qBittorrent 5.2.3 (binaires officiels).
 #
@@ -122,48 +121,51 @@ print(json.dumps(d))')
 }
 
 # Téléchargements en français (voir l'en-tête). $1=sonarr|radarr $2=utilisateur
-ARR_FR_FORMATS="VF MULTi"
 arr_french_profiles() {
     local svc="$1" user="$2" cfs schema body profiles
-    cfs=$(arr_api "$svc" "$user" GET /customformat) || return 1
-    # Déjà fait (formats présents) : rien à changer
-    C="$cfs" F="$ARR_FR_FORMATS" python3 -c 'import json, os, sys
-names = {c["name"] for c in json.loads(os.environ["C"])}
-sys.exit(0 if set(os.environ["F"].split()) <= names else 1)' && return 0
-    schema=$(arr_api "$svc" "$user" GET /customformat/schema) || return 1
-    for name in $ARR_FR_FORMATS; do
-        C="$cfs" N="$name" python3 -c 'import json, os, sys
-sys.exit(0 if any(c["name"] == os.environ["N"] for c in json.loads(os.environ["C"])) else 1)' && continue
-        body=$(SCHEMA="$schema" N="$name" python3 -c '
+    profiles=$(arr_api "$svc" "$user" GET /qualityprofile) || return 1
+    if [ "$svc" = radarr ]; then
+        # Langue des profils : « Original » → « French »
+        P="$profiles" python3 -c '
 import json, os
-e = os.environ
-impl, value, label = (("LanguageSpecification", 2, "Français") if e["N"] == "VF"
-                      else ("ReleaseTitleSpecification", r"\bMULTI\b", "MULTi"))
-spec = next(s for s in json.loads(e["SCHEMA"]) if s["implementation"] == impl)
+for p in json.loads(os.environ["P"]):
+    if (p.get("language") or {}).get("id") == -2:
+        p["language"] = {"id": 2, "name": "French"}
+        print(json.dumps(p))' | _arr_put_profiles "$svc" "$user"
+        return
+    fi
+    # Sonarr (profils sans langue) : format personnalisé « VF » exigé,
+    # appliqué à sa création
+    cfs=$(arr_api "$svc" "$user" GET /customformat) || return 1
+    C="$cfs" python3 -c 'import json, os, sys
+sys.exit(0 if any(c["name"] == "VF" for c in json.loads(os.environ["C"])) else 1)' && return 0
+    schema=$(arr_api "$svc" "$user" GET /customformat/schema) || return 1
+    body=$(SCHEMA="$schema" python3 -c '
+import json, os
+spec = next(s for s in json.loads(os.environ["SCHEMA"]) if s["implementation"] == "LanguageSpecification")
 for f in spec["fields"]:
     if f["name"] == "value":
-        f["value"] = value
-spec.update(name=label, negate=False, required=True)
-print(json.dumps({"name": e["N"], "includeCustomFormatWhenRenaming": False, "specifications": [spec]}))') || return 1
-        arr_api "$svc" "$user" POST /customformat "$body" >/dev/null || return 1
-    done
-    cfs=$(arr_api "$svc" "$user" GET /customformat) || return 1
+        f["value"] = 2
+spec.update(name="Français", negate=False, required=True)
+print(json.dumps({"name": "VF", "includeCustomFormatWhenRenaming": False, "specifications": [spec]}))') || return 1
+    body=$(arr_api "$svc" "$user" POST /customformat "$body") || return 1
     profiles=$(arr_api "$svc" "$user" GET /qualityprofile) || return 1
-    C="$cfs" P="$profiles" python3 -c '
+    CF="$body" P="$profiles" python3 -c '
 import json, os
-e = os.environ
-ids = {c["name"]: c["id"] for c in json.loads(e["C"])}
-scores = {ids["VF"]: 100, ids["MULTi"]: 150}
-for p in json.loads(e["P"]):
+fid = json.loads(os.environ["CF"])["id"]
+for p in json.loads(os.environ["P"]):
     items = {f["format"]: f for f in p.get("formatItems", [])}
-    for fid, sc in scores.items():
-        items.setdefault(fid, {"format": fid, "name": "", "score": 0})["score"] = sc
+    items.setdefault(fid, {"format": fid, "name": "VF", "score": 0})["score"] = 100
     p["formatItems"] = list(items.values())
     p["minFormatScore"] = max(p.get("minFormatScore") or 0, 1)
-    if (p.get("language") or {}).get("id") == -2:
-        p["language"] = {"id": -1, "name": "Any"}
-    print(json.dumps(p))' | while IFS= read -r body; do
-        arr_api "$svc" "$user" PUT "/qualityprofile/$(printf '%s' "$body" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')" "$body" >/dev/null || exit 1
+    print(json.dumps(p))' | _arr_put_profiles "$svc" "$user"
+}
+
+# Profils de qualité (un JSON par ligne sur stdin) enregistrés. $1=service $2=utilisateur
+_arr_put_profiles() {
+    local body
+    while IFS= read -r body; do
+        arr_api "$1" "$2" PUT "/qualityprofile/$(printf '%s' "$body" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')" "$body" >/dev/null || return 1
     done
 }
 

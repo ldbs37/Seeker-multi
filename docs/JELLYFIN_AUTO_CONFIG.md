@@ -75,8 +75,9 @@ est configuré par `arr_setup.sh` (`lib_seerr.sh`) :
 - adresse : `https://seerr-<user>.votre-domaine.com` (Seerr ne gère pas de
   sous-chemin) ;
 - ses Sonarr / Radarr (profil HD-1080p, `/data/tv`, `/data/movies`) ; leurs
-  profils n'acceptent que la VF ou le MULTi (formats personnalisés « VF » et
-  « MULTi », modifiables dans Paramètres → Profils).
+  profils sont en français (Radarr : langue « French » ; Sonarr : format
+  personnalisé « VF » exigé). Les MULTi comptent comme françaises si
+  l'indexeur l'indique (réglage « Multi Languages »).
 - pas de connexion locale (mot de passe Seerr), pas d'inscription d'autres
   comptes Jellyfin ;
 - l'utilisateur est administrateur de son Seerr : ses demandes sont
