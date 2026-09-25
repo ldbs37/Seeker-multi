@@ -440,6 +440,10 @@ provision_user() {
     if has_service jellyfin; then
         id=$(ensure_app Jellyfin jellyfin "https://jellyfin.$DOMAIN" "http://jellyfin:8096/health") && app_spec "$id"
     fi
+    # Stirling-PDF : outils PDF, ouverts à tous les utilisateurs
+    if has_service stirling-pdf; then
+        id=$(ensure_app Stirling-PDF stirling-pdf "https://pdf.$DOMAIN" "http://stirling-pdf:8080/") && app_spec "$id"
+    fi
     if password_user_is_admin "$user" "$USERS_DB"; then
         id=$(ensure_app "Serveur (admin)" homarr "https://$DOMAIN/boards/$ADMIN_BOARD" "") && app_spec "$id"
     fi

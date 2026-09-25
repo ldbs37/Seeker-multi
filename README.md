@@ -27,6 +27,7 @@ Une solution **simple et efficace** de seedbox multi-utilisateurs avec authentif
 
 **Tout est préconfiguré** :
 - 🔐 Connexion unique via Authelia : aucune page de connexion, Seerr compris
+- 📺 Jellyfin : « Passer l'intro » (Intro Skipper) et Jellyfin Enhanced
 - 🔗 Sonarr / Radarr → qBittorrent, dossiers `tv/` et `movies/`
 - 🔍 Prowlarr → Sonarr / Radarr, avec son FlareSolverr
 - 🇫🇷 Sonarr / Radarr / Prowlarr en français (dates au format français, titres des films en français) ; téléchargements en français par défaut ; fichiers nommés pour Jellyfin (identifiant TMDB/TVDB dans le dossier : reconnaissance sans erreur) ; profil optimisé (720p à 4K, 4 Go max par film, 2 Go/h par épisode, x265, AV1, 10 bits, HDR, Atmos, VFF préférés)
@@ -45,6 +46,9 @@ Une solution **simple et efficace** de seedbox multi-utilisateurs avec authentif
 - 🎨 **Dashdot** - Dashboard de monitoring système
 - 🔄 **Watchtower** - Mises à jour automatiques
 - 💾 **Duplicati** - Système de backup
+
+### 🧰 Services Optionnels (tous les utilisateurs)
+- 📄 **Stirling-PDF** - Outils PDF : fusionner, découper, compresser, signer, convertir, OCR (français compris) — `https://pdf.<domaine>`, après Authelia, aucun fichier conservé
 
 ### 👥 Rôles Utilisateurs
 - **Administrateur** (premier utilisateur créé) : Accès aux services système + services utilisateur

@@ -68,6 +68,7 @@ INSTALL_DASHDOT=false
 INSTALL_PORTAINER=false
 INSTALL_WATCHTOWER=false
 INSTALL_DUPLICATI=false
+INSTALL_STIRLING_PDF=false
 
 # Identifiants Portainer
 PORTAINER_USER=""
@@ -93,6 +94,7 @@ validate_username() {
     if [[ ! "$username" =~ ^[a-z][a-z0-9]{0,31}$ ]]; then
         error "Nom d'utilisateur invalide: $username (lettres minuscules et chiffres uniquement, commence par une lettre, 32 max)"
     fi
+    username_reserved "$username" && error "Nom d'utilisateur réservé (adresse d'un service) : $username"
 }
 
 # Vérification de commande
@@ -411,6 +413,10 @@ ${admin_domains}
 ${admin_domains}
       policy: deny
 
+    # Services ouverts à tous les utilisateurs (Stirling-PDF)
+    - domain: 'pdf.${DOMAIN}'
+      policy: one_factor
+
     # Racine du domaine : redirection vers le tableau de bord de l'utilisateur
     # connecté (conteneur "home") ; tout utilisateur authentifié
     - domain: '${DOMAIN}'
@@ -681,6 +687,10 @@ configure_installation() {
     read -r -p "Installer Uptime Kuma (monitoring uptime) ? (o/N): " input
     [[ $input =~ ^[oO]$ ]] && INSTALL_UPTIME_KUMA=true
 
+    echo -e "\n${BLUE}=== Outils ===${NC}"
+    read -r -p "Installer Stirling-PDF (outils PDF : fusion, signature, OCR… pour tous les utilisateurs) ? (o/N): " input
+    [[ $input =~ ^[oO]$ ]] && INSTALL_STIRLING_PDF=true
+
     echo -e "\n${BLUE}=== Gestion & Organisation ===${NC}"
     read -r -p "Installer Portainer (gestion Docker web) ? (o/N): " input
     if [[ $input =~ ^[oO]$ ]]; then
@@ -795,6 +805,7 @@ configure_installation() {
     [ "$INSTALL_PORTAINER" = true ] && echo "  ✓ Portainer"
     [ "$INSTALL_WATCHTOWER" = true ] && echo "  ✓ Watchtower"
     [ "$INSTALL_DUPLICATI" = true ] && echo "  ✓ Duplicati"
+    [ "$INSTALL_STIRLING_PDF" = true ] && echo "  ✓ Stirling-PDF"
     echo "Utilisateurs: ${#INITIAL_USERS[@]}"
 
     read -r -p "Continuer l'installation ? (o/N): " confirm
@@ -844,6 +855,8 @@ deploy_services() {
                     || warn "Compte Jellyfin de ${INITIAL_USERS[$j]} incomplet"
             done
             jellyfin_sso_ensure || warn "Connexion Authelia de Jellyfin non configurée (relancez generate_traefik_labels.sh)"
+            # Intro Skipper, Jellyfin Enhanced (+ File Transformation)
+            jellyfin_plugins_ensure || warn "Plugins Jellyfin non installés (relancez generate_traefik_labels.sh)"
             log "✓ Jellyfin configuré (${INITIAL_USERS[0]} administrateur)"
         else
             warn "Jellyfin n'est pas prêt : relancez generate_traefik_labels.sh (ou terminez l'assistant sur http://<serveur>:8096)"
@@ -951,6 +964,7 @@ main() {
     done
     info "🔐 Portail de connexion (SSO) : https://auth.$DOMAIN"
     [ "$INSTALL_JELLYFIN" = true ] && echo "  - Jellyfin : https://jellyfin.$DOMAIN"
+    [ "$INSTALL_STIRLING_PDF" = true ] && echo "  - Stirling-PDF (tous les utilisateurs) : https://pdf.$DOMAIN"
     if [ ${#adm[@]} -gt 0 ]; then
         info "🛠️  Administration (groupe admins, via SSO) :"
         echo "  - Traefik : https://traefik.$DOMAIN"

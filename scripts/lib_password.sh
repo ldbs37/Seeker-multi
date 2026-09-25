@@ -48,3 +48,12 @@ password_user_is_admin() {
         END { exit !found }
     ' "$2" 2>/dev/null
 }
+
+# Nom réservé : sous-domaine d'un service (https://<nom>.<domaine> serait
+# aussi celui de l'utilisateur). Retour 0 si réservé.
+username_reserved() {
+    case "$1" in
+        auth|traefik|portainer|scrutiny|dashdot|tautulli|uptime|duplicati|jellyfin|pdf|www|mail|api) return 0 ;;
+        *) return 1 ;;
+    esac
+}

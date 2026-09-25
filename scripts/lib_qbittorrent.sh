@@ -130,7 +130,9 @@ vuetorrent_ensure() {
 #  - langue (lib_lang.sh), au premier chargement seulement ; chacun la
 #    change ensuite dans VueTorrent ;
 #  - bouton « Déconnexion » → déconnexion Authelia puis
-#    accueil (sinon Authelia, toujours connecté, rouvre aussitôt qBittorrent).
+#    accueil (sinon Authelia, toujours connecté, rouvre aussitôt qBittorrent) ;
+#  - liste des torrents en tableau (clé vuetorrent_dashboard), tant que
+#    l'utilisateur n'a pas choisi un autre affichage.
 vuetorrent_set_defaults() {
     local html="$INSTALL_DIR/vuetorrent/public/index.html" domain="" logout=""
     [ -f "$html" ] || return 1
@@ -143,7 +145,10 @@ p = sys.argv[1]; s = open(p, encoding="utf-8").read()
 s = re.sub(r"<!-- seedbox-(lang|defaults) -->.*?<!-- /seedbox-(lang|defaults) -->", "", s, flags=re.S)
 js = ("try{var k=\"vuetorrent_webuiSettings\",v=localStorage.getItem(k),o=v?JSON.parse(v):{};"
       "if(!v)o.language=%s;var u=%s;if(u&&(!o.logoutUrl||/[?&]rd=https:[^&]*\\/$/.test(o.logoutUrl)))o.logoutUrl=u;"
-      "localStorage.setItem(k,JSON.stringify(o))}catch(e){}"
+      "localStorage.setItem(k,JSON.stringify(o));"
+      # Liste des torrents en tableau par défaut (choix de l utilisateur conservé)
+      "var d=\"vuetorrent_dashboard\";if(!localStorage.getItem(d))localStorage.setItem(d,JSON.stringify({displayMode:\"table\"}))"
+      "}catch(e){}"
       % (json.dumps(os.environ["VT_LANG"]), json.dumps(os.environ["VT_LOGOUT"])))
 s = s.replace("<head>", "<head><!-- seedbox-defaults --><script>" + js + "</script><!-- /seedbox-defaults -->", 1)
 open(p, "w", encoding="utf-8").write(s)' "$html"

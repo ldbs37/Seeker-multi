@@ -22,7 +22,7 @@
 SYSTEM_SERVICES_OBSOLETE="home flaresolverr"
 # (Plex et Tautulli ne sont plus proposés : un bloc existant est conservé tel
 # quel, comme bloc personnalisé)
-SYSTEM_SERVICES="authelia homarr scrutiny uptime-kuma watchtower duplicati jellyfin dashdot portainer"
+SYSTEM_SERVICES="authelia homarr scrutiny uptime-kuma watchtower duplicati jellyfin dashdot portainer stirling-pdf"
 
 # Variable INSTALL_* correspondant à un service système optionnel
 system_service_flag() {
@@ -32,6 +32,7 @@ system_service_flag() {
         watchtower) echo INSTALL_WATCHTOWER ;; duplicati) echo INSTALL_DUPLICATI ;;
         dashdot) echo INSTALL_DASHDOT ;;
         portainer) echo INSTALL_PORTAINER ;;
+        stirling-pdf) echo INSTALL_STIRLING_PDF ;;
         *) return 1 ;;
     esac
 }
@@ -213,6 +214,13 @@ if ac and not re.search(r"^\s*- domain: '" + re.escape(dom) + r"'\s*$", ac.group
     rule = (f"    # Racine du domaine : redirection vers le tableau de bord\n"
             f"    - domain: '{dom}'\n      policy: one_factor\n\n")
     s = re.sub(r"^    - domain_regex:", lambda m: rule + m.group(0), s, count=1, flags=re.M)
+# Services système ouverts à tous les utilisateurs (Stirling-PDF)
+ac = re.search(r"^access_control:\n(.*?)(?=^\S)", s, re.M | re.S)
+if ac and not re.search(r"^\s*- domain: 'pdf\." + re.escape(dom) + r"'\s*$", ac.group(1), re.M):
+    rule = (f"    # Services ouverts à tous les utilisateurs (Stirling-PDF)\n"
+            f"    - domain: 'pdf.{dom}'\n      policy: one_factor\n\n")
+    anchor = r"^    # Espaces utilisateurs ISOLÉS" if re.search(r"^    # Espaces utilisateurs ISOLÉS", s, re.M) else r"^    - domain_regex:"
+    s = re.sub(anchor, lambda m: rule + m.group(0), s, count=1, flags=re.M)
 # Contrôle d'accès par session uniquement (pas de défi HTTP Basic)
 if not re.search(r"^  endpoints:", s, re.M):
     s = re.sub(r"^(server:\n  address: [^\n]*\n)",
@@ -364,6 +372,32 @@ EOF
     echo "    restart: unless-stopped"
 }
 
+# Stirling-PDF (outils PDF, OCR) : tous les utilisateurs (après Authelia) ;
+# aucun fichier conservé. Sa connexion propre est désactivée, ses réglages
+# (qui toucheraient au serveur) masqués.
+_block_stirling_pdf() {
+    cat << 'EOF'
+
+  stirling-pdf:
+    image: stirlingtools/stirling-pdf:3.0.0
+    container_name: stirling-pdf
+    environment:
+      - TZ=${TZ}
+      - SECURITY_ENABLELOGIN=false
+      - SYSTEM_DEFAULTLOCALE=fr-FR
+      - SYSTEM_ENABLEANALYTICS=false
+      - SYSTEM_SHOWSETTINGSWHENNOLOGIN=false
+      - SYSTEM_SHOWUPDATE=false
+    volumes:
+      - ./stirling-pdf/configs:/configs
+      - ./stirling-pdf/logs:/logs
+    # Java + OCR + LibreOffice : mémoire bornée pour ne pas gêner le reste
+    mem_limit: 3g
+EOF
+    _sys_labels stirling-pdf pdf 8080 true
+    echo "    restart: unless-stopped"
+}
+
 _block_dashdot() {
     cat << 'EOF'
 
@@ -449,6 +483,7 @@ _system_dirs() {
     fi
     [ "${INSTALL_DASHDOT:-false}" = true ]     && mkdir -p "$INSTALL_DIR/dashdot"
     [ "${INSTALL_PORTAINER:-false}" = true ]   && mkdir -p "$INSTALL_DIR/portainer"
+    [ "${INSTALL_STIRLING_PDF:-false}" = true ] && mkdir -p "$INSTALL_DIR/stirling-pdf/configs" "$INSTALL_DIR/stirling-pdf/logs"
     if [ "${INSTALL_JELLYFIN:-false}" = true ]; then
         mkdir -p "$INSTALL_DIR/jellyfin/config" "$INSTALL_DIR/jellyfin/cache"
         chown -R "${ADMIN_UID}:${ADMIN_GID}" "$INSTALL_DIR/jellyfin" 2>/dev/null || true
@@ -473,6 +508,7 @@ compose_base_content() {
     [ "${INSTALL_JELLYFIN:-false}" = true ]    && _block_jellyfin
     [ "${INSTALL_DASHDOT:-false}" = true ]     && _block_dashdot
     [ "${INSTALL_PORTAINER:-false}" = true ]   && _block_portainer
+    [ "${INSTALL_STIRLING_PDF:-false}" = true ] && _block_stirling_pdf
     return 0
 }
 
