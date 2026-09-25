@@ -373,7 +373,8 @@ EOF
 }
 
 # Stirling-PDF (outils PDF, OCR) : tous les utilisateurs (après Authelia) ;
-# aucun fichier conservé. Sa connexion propre est désactivée, ses réglages
+# aucun fichier conservé sur le serveur (stockage désactivé ; fichiers
+# temporaires des traitements effacés sous 24 h). Sa connexion propre est désactivée, ses réglages
 # (qui toucheraient au serveur) masqués.
 _block_stirling_pdf() {
     cat << 'EOF'
@@ -388,6 +389,9 @@ _block_stirling_pdf() {
       - SYSTEM_ENABLEANALYTICS=false
       - SYSTEM_SHOWSETTINGSWHENNOLOGIN=false
       - SYSTEM_SHOWUPDATE=false
+      # Aucun stockage de fichiers sur le serveur (instance partagée : la
+      # « Bibliothèque » reste dans le navigateur de chacun)
+      - STORAGE_ENABLED=false
     volumes:
       - ./stirling-pdf/configs:/configs
       - ./stirling-pdf/logs:/logs
