@@ -9,7 +9,7 @@
 # Pré-requis (variables) : USERNAME USER_ID USER_DIR INSTALL_DIR TZ USE_TRAEFIK
 #                          DOMAIN.
 # Dépendances : lib_ports.sh, lib_traefik.sh (sourcées par l'appelant) ;
-# lib_filebrowser.sh (sourcée ici).
+# lib_lang.sh, lib_filebrowser.sh (sourcées ici).
 #
 # Organisation des données d'un utilisateur ($USER_DIR, monté sur /data) :
 #   downloads/ tv/ movies/ books/ config/
@@ -17,6 +17,8 @@
 # hardlink (pas de copie : l'espace disque n'est pas doublé pendant le seed).
 #######################
 
+# shellcheck source=lib_lang.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib_lang.sh"
 # shellcheck source=lib_filebrowser.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib_filebrowser.sh"
 
@@ -70,6 +72,7 @@ service_prepare() {
                 # Connexion unique via Traefik (remplace la prise en charge du proxy)
                 [ "$USE_TRAEFIK" = true ] && qbit_sso_configure "$conf"
             fi
+            qbit_lang_configure "$conf"
             # Interface web VueTorrent (sinon interface d'origine)
             if vuetorrent_ensure; then qbit_vuetorrent_configure "$conf"
             else warn "VueTorrent non téléchargé : interface d'origine de qBittorrent"; fi

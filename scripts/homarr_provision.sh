@@ -491,6 +491,11 @@ remove_user_board() {
     return 0
 }
 
+# Langue par défaut de Homarr = langue de la seedbox (lib_lang.sh) ; chacun
+# peut choisir la sienne dans son profil
+htrpc POST serverSettings.saveSettings "{\"settingsKey\":\"culture\",\"value\":{\"defaultLocale\":\"$(seedbox_lang)\"}}" >/dev/null \
+    || warn "Langue par défaut de Homarr non appliquée (HTTP $(http_code))"
+
 case "$1" in
     --all)
         ensure_search_engine

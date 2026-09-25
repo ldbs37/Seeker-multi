@@ -46,6 +46,8 @@ if [ ! -f "$SOURCE_DIR/scripts/lib_compose_base.sh" ]; then
 fi
 # shellcheck source=scripts/lib_compose_base.sh
 source "$SOURCE_DIR/scripts/lib_compose_base.sh"
+# shellcheck source=scripts/lib_lang.sh
+source "$SOURCE_DIR/scripts/lib_lang.sh"
 # shellcheck source=scripts/lib_autoconfig.sh
 source "$SOURCE_DIR/scripts/lib_autoconfig.sh"
 # shellcheck source=scripts/lib_password.sh
@@ -509,6 +511,22 @@ configure_installation() {
     echo -e "\n${BLUE}╔════════════════════════════════════════════╗${NC}"
     echo -e "${BLUE}║  Installation Seedbox Multi-Utilisateurs  ║${NC}"
     echo -e "${BLUE}╚════════════════════════════════════════════╝${NC}\n"
+
+    # Langue par défaut des interfaces (qBittorrent, VueTorrent, fichiers,
+    # Homarr, Jellyfin) ; chacun peut ensuite changer la sienne
+    local i=1 l choice
+    echo "Langue par défaut des interfaces :"
+    for l in $SEEDBOX_LANGS; do echo "  $i) $(lang_label "$l")"; i=$((i + 1)); done
+    while true; do
+        read -r -p "Choix [1] : " choice
+        choice=${choice:-1}
+        l=$(echo "$SEEDBOX_LANGS" | awk -v n="$choice" '{ if (n ~ /^[0-9]+$/ && n >= 1 && n <= NF) print $n }')
+        [ -n "$l" ] && break
+        warn "Choix invalide"
+    done
+    SEEDBOX_LANG=$l
+    info "Langue : $(lang_label "$SEEDBOX_LANG")"
+    echo ""
 
     # Configuration du domaine
     while true; do

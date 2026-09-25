@@ -174,7 +174,7 @@ utilisez `/data/tv`, `/data/movies` ou `/data/books` comme dossier racine et
 Sourcées par les scripts, source unique de vérité :
 `lib_ports.sh` (UID/ports), `lib_services.sh` (blocs compose utilisateur),
 `lib_traefik.sh` (routage), `lib_compose_base.sh` (services système),
-`lib_qbittorrent.sh` (hash PBKDF2), `lib_filebrowser.sh` (FileBrowser Quantum), `lib_autoconfig.sh` (Portainer/Jellyfin),
+`lib_qbittorrent.sh` (hash PBKDF2), `lib_filebrowser.sh` (FileBrowser Quantum), `lib_lang.sh` (langue des interfaces), `lib_autoconfig.sh` (Portainer/Jellyfin),
 `lib_quota.sh` (quotas projet).
 
 ## 🛠️ Dépannage

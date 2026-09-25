@@ -64,8 +64,13 @@ autoconfig_jellyfin() {
         return 1
     fi
     # Ordre imposé par l'assistant : Configuration → User → RemoteAccess → Complete
+    # Langue choisie à l'installation (lib_lang.sh), français par défaut
+    local lang="fr" culture="fr-FR" country="FR"
+    if declare -F seedbox_lang >/dev/null; then
+        lang=$(seedbox_lang); read -r culture country <<< "$(lang_jellyfin "$lang")"
+    fi
     curl -s -o /dev/null -X POST "$base/Startup/Configuration" -H "Content-Type: application/json" \
-        -d '{"UICulture":"fr-FR","MetadataCountryCode":"FR","PreferredMetadataLanguage":"fr"}' || true
+        -d "{\"UICulture\":\"$culture\",\"MetadataCountryCode\":\"$country\",\"PreferredMetadataLanguage\":\"$lang\"}" || true
     curl -s -o /dev/null "$base/Startup/User" || true
     code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$base/Startup/User" -H "Content-Type: application/json" \
         -d "{\"Name\":\"$(json_escape "$user")\",\"Password\":\"$(json_escape "$pass")\"}") || code=000

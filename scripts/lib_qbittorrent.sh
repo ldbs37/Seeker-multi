@@ -123,10 +123,34 @@ vuetorrent_ensure() {
         rm -rf "${dir:?}.old"; [ -d "$dir" ] && mv "$dir" "$dir.old"
         mv "$dir.new" "$dir" && rm -rf "${dir:?}.old"
         rm -rf "${tmp:?}"
+        vuetorrent_set_lang || true
         return 0
     fi
     rm -rf "${tmp:?}"
     [ -d "$dir/public" ]    # version précédente encore utilisable
+}
+
+# Langue par défaut de VueTorrent (lib_lang.sh) : au premier chargement
+# (réglages vides dans le navigateur), langue pré-remplie ; chacun la change
+# ensuite dans VueTorrent. Script inséré dans index.html de la copie
+# partagée ; idempotent (remplacé à chaque appel).
+vuetorrent_set_lang() {
+    local html="$INSTALL_DIR/vuetorrent/public/index.html"
+    [ -f "$html" ] || return 1
+    VT_LANG="$(seedbox_lang)" python3 -c '
+import os, re, sys
+p = sys.argv[1]; s = open(p, encoding="utf-8").read()
+s = re.sub(r"<!-- seedbox-lang -->.*?<!-- /seedbox-lang -->", "", s, flags=re.S)
+tag = ("<!-- seedbox-lang --><script>try{var k=\"vuetorrent_webuiSettings\";"
+       "if(!localStorage.getItem(k))localStorage.setItem(k,JSON.stringify({language:\"%s\"}))}"
+       "catch(e){}</script><!-- /seedbox-lang -->" % os.environ["VT_LANG"])
+s = s.replace("<head>", "<head>" + tag, 1)
+open(p, "w", encoding="utf-8").write(s)' "$html"
+}
+
+# qBittorrent : langue de l'interface d'origine et des messages. $1 = conf
+qbit_lang_configure() {
+    ini_set "$1" Preferences 'General\Locale' "$(seedbox_lang)"
 }
 
 # qBittorrent : VueTorrent comme interface web (conteneur arrêté).

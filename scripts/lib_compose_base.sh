@@ -438,10 +438,12 @@ write_env_file() {
     if [ -f "$INSTALL_DIR/.env" ] && grep -q '^ADMIN_BIND=' "$INSTALL_DIR/.env"; then
         admin_bind=$(grep '^ADMIN_BIND=' "$INSTALL_DIR/.env" | cut -d'=' -f2)
     fi
-    local extra=""
+    local extra="" lang="${SEEDBOX_LANG:-}"
+    # Langue des interfaces (lib_lang.sh) : choisie à l'installation, conservée ensuite
+    [ -n "$lang" ] || lang=$(grep '^SEEDBOX_LANG=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d'=' -f2)
     # Autres clés (ex. SEEDBOX_API_KEY de setup_api.sh) conservées telles quelles
     if [ -f "$INSTALL_DIR/.env" ]; then
-        extra=$(grep -vE '^(TZ|DOMAIN|ADMIN_UID|ADMIN_GID|USE_TRAEFIK|ADMIN_BIND)=' "$INSTALL_DIR/.env" | grep -E '^[A-Z_][A-Z0-9_]*=' || true)
+        extra=$(grep -vE '^(TZ|DOMAIN|ADMIN_UID|ADMIN_GID|USE_TRAEFIK|ADMIN_BIND|SEEDBOX_LANG)=' "$INSTALL_DIR/.env" | grep -E '^[A-Z_][A-Z0-9_]*=' || true)
     fi
     cat > "$INSTALL_DIR/.env" << EOF
 TZ=$TZ
@@ -450,6 +452,7 @@ ADMIN_UID=$ADMIN_UID
 ADMIN_GID=$ADMIN_GID
 USE_TRAEFIK=$USE_TRAEFIK
 ADMIN_BIND=$admin_bind
+SEEDBOX_LANG=${lang:-fr}
 EOF
     [ -z "$extra" ] || printf '%s\n' "$extra" >> "$INSTALL_DIR/.env"
     chmod 600 "$INSTALL_DIR/.env"

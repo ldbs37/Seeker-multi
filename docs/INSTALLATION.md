@@ -59,6 +59,23 @@ sudo ./install.sh
 
 ## 📝 Configuration Interactive
 
+### 0. Langue des interfaces
+
+```
+Langue par défaut des interfaces :
+  1) Français
+  2) English
+  3) Deutsch
+  4) Español
+  5) Italiano
+Choix [1] :
+```
+
+Appliquée à qBittorrent (et VueTorrent), à la gestion de fichiers, à Homarr
+et à Jellyfin ; chacun peut ensuite choisir la sienne dans l'appli. Gardée
+dans `/opt/seedbox/.env` (`SEEDBOX_LANG`) ; pour la changer plus tard :
+modifier cette ligne puis `sudo /opt/seedbox/scripts/generate_traefik_labels.sh --yes`.
+
 ### 1. Configuration du domaine
 
 ```

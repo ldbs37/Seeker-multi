@@ -101,7 +101,7 @@ userDefaults:
     folder: true
   ui:
     darkMode: true
-    locale: "fr"
+    locale: "$(seedbox_lang)"
   listing:
     viewMode: "normal"
   account:
