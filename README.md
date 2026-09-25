@@ -29,7 +29,7 @@ Une solution **simple et efficace** de seedbox multi-utilisateurs avec authentif
 - 🔐 Connexion unique via Authelia : aucune page de connexion, Seerr compris
 - 🔗 Sonarr / Radarr → qBittorrent, dossiers `tv/` et `movies/`
 - 🔍 Prowlarr → Sonarr / Radarr, avec son FlareSolverr
-- 🇫🇷 Sonarr / Radarr / Prowlarr en français (dates au format français, titres des films en français)
+- 🇫🇷 Sonarr / Radarr / Prowlarr en français (dates au format français, titres des films en français) ; téléchargements en français par défaut
 - 📝 Seerr → Jellyfin (seulement vos bibliothèques) et Sonarr / Radarr ; demandes validées automatiquement
 - 📖 Calibre-web → bibliothèque `books/`
 - 🛡️ Chaque utilisateur a son réseau Docker privé : les autres ne peuvent pas joindre ses services

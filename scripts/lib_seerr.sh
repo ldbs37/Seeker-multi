@@ -25,6 +25,16 @@
 #######################
 
 SEERR_DEVICE_PREFIX="seedbox-seerr-"
+# Appareil du jeton confié à Seerr (clé d'API), distinct de celui de la
+# connexion de l'utilisateur : Jellyfin révoque les jetons d'un appareil à
+# chaque nouvelle connexion depuis cet appareil
+SEERR_API_DEVICE_PREFIX="seedbox-seerr-api-"
+
+# Jeton Jellyfin encore valide ? $1=jeton
+seerr_jellyfin_token_ok() {
+    [ -n "$1" ] && curl -fs -m 10 -o /dev/null \
+        -H "Authorization: MediaBrowser Token=\"$1\"" "$JELLYFIN_LOCAL_URL/Users/Me"
+}
 
 # Jeton Jellyfin au nom de $1 (Quick Connect). Affiche « <jeton> <userId> ».
 seerr_jellyfin_token() {
@@ -32,7 +42,7 @@ seerr_jellyfin_token() {
     jid=$(jf_api GET /Users | U="$user" python3 -c 'import json,os,sys
 print(next((u["Id"] for u in json.load(sys.stdin) if u["Name"].lower() == os.environ["U"].lower()), ""))')
     [ -n "$jid" ] || return 1
-    hdr="MediaBrowser Client=\"Seerr\", Device=\"Seerr\", DeviceId=\"${SEERR_DEVICE_PREFIX}${user}\", Version=\"3\""
+    hdr="MediaBrowser Client=\"Seerr\", Device=\"Seerr\", DeviceId=\"${SEERR_API_DEVICE_PREFIX}${user}\", Version=\"3\""
     r=$(curl -s -m 30 -X POST -H "Authorization: $hdr" "$JELLYFIN_LOCAL_URL/QuickConnect/Initiate") || return 1
     code=$(printf '%s' "$r" | python3 -c 'import json,sys; print(json.loads(sys.stdin.read().lstrip("﻿"))["Code"])' 2>/dev/null)
     secret=$(printf '%s' "$r" | python3 -c 'import json,sys; print(json.loads(sys.stdin.read().lstrip("﻿"))["Secret"])' 2>/dev/null)
@@ -99,10 +109,19 @@ print(json.dumps([{"id": f["ItemId"], "name": f["Name"], "enabled": True, "type"
             "$INSTALL_DIR/authelia/users_database.yml" 2>/dev/null)
     fi
 
+    # Seerr déjà configuré par la seedbox : jeton Jellyfin révoqué (ancienne
+    # version : même appareil que la connexion de l'utilisateur) → renouvelé
+    if [ "$state" = init ] && python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))["jellyfin"].get("ip") == "jellyfin" else 1)' "$settings" \
+        && ! seerr_jellyfin_token_ok "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["jellyfin"].get("apiKey", ""))' "$settings")" \
+        && jellyfin_available; then
+        read -r tok jid < <(seerr_jellyfin_token "$user") || true
+        [ -n "$tok" ] || echo "Jeton Jellyfin de $user non renouvelé" >&2
+    fi
+
     region=$(lang_jellyfin "$(seedbox_lang)" | cut -d' ' -f2)
     cid=$(seerr_secret "$user" SEERR_CLIENT_ID)
     # Déjà configuré et rien à changer : pas de redémarrage
-    if [ "$state" = init ] && CID="$cid" SONARR="$sonarr" RADARR="$radarr" python3 -c '
+    if [ "$state" = init ] && [ -z "$tok" ] && CID="$cid" SONARR="$sonarr" RADARR="$radarr" python3 -c '
 import json, os, sys
 s = json.load(open(sys.argv[1]))
 if s.get("clientId") != os.environ["CID"] or s.get("sessionSecret") != os.environ["CID"]:
@@ -128,6 +147,8 @@ s = json.load(open(path))
 # automatique) : clientId jusqu'à Seerr 3.3, sessionSecret depuis 3.4
 s["clientId"] = e["CID"]
 s["sessionSecret"] = e["CID"]
+if e["ST"] == "init" and e["TOK"]:
+    s["jellyfin"]["apiKey"] = e["TOK"]
 if e["ST"] == "new":
     info = json.loads(e["INFO"].lstrip("﻿"))
     s["main"].update(mediaServerType=2, mediaServerLogin=True,
