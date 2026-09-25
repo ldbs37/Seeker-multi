@@ -91,6 +91,28 @@ tableau de bord, qui devient aussi sa page d'accueil. Les administrateurs
 (groupe `admins`) voient tout. Un utilisateur connecté avant la création de
 son groupe doit se reconnecter une fois.
 
+#### Connexion unique qBittorrent et Filebrowser
+
+Ils ont leur propre écran de connexion ; en mode Traefik il est sauté,
+Authelia ayant déjà identifié l'utilisateur. Automatique à l'installation, à
+l'ajout d'un utilisateur et par `generate_traefik_labels.sh` (installations
+existantes), sans ouvrir d'accès aux autres conteneurs :
+
+- **qBittorrent** : seule l'adresse de Traefik est dispensée de mot de passe
+  (liste blanche `/32`). Traefik le joint par un réseau Docker dédié
+  (`seedbox_sso`, interne) où il a une adresse fixe (`TRAEFIK_SSO_IP` du
+  `.env`). Les *arr d'un autre utilisateur, qui joignent qBittorrent par
+  `traefik_proxy`, doivent toujours s'authentifier. La prise en charge du
+  reverse-proxy de qBittorrent est désactivée (sinon un en-tête
+  `X-Forwarded-For` forgé imiterait Traefik).
+- **Filebrowser** : authentification « proxy ». Traefik transmet le nom de
+  l'utilisateur (celui du routeur, contrôlé par Authelia) dans un en-tête au
+  nom **secret** (`SSO_HEADER` du `.env`), en écrasant toute valeur envoyée par
+  le client ; sans cet en-tête, Filebrowser refuse.
+
+Le mot de passe reste valable pour les accès directs (applis mobiles
+qBittorrent…).
+
 ### Mode port direct : Homarr 0.16 par utilisateur
 
 Sans Authelia devant les services, pas de connexion unique possible : chaque

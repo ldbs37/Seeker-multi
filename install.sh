@@ -1002,7 +1002,7 @@ main() {
         echo "     (préconfiguré : chaque utilisateur arrive sur son tableau de bord privé)"
         info "👥 Chaque utilisateur : https://<utilisateur>.$DOMAIN renvoie au tableau de bord"
         echo "     qBittorrent …/qbittorrent · Filebrowser …/files · Sonarr …/sonarr · Radarr …/radarr"
-        echo "     (qBittorrent et Filebrowser redemandent les identifiants de la seedbox)"
+        echo "     (connexion unique : qBittorrent et Filebrowser s'ouvrent sans redemander de mot de passe)"
         info "⏳ Certificats Let's Encrypt obtenus au premier accès (DNS *.${DOMAIN} requis)"
     else
         [ "$INSTALL_JELLYFIN" = true ] && echo "  - Jellyfin : http://<ip-du-serveur>:8096"

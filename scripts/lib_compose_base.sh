@@ -410,7 +410,11 @@ _system_dirs() {
 # Émet (stdout) l'en-tête et les services système sélectionnés
 compose_base_content() {
     if [ "$USE_TRAEFIK" = "true" ]; then
-        printf 'networks:\n  traefik_proxy:\n    external: true\n\n'
+        printf 'networks:\n'
+        # Réseau de la connexion unique qBittorrent (lib_traefik.sh), s'il existe
+        grep -q '^TRAEFIK_SSO_IP=' "$INSTALL_DIR/.env" 2>/dev/null \
+            && printf '  seedbox_sso:\n    external: true\n'
+        printf '  traefik_proxy:\n    external: true\n\n'
     fi
     echo "services:"
     _block_authelia

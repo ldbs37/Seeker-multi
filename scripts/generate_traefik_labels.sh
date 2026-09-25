@@ -94,6 +94,11 @@ AUTHELIA_DB="$INSTALL_DIR/authelia/users_database.yml"
 #######################
 TMP="${DOCKER_COMPOSE_FILE%.yml}.new.yml"
 generate_docker_compose "$TMP"           # services système + .env (USE_TRAEFIK=true)
+# Connexion unique qBittorrent/Filebrowser : réseau dédié et en-tête secret
+# (.env, lus par les labels générés ci-dessous)
+SSO_OK=false
+if sso_net_ensure; then SSO_OK=true
+else warn "Réseau $SSO_NET non créé : qBittorrent et Filebrowser garderont leur mot de passe"; fi
 # Homarr partagé : secrets (.env, avant la validation) et client OIDC Authelia
 AUTHELIA_CHANGED=false
 if homarr_prepare; then AUTHELIA_CHANGED=true; fi
@@ -108,6 +113,7 @@ for e in "${USER_ENTRIES[@]}"; do
     service_block "$svc" >> "$TMP"
 done
 [ ${#CUSTOM[@]} -gt 0 ] && compose_extract_blocks "${DOCKER_COMPOSE_FILE}.pre-migration" "${CUSTOM[@]}" >> "$TMP"
+[ "$SSO_OK" = true ] && { compose_ensure_sso_net "$TMP" || true; }
 
 if ! compose_validate "$TMP"; then
     rm -f "$TMP"
@@ -135,7 +141,11 @@ for e in "${USER_ENTRIES[@]}"; do
     case "$svc" in
         qbittorrent)
             conf="$cfg/qBittorrent/qBittorrent.conf"
-            if [ -f "$conf" ] && [ -n "$PROXY_NET" ]; then
+            if [ -f "$conf" ] && [ "$SSO_OK" = true ]; then
+                # Connexion unique : Traefik seul dispensé de mot de passe
+                qbit_sso_configure "$conf"
+                chown "$USER_ID:$USER_ID" "$conf"
+            elif [ -f "$conf" ] && [ -n "$PROXY_NET" ]; then
                 ini_set "$conf" Preferences 'WebUI\ReverseProxySupportEnabled' 'true'
                 ini_set "$conf" Preferences 'WebUI\TrustedReverseProxiesList' "$PROXY_NET"
                 chown "$USER_ID:$USER_ID" "$conf"
@@ -163,6 +173,20 @@ fi
 for u in "${!DONE_USERS[@]}"; do
     "$SCRIPT_DIR/configure_homarr.sh" "$u" >/dev/null 2>&1 || warn "Homarr de $u non régénéré"
 done
+
+# Filebrowser : connexion par l'en-tête posé par Traefik (base modifiée
+# conteneur arrêté ; sans effet si déjà fait)
+if [ "$SSO_OK" = true ]; then
+    for e in "${USER_ENTRIES[@]}"; do
+        [ "${e%%:*}" = filebrowser ] || continue
+        u=${e#*:}
+        if filebrowser_sso_configure "$u" "$(id -u "$u")" "$(service_image filebrowser)"; then
+            log "✓ Filebrowser ($u) : connexion unique"
+        else
+            warn "Filebrowser ($u) : connexion unique non appliquée (mot de passe conservé)"
+        fi
+    done
+fi
 
 # Accueil https://<domaine> (Homarr partagé) : règle d'accès + redirection
 # après connexion (configurations Authelia antérieures), client OIDC

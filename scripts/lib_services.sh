@@ -62,6 +62,8 @@ service_prepare() {
                 fi
                 qbit_configure "$conf" "$USERNAME" "$pass" "$proxy_net" \
                     || warn "Mot de passe qBittorrent non défini (voir logs du conteneur)"
+                # Connexion unique via Traefik (remplace la prise en charge du proxy)
+                [ "$USE_TRAEFIK" = true ] && qbit_sso_configure "$conf"
             fi
             ;;
         homarr) mkdir -p "$USER_DIR/config/homarr-icons" ;;

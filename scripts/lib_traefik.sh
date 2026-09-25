@@ -86,12 +86,19 @@ traefik_user_labels() {
         [ -n "$path" ] && rule="${rule} && PathPrefix(\`${path}\`)"
     fi
     mw="authelia@docker"
+    local net=traefik_proxy sso_ip sso_hdr
+    sso_ip=$(sso_traefik_ip); sso_hdr=$(sso_header)
 
     echo "    networks:"
     echo "      - traefik_proxy"
+    # qBittorrent joint par Traefik via le réseau dédié (connexion unique,
+    # voir « Connexion unique » plus bas)
+    if [ "$svc" = qbittorrent ] && [ -n "$sso_ip" ]; then
+        echo "      - ${SSO_NET}"; net=$SSO_NET
+    fi
     echo "    labels:"
     echo "      - \"traefik.enable=true\""
-    echo "      - \"traefik.docker.network=traefik_proxy\""
+    echo "      - \"traefik.docker.network=${net}\""
     echo "      - \"traefik.http.routers.${r}.rule=${rule}\""
     echo "      - \"traefik.http.routers.${r}.entrypoints=websecure\""
     echo "      - \"traefik.http.routers.${r}.tls.certresolver=letsencrypt\""
@@ -109,6 +116,14 @@ traefik_user_labels() {
         calibre)
             echo "      - \"traefik.http.middlewares.${r}-hdr.headers.customrequestheaders.X-Script-Name=/calibre\""
             mw="${mw},${r}-hdr"
+            ;;
+        filebrowser)
+            # Connexion unique : utilisateur du routeur (contrôlé par Authelia)
+            # dans l'en-tête secret ; toute valeur envoyée par le client est remplacée
+            if [ -n "$sso_hdr" ]; then
+                echo "      - \"traefik.http.middlewares.${r}-sso.headers.customrequestheaders.${sso_hdr}=${user}\""
+                mw="${mw},${r}-sso"
+            fi
             ;;
     esac
     echo "      - \"traefik.http.routers.${r}.middlewares=${mw}\""
@@ -149,4 +164,120 @@ traefik_prepare_app() {
         *) return 0 ;;
     esac
     chown -R "$uid:$uid" "$cfg" 2>/dev/null || true
+}
+
+#######################
+# Connexion unique pour qBittorrent et Filebrowser (qui ont leur propre écran
+# de connexion) : Authelia a déjà identifié l'utilisateur, Traefik le leur
+# transmet, sans ouvrir d'accès aux autres conteneurs (les *arr d'un autre
+# utilisateur, par exemple, joignent aussi ces services par le réseau Docker).
+#
+#  - qBittorrent : dispense de connexion pour la SEULE adresse de Traefik
+#    (liste blanche /32), sur un réseau dédié « seedbox_sso » où Traefik a une
+#    adresse fixe. Prise en charge du reverse-proxy désactivée : sinon un
+#    conteneur pourrait se faire passer pour Traefik (X-Forwarded-For).
+#  - Filebrowser : authentification « proxy » par un en-tête au nom SECRET
+#    (SSO_HEADER du .env), posé par Traefik avec le nom de l'utilisateur du
+#    routeur (déjà contrôlé par Authelia) ; inconnu des autres conteneurs.
+# Sans ces réglages (ancienne installation non migrée), les deux services
+# gardent simplement leur mot de passe.
+#######################
+
+SSO_NET="seedbox_sso"
+
+_sso_env() { grep "^$1=" "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2-; }
+sso_header() { _sso_env SSO_HEADER; }
+sso_traefik_ip() { _sso_env TRAEFIK_SSO_IP; }
+
+# Nom secret de l'en-tête Filebrowser (.env, créé une fois)
+sso_env_ensure() {
+    local env="$INSTALL_DIR/.env"
+    [ -f "$env" ] || return 1
+    grep -qE '^SSO_HEADER=X-Seedbox-User-[0-9a-f]{24}$' "$env" \
+        || echo "SSO_HEADER=X-Seedbox-User-$(openssl rand -hex 12)" >> "$env"
+    chmod 600 "$env"
+}
+
+# Réseau dédié Traefik ↔ qBittorrent, sur un sous-réseau sans chevauchement
+# (réseaux Docker et routes de l'hôte). Adresse fixe de Traefik :
+# TRAEFIK_SSO_IP du .env. Idempotent.
+sso_net_ensure() {
+    local env="$INSTALL_DIR/.env" subnet ip used nets
+    sso_env_ensure || return 1
+    if ! docker network inspect "$SSO_NET" >/dev/null 2>&1; then
+        nets=$(docker network ls -q 2>/dev/null)
+        # shellcheck disable=SC2086  # un argument par réseau
+        used=$( { [ -n "$nets" ] && docker network inspect $nets -f '{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null
+                  ip -4 route 2>/dev/null | awk '{print $1}'; } | tr ' ' '\n' | grep / )
+        subnet=$(USED="$used" python3 -c '
+import ipaddress, os
+used = []
+for s in os.environ["USED"].split():
+    try: used.append(ipaddress.ip_network(s, strict=False))
+    except ValueError: pass
+for c in ("172.31.254.0/24", "10.254.254.0/24", "192.168.254.0/24", "172.30.254.0/24"):
+    n = ipaddress.ip_network(c)
+    if not any(n.overlaps(u) for u in used):
+        print(c); break')
+        [ -n "$subnet" ] || { echo "Aucun sous-réseau libre pour $SSO_NET" >&2; return 1; }
+        docker network create --internal --subnet "$subnet" "$SSO_NET" >/dev/null || return 1
+    fi
+    subnet=$(docker network inspect "$SSO_NET" -f '{{(index .IPAM.Config 0).Subnet}}' 2>/dev/null)
+    ip=$(python3 -c 'import ipaddress,sys; print(ipaddress.ip_network(sys.argv[1])[2])' "$subnet" 2>/dev/null)
+    [ -n "$ip" ] || return 1
+    sed -i '/^TRAEFIK_SSO_IP=/d' "$env"
+    echo "TRAEFIK_SSO_IP=$ip" >> "$env"
+    chmod 600 "$env"
+}
+
+# Ajoute au compose le réseau dédié : déclaration, et Traefik à son adresse
+# fixe. Idempotent. $1 = fichier compose. Retour 0 si modifié.
+compose_ensure_sso_net() {
+    local ip; ip=$(sso_traefik_ip)
+    [ -n "$ip" ] || return 1
+    SSO_NET="$SSO_NET" SSO_IP="$ip" python3 - "$1" << 'PY'
+import os, re, sys
+path, net, ip = sys.argv[1], os.environ["SSO_NET"], os.environ["SSO_IP"]
+s = open(path).read(); orig = s
+# Déclaration dans le bloc networks: de tête
+if not re.search(r"^  %s:\n    external: true" % re.escape(net), s, re.M):
+    s = re.sub(r"^networks:\n", "networks:\n  %s:\n    external: true\n" % net, s, count=1, flags=re.M)
+# Service traefik : réseaux réécrits (traefik_proxy + réseau dédié, adresse fixe)
+m = re.search(r"^  traefik:\n(?:(?:    .*|)\n)*?(?=^  \S|^\S|\Z)", s, re.M)
+if m:
+    block = m.group(0)
+    nb = re.sub(r"^    networks:\n(?:      .*\n)+", "", block, count=1, flags=re.M)
+    nb = nb.replace("  traefik:\n", "  traefik:\n    networks:\n      traefik_proxy: {}\n"
+                    "      %s:\n        ipv4_address: %s\n" % (net, ip), 1)
+    s = s.replace(block, nb, 1)
+if s != orig:
+    open(path, "w").write(s)
+    sys.exit(0)
+sys.exit(1)
+PY
+}
+
+# qBittorrent : dispense de connexion pour Traefik seul. $1 = qBittorrent.conf
+qbit_sso_configure() {
+    local ip; ip=$(sso_traefik_ip)
+    [ -n "$ip" ] || return 1
+    ini_set "$1" Preferences 'WebUI\AuthSubnetWhitelistEnabled' 'true'
+    ini_set "$1" Preferences 'WebUI\AuthSubnetWhitelist' "$ip/32"
+    ini_set "$1" Preferences 'WebUI\ReverseProxySupportEnabled' 'false'
+}
+
+# Filebrowser : authentification par l'en-tête posé par Traefik. Base
+# verrouillée tant que le serveur tourne : conteneur arrêté puis relancé.
+# $1=utilisateur $2=UID $3=image Filebrowser
+filebrowser_sso_configure() {
+    local user="$1" uid="$2" image="$3" cfg header rc
+    cfg="$INSTALL_DIR/data/users/$user/config/filebrowser"
+    header=$(sso_header)
+    [ -n "$header" ] && [ -f "$cfg/filebrowser.db" ] || return 1
+    docker stop "filebrowser-$user" >/dev/null 2>&1 || true
+    docker run --rm --user "$uid:$uid" -v "$cfg:/config" --entrypoint /bin/filebrowser "$image" \
+        -d /config/filebrowser.db config set --auth.method=proxy --auth.header="$header" >/dev/null 2>&1
+    rc=$?
+    docker start "filebrowser-$user" >/dev/null 2>&1 || true
+    return $rc
 }

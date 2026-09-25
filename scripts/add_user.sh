@@ -266,6 +266,16 @@ log "Démarrage des conteneurs..."
 cd "$INSTALL_DIR"
 compose_cmd up -d
 
+# Filebrowser : connexion unique via Traefik (base créée au premier démarrage)
+if [ "$USE_TRAEFIK" = true ] && [ -n "$(sso_header)" ]; then
+    for _ in $(seq 1 15); do
+        [ -f "$USER_DIR/config/filebrowser/filebrowser.db" ] && break
+        sleep 1
+    done
+    filebrowser_sso_configure "$USERNAME" "$USER_ID" "$(service_image filebrowser)" \
+        || warn "Filebrowser : connexion unique non appliquée (connexion par mot de passe)"
+fi
+
 # Authelia relit sa base utilisateurs au redémarrage
 docker restart authelia >/dev/null 2>&1 || warn "Redémarrez Authelia pour activer le compte : docker restart authelia"
 
