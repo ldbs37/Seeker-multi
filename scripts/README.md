@@ -126,8 +126,8 @@ Seerr ou installé Dash.
 ```bash
 sudo ./setup_api.sh [--refresh|--disable]
 ```
-Active l'API libre-service : chaque utilisateur ajoute/retire ses services
-optionnels depuis `https://<user>.<domaine>/seedbox-api/`. Conteneur sans
+Active l'API libre-service : chaque utilisateur redémarre ses services et
+ajoute/retire ses services optionnels depuis `https://<user>.<domaine>/seedbox-api/`. Conteneur sans
 privilège + ouvrier systemd côté hôte (`seedbox_api_worker.sh`) qui revalide
 chaque demande. Détails : `docs/HOMARR_INTEGRATION.md`.
 

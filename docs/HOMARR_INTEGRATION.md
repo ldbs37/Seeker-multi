@@ -135,14 +135,20 @@ qBittorrent…).
 
 ## API libre-service
 
-Permet à chaque utilisateur d'**ajouter ou retirer ses services optionnels
+Permet à chaque utilisateur de **redémarrer ses services** (voyant d'état
+rafraîchi chaque minute) et d'**ajouter ou retirer ses services optionnels
 lui-même**, sans SSH ni intervention de l'admin, depuis la page
 `https://<user>.votre-domaine.com/seedbox-api/` (tuile « Mes services » sur
 son tableau de bord Homarr).
 
 Services proposés : Sonarr, Radarr, Prowlarr, Seerr, Calibre-Web
-(Readarr et Bazarr, plus proposés, restent retirables). qBittorrent, Homarr et la gestion de fichiers (services de base) ne sont
-pas concernés. Retirer un service **conserve ses données**.
+(Readarr et Bazarr, plus proposés, restent retirables). qBittorrent, la
+gestion de fichiers et FlareSolverr (services de base) peuvent seulement être
+redémarrés. Retirer un service **conserve ses données**.
+
+Redémarrage : uniquement les conteneurs de l'utilisateur (`<service>-<user>`
+présents dans le compose) ; jamais les services système ni ceux d'un autre
+utilisateur. Homarr n'a toujours aucun accès à Docker.
 
 ### Activation
 

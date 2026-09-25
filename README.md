@@ -384,10 +384,11 @@ Pour retirer un service système : `sudo ./remove_service.sh <service>`.
 
 ### 🧩 API libre-service des utilisateurs
 
-Chaque utilisateur peut ajouter ou retirer lui-même ses services optionnels
-(Sonarr, Radarr, Prowlarr, Seerr, Calibre-Web) depuis
-`https://<utilisateur>.votre-domaine.com/seedbox-api/`, lien affiché sur son
-tableau de bord Homarr. Activation (désactivée par défaut) :
+Chaque utilisateur peut **redémarrer** un de ses services qui ne répond plus
+(voyant d'état par service) et ajouter ou retirer lui-même ses services
+optionnels (Sonarr, Radarr, Prowlarr, Seerr, Calibre-Web) depuis
+`https://<utilisateur>.votre-domaine.com/seedbox-api/` (tuile « Mes
+services » sur son tableau de bord Homarr). Activation (désactivée par défaut) :
 
 ```bash
 sudo ./setup_api.sh            # ou menu → Traefik & SSO → API libre-service

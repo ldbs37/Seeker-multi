@@ -6,7 +6,8 @@
 # Déclenché par systemd (seedbox-api-worker.path) dès qu'une demande arrive
 # dans $SPOOL/requests. Chaque demande est REVALIDÉE ici (le conteneur de
 # l'API n'est pas une source de confiance) puis exécutée via les scripts
-# habituels (add_user_service.sh / remove_service.sh).
+# habituels (add_user_service.sh / remove_service.sh), ou `docker restart`
+# pour un redémarrage (conteneurs de l'utilisateur seulement).
 #
 # Usage: seedbox_api_worker.sh            # traite les demandes en attente
 #        seedbox_api_worker.sh --state    # régénère seulement l'état
@@ -20,7 +21,9 @@ ENV_FILE="$INSTALL_DIR/.env"
 DOCKER_COMPOSE_FILE="$INSTALL_DIR/docker-compose.yml"
 SPOOL="$INSTALL_DIR/api/spool"
 API_UID=65534                 # utilisateur du conteneur de l'API
-ALLOWED="sonarr radarr readarr bazarr prowlarr seerr calibre"
+ALLOWED="sonarr radarr readarr bazarr prowlarr seerr calibre"   # ajout / retrait
+BASE="qbittorrent filebrowser flaresolverr"                      # redémarrage seulement
+RESTARTABLE="$BASE $ALLOWED"
 
 grep -q '^SEEDBOX_API=true' "$ENV_FILE" 2>/dev/null || exit 0
 [ -d "$SPOOL/requests" ] || exit 0
@@ -47,10 +50,12 @@ write_json() {
     mv -f "$tmp" "$dest"
 }
 
-# État de tous les utilisateurs seedbox : services installés + URL
+# État de tous les utilisateurs seedbox : services installés, URL, état des
+# conteneurs (running, unhealthy, restarting, exited…)
 write_state() {
-    local out="{" first=true u uid s svcs urls
+    local out="{" first=true u uid s svcs urls base st states
     traefik_detect "$ENV_FILE"
+    states=$(docker ps -a --format '{{.Names}} {{.State}} {{.Status}}' 2>/dev/null)
     while IFS=: read -r u _ uid _; do
         [ "$uid" -ge "$SEEDBOX_UID_MIN" ] && [ "$uid" -le "$SEEDBOX_UID_MAX" ] || continue
         [ -d "$INSTALL_DIR/data/users/$u" ] || continue
@@ -59,14 +64,21 @@ write_state() {
         USERNAME=$u
         # shellcheck disable=SC2034
         USER_ID=$uid
-        svcs=""; urls=""
-        for s in $ALLOWED; do
+        svcs=""; urls=""; base=""; st=""
+        for s in $RESTARTABLE; do
             grep -q "^  ${s}-${u}:" "$DOCKER_COMPOSE_FILE" 2>/dev/null || continue
-            svcs+="${svcs:+,}\"$s\""
-            urls+="${urls:+,}\"$s\":\"$(service_url "$s")\""
+            if [[ " $BASE " == *" $s "* ]]; then
+                base+="${base:+,}\"$s\""
+            else
+                svcs+="${svcs:+,}\"$s\""
+            fi
+            [ "$s" = flaresolverr ] || urls+="${urls:+,}\"$s\":\"$(service_url "$s")\""
+            st+="${st:+,}\"$s\":\"$(printf '%s\n' "$states" | awk -v n="$s-$u" '
+                $1 == n { if ($0 ~ /\(unhealthy\)/) print "unhealthy"; else print $2; f = 1; exit }
+                END { if (!f) print "absent" }')\""
         done
         $first || out+=","; first=false
-        out+="\"$u\":{\"services\":[${svcs}],\"urls\":{${urls}}}"
+        out+="\"$u\":{\"services\":[${svcs}],\"base\":[${base}],\"urls\":{${urls}},\"status\":{${st}}}"
     done < /etc/passwd
     write_json "$SPOOL/state.json" "${out}}"
 }
@@ -91,6 +103,15 @@ process() {
     if ! [[ "$user" =~ ^[a-z][a-z0-9]{0,31}$ ]] || [ "$uid" -lt "$SEEDBOX_UID_MIN" ] \
        || [ "$uid" -gt "$SEEDBOX_UID_MAX" ] || [ ! -d "$INSTALL_DIR/data/users/$user" ]; then
         msg="Utilisateur invalide"; user=""   # jamais recopié tel quel
+    elif [ "$action" = restart ]; then
+        # Seulement un conteneur de CET utilisateur, présent dans le compose
+        if [[ " $RESTARTABLE " != *" $service "* ]] || ! grep -q "^  ${service}-${user}:" "$DOCKER_COMPOSE_FILE"; then
+            msg="Service non autorisé"
+        elif out=$(docker restart -t 30 "${service}-${user}" 2>&1); then
+            ok=true; msg="$service redémarré"
+        else
+            msg="Échec du redémarrage de $service"
+        fi
     elif [[ " $ALLOWED " != *" $service "* ]]; then
         msg="Service non autorisé"
     elif [ "$action" = add ]; then

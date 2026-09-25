@@ -114,8 +114,9 @@ refresh_homarr() {
 #######################
 if [ "$MODE" = --disable ]; then
     log "Désactivation de l'API libre-service..."
-    systemctl disable --now seedbox-api-worker.path >/dev/null 2>&1 || true
-    rm -f "$UNIT_DIR/seedbox-api-worker.path" "$UNIT_DIR/seedbox-api-worker.service"
+    systemctl disable --now seedbox-api-worker.path seedbox-api-worker.timer >/dev/null 2>&1 || true
+    rm -f "$UNIT_DIR/seedbox-api-worker.path" "$UNIT_DIR/seedbox-api-worker.timer" \
+          "$UNIT_DIR/seedbox-api-worker.service"
     systemctl daemon-reload 2>/dev/null || true
     remove_block
     docker rm -f seedbox-api >/dev/null 2>&1 || true
@@ -175,8 +176,21 @@ Unit=seedbox-api-worker.service
 [Install]
 WantedBy=multi-user.target
 EOF
+# État des conteneurs (voyants de la page) rafraîchi chaque minute
+cat > "$UNIT_DIR/seedbox-api-worker.timer" << EOF
+[Unit]
+Description=Seedbox - état des services pour l'API libre-service
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+Unit=seedbox-api-worker.service
+
+[Install]
+WantedBy=timers.target
+EOF
 systemctl daemon-reload
-systemctl enable --now seedbox-api-worker.path >/dev/null
+systemctl enable --now seedbox-api-worker.path seedbox-api-worker.timer >/dev/null
 
 # Conteneur (bloc régénéré à chaque fois : suit un changement de domaine)
 cp "$DOCKER_COMPOSE_FILE" "${DOCKER_COMPOSE_FILE}.bak"
@@ -197,5 +211,5 @@ refresh_homarr
 
 log "${GREEN}✓${NC} API libre-service active"
 info "Chaque utilisateur : https://<utilisateur>.${DOMAIN}/seedbox-api/ (lien sur Homarr)"
-info "Services proposés : sonarr radarr readarr bazarr prowlarr seerr calibre"
+info "Services proposés : sonarr radarr prowlarr seerr calibre ; redémarrage de tous ses services"
 info "Journal des actions : journalctl -t seedbox-api"

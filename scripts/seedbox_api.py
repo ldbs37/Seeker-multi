@@ -2,8 +2,9 @@
 """
 API libre-service de la seedbox (mode Traefik uniquement).
 
-Chaque utilisateur ajoute/retire ses services optionnels depuis
-https://<user>.<domaine>/seedbox-api/ (lien sur son tableau de bord Homarr).
+Chaque utilisateur ajoute/retire ses services optionnels et redémarre ses
+services depuis https://<user>.<domaine>/seedbox-api/ (tuile « Mes
+services » sur son tableau de bord Homarr).
 
 Sécurité :
   - Tourne dans un conteneur SANS privilège (pas de socket Docker, rootfs en
@@ -38,11 +39,17 @@ SERVICES = {
     "readarr": "Livres",
     "bazarr": "Sous-titres",
     "prowlarr": "Indexeurs",
-    "seerr": "Demandes de films/séries (connexion Jellyfin/Plex)",
+    "seerr": "Demandes de films/séries (connexion Jellyfin)",
     "calibre": "Bibliothèque e-books (Calibre-Web)",
 }
-# Plus proposés à l'ajout (projet abandonné) ; retirables s'ils sont installés
+# Plus proposés à l'ajout ; retirables s'ils sont installés
 RETIRED = {"readarr", "bazarr"}
+# Services de base : redémarrage seulement (ni ajout ni retrait)
+BASE = {
+    "qbittorrent": "Téléchargements (qBittorrent)",
+    "filebrowser": "Fichiers",
+    "flaresolverr": "FlareSolverr (pour Prowlarr)",
+}
 USER_RE = re.compile(r"^[a-z][a-z0-9]{0,31}$")
 JOB_RE = re.compile(r"^[a-f0-9]{32}$")
 
@@ -85,32 +92,47 @@ h1{font-size:22px;margin:0 0 4px} p{color:var(--mut);margin:0 0 20px}
 .row b{flex:1} .row small{display:block;color:var(--mut);font-weight:400}
 button{border:0;border-radius:8px;padding:8px 14px;font:inherit;cursor:pointer;background:var(--acc);color:#fff}
 button.rm{background:transparent;color:var(--bad);border:1px solid var(--bad)}
+button.rs{background:transparent;color:var(--acc);border:1px solid var(--acc)}
+.dot{width:10px;height:10px;border-radius:50%;flex:none;background:var(--mut)}
+.dot.running{background:var(--ok)} .dot.unhealthy,.dot.restarting{background:#d97706}
+.dot.exited,.dot.dead,.dot.absent{background:var(--bad)}
+h2{font-size:16px;margin:24px 0 8px}
 button:disabled{opacity:.5;cursor:default}
 a{color:var(--acc)} #msg{min-height:1.5em;margin:12px 0;font-weight:600}
 </style></head><body><main>
 <h1>Mes services</h1>
-<p>Ajoutez ou retirez vos applications. Retirer un service conserve ses données.</p>
+<p>Redémarrez un service qui ne répond plus, ajoutez ou retirez vos
+applications. Retirer un service conserve ses données.</p>
 <div id="msg"></div><div id="list">Chargement…</div>
 <p style="margin-top:20px"><a href="/">← Retour au tableau de bord</a></p>
 </main><script>
 const api=p=>fetch('PREFIX'+p,{headers:{'X-Requested-With':'fetch'}}).then(r=>r.json());
 const msg=(t,c)=>{const m=document.getElementById('msg');m.textContent=t;m.style.color=c||''};
+const ST={running:'actif',unhealthy:'ne répond pas',restarting:'redémarre',exited:'arrêté',dead:'arrêté',absent:'absent',created:'arrêté'};
+function row(l,s,label,d,on,canAdd){
+  const r=document.createElement('div');r.className='row';
+  if(on){const dot=document.createElement('span');const st=d.status[s]||'absent';dot.className='dot '+st;dot.title=ST[st]||st;r.appendChild(dot)}
+  const b=document.createElement('b');b.textContent=s;const sm=document.createElement('small');
+  sm.textContent=label+(on?' · '+(ST[d.status[s]]||d.status[s]||'?'):'');b.appendChild(sm);r.appendChild(b);
+  if(on&&d.urls[s]){const a=document.createElement('a');a.href=d.urls[s];a.textContent='Ouvrir';r.appendChild(a)}
+  const btn=(t,c,f)=>{const x=document.createElement('button');x.textContent=t;if(c)x.className=c;x.disabled=!!d.pending;x.onclick=f;r.appendChild(x)};
+  if(on)btn('Redémarrer','rs',()=>act('restart',s));
+  if(canAdd)btn(on?'Retirer':'Ajouter',on?'rm':'',()=>act(on?'remove':'add',s));
+  l.appendChild(r)}
 async function load(){
   const d=await api('/services');const l=document.getElementById('list');l.textContent='';
-  for(const [s,label] of Object.entries(d.catalog)){
-    const on=d.installed.includes(s);const row=document.createElement('div');row.className='row';
-    const b=document.createElement('b');b.textContent=s;const sm=document.createElement('small');
-    sm.textContent=label;b.appendChild(sm);row.appendChild(b);
-    if(on&&d.urls[s]){const a=document.createElement('a');a.href=d.urls[s];a.textContent='Ouvrir';row.appendChild(a)}
-    const bt=document.createElement('button');bt.textContent=on?'Retirer':'Ajouter';if(on)bt.className='rm';
-    bt.disabled=!!d.pending;bt.onclick=()=>act(on?'remove':'add',s);row.appendChild(bt);l.appendChild(row)}
+  const h=t=>{const x=document.createElement('h2');x.textContent=t;l.appendChild(x)};
+  if(Object.keys(d.base).length){h('Services de base');for(const [s,label] of Object.entries(d.base))row(l,s,label,d,true,false)}
+  h('Applications');
+  for(const [s,label] of Object.entries(d.catalog))row(l,s,label,d,d.installed.includes(s),true);
   if(d.pending){msg('Opération en cours…');poll(d.pending)}
 }
 async function act(action,s){
   if(action==='remove'&&!confirm('Retirer '+s+' ? (les données sont conservées)'))return;
+  if(action==='restart'&&!confirm('Redémarrer '+s+' ?'))return;
   const r=await fetch('PREFIX/services',{method:'POST',headers:{'Content-Type':'application/json','X-Requested-With':'fetch'},body:JSON.stringify({action,service:s})});
   const d=await r.json();if(!r.ok){msg(d.error||'Erreur','var(--bad)');return}
-  msg('Opération en cours (peut prendre quelques minutes)…');document.querySelectorAll('button').forEach(b=>b.disabled=true);poll(d.job)}
+  msg(action==='restart'?'Redémarrage en cours…':'Opération en cours (peut prendre quelques minutes)…');document.querySelectorAll('button').forEach(b=>b.disabled=true);poll(d.job)}
 async function poll(id){
   const d=await api('/jobs/'+id);
   if(d.status==='done'){msg(d.ok?'Terminé ✓':'Échec : '+(d.message||'voir l\\'administrateur'),d.ok?'var(--ok)':'var(--bad)');load();return}
@@ -173,10 +195,13 @@ class Handler(BaseHTTPRequestHandler):
         if sub == "/services":
             state = read_json(os.path.join(SPOOL, "state.json"), {}).get(user, {})
             installed = [s for s in state.get("services", []) if s in SERVICES]
-            urls = {s: u for s, u in state.get("urls", {}).items() if s in SERVICES}
+            base = [s for s in state.get("base", []) if s in BASE]
+            urls = {s: u for s, u in state.get("urls", {}).items() if s in SERVICES or s in BASE}
+            status = {s: v for s, v in state.get("status", {}).items() if s in SERVICES or s in BASE}
             catalog = {s: d for s, d in SERVICES.items() if s not in RETIRED or s in installed}
             return self.send(200, {"catalog": catalog, "installed": installed,
-                                   "urls": urls, "pending": pending_job(user)})
+                                   "base": {s: BASE[s] for s in base}, "urls": urls,
+                                   "status": status, "pending": pending_job(user)})
         if sub.startswith("/jobs/"):
             job = sub[6:]
             if not JOB_RE.match(job):
@@ -215,8 +240,9 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             return self.send(400, {"error": "JSON invalide"})
         action, service = body.get("action"), body.get("service")
-        if (action not in ("add", "remove") or service not in SERVICES
-                or (action == "add" and service in RETIRED)):
+        if not ((action in ("add", "remove") and service in SERVICES
+                 and not (action == "add" and service in RETIRED))
+                or (action == "restart" and (service in SERVICES or service in BASE))):
             return self.send(400, {"error": "Action ou service non autorisé"})
         if pending_job(user):
             return self.send(409, {"error": "Une opération est déjà en cours"})
