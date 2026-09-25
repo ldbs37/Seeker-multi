@@ -49,8 +49,7 @@ done
 
 [[ $EUID -eq 0 ]] || fail "Ce script doit être exécuté en tant que root"
 [ $# -ge 1 ] || fail "Usage: $0 --set-key <clé> | <user> | --all | --remove <user>"
-traefik_detect "$ENV_FILE"
-[ "$USE_TRAEFIK" = true ] || { info "Mode port direct : Homarr individuel (configure_homarr.sh), rien à faire"; exit 0; }
+traefik_require "$ENV_FILE"
 
 if [ "$1" = --set-key ]; then
     key="${2:-}"
@@ -412,7 +411,6 @@ provision_user() {
     spec weather weather 3 2 "$WEATHER_OPTS"
     [ -n "$INT_SEERR" ] && spec seerr-stats mediaRequests-requestStats 5 2 '{}' "$(ids_json "$INT_SEERR")"
     for s in $USER_SERVICES; do
-        [ "$s" = homarr ] && continue
         has_service "$s-$user" || continue
         id=$(ensure_app "$(app_name "$s" "$user")" "$(svc_icon "$s")" "$(service_url "$s")" "$(ping_url "$s" "$user")") \
             && app_spec "$id"
@@ -422,6 +420,10 @@ provision_user() {
     fi
     if password_user_is_admin "$user" "$USERS_DB"; then
         id=$(ensure_app "Serveur (admin)" homarr "https://$DOMAIN/boards/$ADMIN_BOARD" "") && app_spec "$id"
+    fi
+    # API libre-service (setup_api.sh) : ajouter / retirer ses services
+    if grep -q '^SEEDBOX_API=true' "$ENV_FILE" 2>/dev/null; then
+        id=$(ensure_app "Mes services ($user)" docker "https://$user.$DOMAIN/seedbox-api/" "") && app_spec "$id"
     fi
     [ -n "$INT_QBIT" ] && spec downloads downloads 6 4 "$DOWNLOADS_OPTS" "$(ids_json "$INT_QBIT")" "Téléchargements"
     [ ${#INT_CAL[@]} -gt 0 ] && spec calendar calendar 4 4 '{"releaseType":["inCinemas","digitalRelease","physicalRelease"]}' \

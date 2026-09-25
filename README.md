@@ -4,18 +4,18 @@ Une solution **simple et efficace** de seedbox multi-utilisateurs avec authentif
 
 ## 🎯 Caractéristiques
 
-### ✨ Architecture Flexible (Mode Dual)
-- **🔓 Mode Port Direct** - Architecture simple sans reverse proxy (idéal pour débutants)
-- **🔒 Mode Traefik + SSL** - Reverse proxy avec SSL automatique et Single Sign-On (production)
-- **🔐 Authentification SSO** - Authelia pour authentification centralisée avec un seul login
+### ✨ Architecture
+- **🔒 HTTPS partout** - Traefik, certificats Let's Encrypt automatiques
+- **🔐 Connexion unique (SSO)** - Authelia : un seul login pour tous les services
+- **🛡️ Utilisateurs isolés** - Chacun n'accède qu'à ses services (règles Authelia + réseau Docker privé)
 - **📦 Services optionnels** - Installez uniquement ce dont vous avez besoin
-- **🚀 Gestion facilitée** - Scripts dédiés avec détection automatique du mode actif
+- **🚀 Gestion facilitée** - Scripts dédiés et menu interactif
 
 ### 📋 Services Par Utilisateur
 
 **Services Obligatoires (tous les utilisateurs) :**
 - 📥 **qBittorrent + VueTorrent** - Client torrent avec l'interface moderne VueTorrent (installée et activée automatiquement)
-- 🖥️ **Homarr** - Dashboard personnel avec auto-découverte
+- 🖥️ **Homarr** - Tableau de bord personnel (Homarr partagé, préconfiguré)
 - 📂 **FileBrowser Quantum** - Gestionnaire de fichiers web (aperçus, recherche, liens de partage publics)
 
 **Services Optionnels (installables à la demande) :**
@@ -25,7 +25,7 @@ Une solution **simple et efficace** de seedbox multi-utilisateurs avec authentif
 - 📝 **Seerr** - Demandes de films/séries (successeur d'Overseerr)
 - 📖 **Calibre-web** - Bibliothèque ebooks
 
-**Tout est préconfiguré** (mode Traefik) :
+**Tout est préconfiguré** :
 - 🔐 Connexion unique via Authelia : aucune page de connexion (Seerr : identifiants Jellyfin)
 - 🔗 Sonarr / Radarr → qBittorrent, dossiers `tv/` et `movies/`
 - 🔍 Prowlarr → Sonarr / Radarr, avec son FlareSolverr
@@ -33,19 +33,18 @@ Une solution **simple et efficace** de seedbox multi-utilisateurs avec authentif
 - 📖 Calibre-web → bibliothèque `books/`
 - 🛡️ Chaque utilisateur a son réseau Docker privé : les autres ne peuvent pas joindre ses services
 
-> Readarr (abandonné par ses auteurs) et Bazarr ne sont plus proposés.
+> Readarr (abandonné par ses auteurs), Bazarr, Plex et Tautulli ne sont plus
+> proposés ; une installation existante les conserve.
 
 ### 🛡️ Services Système (accès administrateur)
 - 🔐 **Authelia** - Authentification centralisée
-- 🎥 **Plex / Jellyfin** - Serveurs de streaming média (Jellyfin : comptes et bibliothèques privées automatiques, connexion via Authelia — voir [docs/JELLYFIN_AUTO_CONFIG.md](docs/JELLYFIN_AUTO_CONFIG.md))
-- 🚦 **FlareSolverr** - Bypass Cloudflare (mode Traefik : un par utilisateur ayant Prowlarr, sur son réseau)
+- 🎥 **Jellyfin** - Serveur de streaming (comptes et bibliothèques privées automatiques, connexion via Authelia — voir [docs/JELLYFIN_AUTO_CONFIG.md](docs/JELLYFIN_AUTO_CONFIG.md))
 - 🐋 **Portainer** - Gestion Docker via interface web
 
 ### 🔧 Services Optionnels (accès administrateur)
 - 💽 **Scrutiny** - Monitoring des disques (S.M.A.R.T.)
 - 📊 **Uptime Kuma** - Surveillance de disponibilité
 - 🎨 **Dashdot** - Dashboard de monitoring système
-- 📈 **Tautulli** - Statistiques Plex détaillées
 - 🔄 **Watchtower** - Mises à jour automatiques
 - 💾 **Duplicati** - Système de backup
 
@@ -54,29 +53,19 @@ Une solution **simple et efficace** de seedbox multi-utilisateurs avec authentif
 - **Utilisateurs Standard** : Accès uniquement aux services utilisateur (qBittorrent, Homarr, FileBrowser Quantum + optionnels)
 
 ### 🔒 Sécurité
-- **SSO (Single Sign-On)** - Un seul login pour tous les services (mode Traefik)
-- **SSL automatique** - Certificats Let's Encrypt générés automatiquement (mode Traefik)
+- **SSO (Single Sign-On)** - Un seul login pour tous les services
+- **SSL automatique** - Certificats Let's Encrypt générés automatiquement
 - **Authentification centralisée** - Authelia pour gestion des utilisateurs
 - **Protection fail2ban** - Contre les attaques par force brute
 - **Espaces utilisateurs isolés** - Chaque utilisateur dans son environnement
 - **Quotas par utilisateur** - Limitation de l'espace disque via **quota projet** (limite le dossier de chaque utilisateur). Nécessite d'activer les quotas sur le système de fichiers : `sudo scripts/enable_quotas.sh` (voir note ci-dessous)
 - **Pare-feu UFW** - Configuré automatiquement
 
-### 🌐 Modes d'Accès
-
-#### Mode Port Direct (Simple)
-- ✅ Configuration simple, pas de DNS requis
-- ✅ Accès direct : `http://IP:PORT`
-- ✅ Idéal pour usage personnel/local
-- ❌ Pas de SSL automatique
-- ❌ Login séparé pour chaque service
-
-#### Mode Traefik + SSL (Production)
-- ✅ SSL automatique via Let's Encrypt
-- ✅ URLs propres : `https://user.domain.com/service`
-- ✅ Single Sign-On (un seul login pour tout)
-- ✅ Protection Authelia sur tous les services
-- ⚠️ Nécessite : nom de domaine + DNS wildcard configuré
+### 🌐 Accès
+- ✅ HTTPS automatique (Let's Encrypt)
+- ✅ URLs propres : `https://<utilisateur>.domaine.com/<service>`
+- ✅ Un seul login (Authelia), sur tous les services
+- ⚠️ Nécessite : nom de domaine (le vôtre ou DuckDNS, gratuit) + DNS wildcard, ports 80/443 ouverts
 
 ## 🔧 Prérequis
 
@@ -91,8 +80,8 @@ Une solution **simple et efficace** de seedbox multi-utilisateurs avec authentif
 - **Système de fichiers:** ext4 ou xfs recommandé (pour les quotas)
 - **Accès:** root (sudo)
 
-### Pour le mode Traefik (optionnel)
-- **Nom de domaine:** Requis (ex: `example.com`)
+### Domaine et réseau (requis)
+- **Nom de domaine:** Requis (ex: `example.com`, ou DuckDNS gratuit)
 - **DNS wildcard:** `*.example.com` pointant vers votre serveur
 - **Ports ouverts:** 80/tcp et 443/tcp dans le firewall
 
@@ -120,12 +109,10 @@ Le script vous guidera à travers la configuration :
    - Nom de domaine (ex: `example.com`)
    - Email administrateur (pour Let's Encrypt)
 
-2. **Choix du mode d'accès** 🆕
-   - **Mode Port Direct** - Simple, sans DNS (par défaut)
-   - **Mode Traefik + SSL** - Avec HTTPS et SSO (si DNS configuré)
-   - ⚠️ Le mode Traefik nécessite :
-     - DNS wildcard `*.example.com` → IP du serveur
-     - Ports 80/443 ouverts dans le firewall
+2. **DNS** (Cloudflare automatique, autre fournisseur, ou DuckDNS)
+   - DNS wildcard `*.example.com` → IP du serveur
+   - Ports 80/443 ouverts dans le firewall
+   - Si ce n'est pas prêt, l'installation s'arrête avec la marche à suivre
 
 3. **Premier utilisateur (Administrateur)**
    - Le premier utilisateur créé sera automatiquement administrateur
@@ -134,11 +121,10 @@ Le script vous guidera à travers la configuration :
    - Accès aux services système + services utilisateur
 
 4. **Services système optionnels**
-   - Plex / Jellyfin (streaming média)
+   - Jellyfin (streaming média)
    - Scrutiny (monitoring disques)
    - Uptime Kuma (monitoring uptime)
    - Dashdot (dashboard monitoring)
-   - Tautulli (stats Plex)
    - Portainer (gestion Docker)
    - Watchtower (mises à jour auto)
    - Duplicati (backups)
@@ -358,11 +344,9 @@ sudo ./update_password.sh <username> [nouveau_mot_de_passe]
 - ✅ **Mot de passe Authelia** (authentification centralisée)
 - ✅ **Mot de passe Jellyfin** (compte créé s'il manque)
 - ✅ **Mot de passe qBittorrent** (hash PBKDF2 dans fichier config)
-- ✅ **Mot de passe du gestionnaire de fichiers** (mode port direct ; en mode Traefik, connexion unique)
 
-**Sonarr, Radarr, Prowlarr, Calibre-web :** en mode Traefik, pas de mot de
-passe propre (connexion via Authelia, réglée par `arr_setup.sh`) ; en mode
-port direct, à changer dans l'appli (Settings → General → Security).
+**Fichiers, Sonarr, Radarr, Prowlarr, Calibre-web :** pas de mot de passe
+propre (connexion unique via Authelia). **Seerr :** identifiants Jellyfin.
 
 **Exemple:**
 ```bash
@@ -384,24 +368,21 @@ sudo ./add_service.sh <service_name>
 
 **Services disponibles:**
 
-| Service | Commande | Description | Port |
-|---------|----------|-------------|------|
-| Plex | `sudo ./add_service.sh plex` | Serveur de streaming média | 32400 |
-| Jellyfin | `sudo ./add_service.sh jellyfin` | Alternative open-source à Plex | 8096 |
-| Portainer | `sudo ./add_service.sh portainer` | Gestion Docker via interface web | 9000 |
-| Scrutiny | `sudo ./add_service.sh scrutiny` | Monitoring S.M.A.R.T. des disques | 8080 |
-| Uptime Kuma | `sudo ./add_service.sh uptime-kuma` | Surveillance de disponibilité | 3001 |
-| Dashdot | `sudo ./add_service.sh dashdot` | Dashboard de monitoring système | 3002 |
-| Tautulli | `sudo ./add_service.sh tautulli` | Statistiques détaillées pour Plex | 8181 |
+| Service | Commande | Description | Adresse |
+|---------|----------|-------------|---------|
+| Jellyfin | `sudo ./add_service.sh jellyfin` | Serveur de streaming | `jellyfin.<domaine>` |
+| Portainer | `sudo ./add_service.sh portainer` | Gestion Docker via interface web | `portainer.<domaine>` |
+| Scrutiny | `sudo ./add_service.sh scrutiny` | Monitoring S.M.A.R.T. des disques | `scrutiny.<domaine>` |
+| Uptime Kuma | `sudo ./add_service.sh uptime-kuma` | Surveillance de disponibilité | `uptime.<domaine>` |
+| Dashdot | `sudo ./add_service.sh dashdot` | Dashboard de monitoring système | `dashdot.<domaine>` |
 | Watchtower | `sudo ./add_service.sh watchtower` | Mises à jour automatiques | - |
-| Duplicati | `sudo ./add_service.sh duplicati` | Système de backup | 8200 |
+| Duplicati | `sudo ./add_service.sh duplicati` | Système de backup | `duplicati.<domaine>` |
 
-Les ports admin (tous sauf Plex et Jellyfin) écoutent uniquement en local :
-voir [Accès aux services](#-accès-aux-services).
+Les services d'administration sont réservés au groupe `admins` d'Authelia.
 
 Pour retirer un service système : `sudo ./remove_service.sh <service>`.
 
-### 🧩 API libre-service des utilisateurs (mode Traefik)
+### 🧩 API libre-service des utilisateurs
 
 Chaque utilisateur peut ajouter ou retirer lui-même ses services optionnels
 (Sonarr, Radarr, Prowlarr, Seerr, Calibre-Web) depuis
@@ -426,8 +407,8 @@ accès Docker : voir [HOMARR_INTEGRATION.md](docs/HOMARR_INTEGRATION.md).
 │       │   ├── downloads/        #   téléchargements qBittorrent
 │       │   ├── tv/               #   bibliothèque Sonarr
 │       │   ├── movies/           #   bibliothèque Radarr
-│       │   ├── books/            #   Readarr / Calibre-Web
-│       │   └── config/           #   qbittorrent, homarr, filebrowser
+│       │   ├── books/            #   Calibre-Web
+│       │   └── config/           #   qbittorrent, filebrowser
 │       └── user2/
 │           └── ...
 ├── sonarr/<user>/ radarr/<user>/ …   # configuration des *arr
@@ -442,85 +423,25 @@ accès Docker : voir [HOMARR_INTEGRATION.md](docs/HOMARR_INTEGRATION.md).
 dossier sous le **même** montage `/data`. Sonarr/Radarr importent donc par
 **hardlink** (un seul fichier sur le disque, visible à la fois dans
 `downloads/` pour le seed et dans `tv/`/`movies/` pour la bibliothèque).
-Dans Sonarr/Radarr, gardez *Settings → Media Management → Use Hardlinks
-instead of Copy* activé et choisissez `/data/tv` (ou `/data/movies`,
-`/data/books`) comme dossier racine. FileBrowser Quantum et Jellyfin affichent la
+Sonarr/Radarr sont préconfigurés ainsi (dossiers racine `/data/tv` et
+`/data/movies`, *Use Hardlinks instead of Copy* activé). FileBrowser Quantum et Jellyfin affichent la
 taille des deux entrées, mais le quota ne compte le fichier qu'une fois.
 
 ## 🌐 Accès aux Services
 
-### Mode Port Direct (HTTP)
-
-#### Services Système
-
-Publics (serveurs média) :
-- **Plex:** `http://votre-serveur:32400/web`
-- **Jellyfin:** `http://votre-serveur:8096`
-
-Admin — **écoute locale uniquement** (`127.0.0.1`), car ces services n'ont pas
-d'authentification propre en mode direct :
-
-| Service | Port local |
-|---------|-----------|
-| Authelia | 9091 |
-| Portainer | 9000 |
-| FlareSolverr | 8191 |
-| Scrutiny | 8080 |
-| Uptime Kuma | 3001 |
-| Dashdot | 3002 |
-| Tautulli | 8181 |
-| Duplicati | 8200 |
-
-Accès depuis votre poste via un tunnel SSH, par exemple pour Portainer :
-
-```bash
-ssh -L 9000:127.0.0.1:9000 admin@votre-serveur
-# puis ouvrez http://localhost:9000
-```
-
-(Pour les exposer malgré tout : `ADMIN_BIND=0.0.0.0` dans `/opt/seedbox/.env`
-puis `docker compose up -d` — déconseillé.)
-
-#### Services Utilisateur
-
-Chaque utilisateur reçoit un bloc de 20 ports sans collision possible :
-`20000 + (UID − 2001) × 20 + décalage`.
-
-| Service | Décalage | 1er utilisateur (UID 2001) | 2e utilisateur (UID 2002) |
-|---------|----------|---------------------------|---------------------------|
-| qBittorrent (WebUI) | 0 | 20000 | 20020 |
-| Homarr | 1 | 20001 | 20021 |
-| FileBrowser Quantum | 2 | 20002 | 20022 |
-| Sonarr | 3 | 20003 | 20023 |
-| Radarr | 4 | 20004 | 20024 |
-| Readarr (plus proposé) | 5 | 20005 | 20025 |
-| Bazarr (plus proposé) | 6 | 20006 | 20026 |
-| Prowlarr | 7 | 20007 | 20027 |
-| Seerr | 8 | 20008 | 20028 |
-| Calibre-Web | 9 | 20009 | 20029 |
-| **Port torrent entrant** (TCP+UDP) | 10 | 20010 | 20030 |
-
-Le port torrent est publié et ouvert dans le pare-feu **dans les deux modes**
-(indispensable pour être connectable). `list_user_services.sh <user>` affiche
-les adresses exactes.
-
-### Mode Traefik + SSL (HTTPS) 🆕
-
-Avec Traefik activé, tous les services sont accessibles via HTTPS avec SSL automatique.
+Tous les services sont accessibles en HTTPS (certificats automatiques).
 
 #### Services Système
 - **Authelia (SSO):** `https://auth.votre-domaine.com`
 - **Traefik Dashboard:** `https://traefik.votre-domaine.com`
-- **Plex:** `https://plex.votre-domaine.com`
 - **Jellyfin:** `https://jellyfin.votre-domaine.com`
 - **Portainer:** `https://portainer.votre-domaine.com`
 - **Scrutiny:** `https://scrutiny.votre-domaine.com`
 - **Uptime Kuma:** `https://uptime.votre-domaine.com`
 - **Dashdot:** `https://dashdot.votre-domaine.com`
-- **Tautulli:** `https://tautulli.votre-domaine.com`
 - **Duplicati:** `https://duplicati.votre-domaine.com`
 
-Traefik, Portainer, Scrutiny, Dashdot, Tautulli, Uptime Kuma et Duplicati sont
+Traefik, Portainer, Scrutiny, Dashdot, Uptime Kuma et Duplicati sont
 **réservés aux administrateurs** (groupe `admins` d'Authelia).
 
 #### Services Utilisateur (exemple pour user `john`)
@@ -533,12 +454,16 @@ Traefik, Portainer, Scrutiny, Dashdot, Tautulli, Uptime Kuma et Duplicati sont
 - **Seerr (demandes):** `https://seerr-john.votre-domaine.com` (sous-domaine dédié : pas de sous-chemins)
 - **Calibre:** `https://john.votre-domaine.com/calibre`
 
-#### 🔐 Connexion SSO (Mode Traefik)
+Seul port ouvert par utilisateur : son **port torrent entrant** (TCP+UDP),
+`20010 + (UID − 2001) × 20` (20010 pour le premier, 20030 pour le deuxième…),
+indispensable pour être connectable. `list_user_services.sh <user>` l'affiche.
+
+#### 🔐 Connexion SSO
 1. Connectez-vous sur `https://auth.votre-domaine.com`
 2. Une fois authentifié, accédez à **vos services** sans re-login
 3. Chaque utilisateur n'accède qu'à `https://<son-nom>.votre-domaine.com` et
-   `https://seerr-<son-nom>.votre-domaine.com` ; Plex et Jellyfin gardent
-   leur propre connexion (applis TV/mobiles)
+   `https://seerr-<son-nom>.votre-domaine.com` ; Jellyfin garde sa propre
+   connexion pour les applis TV/mobiles (bouton Authelia dans le navigateur)
 4. Sonarr, Radarr, Prowlarr, qBittorrent, les fichiers et Calibre-web
    s'ouvrent directement, sans page de connexion. Ils ne sont joignables que
    par Traefik (après Authelia), le Homarr partagé et les autres services du
@@ -571,47 +496,8 @@ sudo xfs_quota -x -c 'report -p -h' /opt/seedbox   # XFS
 docker restart <service-username>
 ```
 
-## 📊 Avantages de Cette Version
+## 📊 Architecture
 
-### ✅ Mode Dual : Le meilleur des deux mondes
-
-| Caractéristique | Mode Port Direct | Mode Traefik + SSL |
-|-----------------|------------------|--------------------|
-| Complexité | ⭐ Simple | ⭐⭐ Intermédiaire |
-| Configuration | Aucune (plug & play) | DNS wildcard requis |
-| SSL/HTTPS | ❌ Manuel | ✅ Automatique (Let's Encrypt) |
-| SSO | ❌ Login par service | ✅ Un seul login |
-| URLs | `http://IP:PORT` | `https://user.domain.com/service` |
-| Temps installation | ⚡ Rapide | ⚡ Rapide (si DNS prêt) |
-| Debugging | ✅ Facile | ⭐ Moyen |
-| Idéal pour | Usage personnel/local | Production/multi-users |
-| Ajout utilisateur | 🚀 1 commande (détection auto) | 🚀 1 commande (détection auto) |
-
-### 🎯 Architectures
-
-#### Mode Port Direct
-```
-┌─────────────────────────────────┐
-│   Serveur                       │
-│                                 │
-│  ┌─────────────┐  ┌──────────┐ │
-│  │  Authelia   │  │  Plex    │ │
-│  │  127.0.0.1  │  │  32400   │ │
-│  └─────────────┘  └──────────┘ │
-│                                 │
-│  ┌─────────────────────────────┐│
-│  │   Services User 1           ││
-│  │   Ports: 20000-20019        ││
-│  └─────────────────────────────┘│
-│                                 │
-│  ┌─────────────────────────────┐│
-│  │   Services User 2           ││
-│  │   Ports: 20020-20039        ││
-│  └─────────────────────────────┘│
-└─────────────────────────────────┘
-```
-
-#### Mode Traefik + SSL 🆕
 ```
                  Internet
                     ↓
@@ -632,10 +518,11 @@ docker restart <service-username>
                     ↓
     ┌───────────────┴───────────────┐
     │                               │
-┌───▼────┐  ┌──────────┐  ┌────────▼───┐
-│ Plex   │  │ Services │  │ Services   │
-│ Jellyfin  │ User 1   │  │ User 2     │
-└────────┘  └──────────┘  └────────────┘
+┌───▼──────┐ ┌──────────┐  ┌────────▼───┐
+│ Jellyfin │ │ Services │  │ Services   │
+│ Homarr   │ │ User 1   │  │ User 2     │
+└──────────┘ └──────────┘  └────────────┘
+            (réseau privé) (réseau privé)
 
 ✅ HTTPS partout
 ✅ Un seul login
@@ -675,38 +562,26 @@ sudo quotaon -ap
 sudo quotaon -av
 ```
 
-## 🌐 Activer Traefik Après Installation
+## 🌐 Ancienne installation en port direct
 
-Si vous avez installé en mode port direct et voulez passer à Traefik + SSL :
+Le mode « port direct » (`http://IP:port`, sans Authelia) n'est plus pris en
+charge : les scripts de gestion refusent de travailler dessus et indiquent la
+marche à suivre. Pour passer en HTTPS + connexion unique :
 
-### Via le Menu (Recommandé)
-```bash
-cd /opt/seedbox
-sudo ./menu.sh
-# Sélectionnez : 5. 🌐 Traefik & SSO
-# Puis : 1. Installer Traefik
-```
-
-### Via Script Direct
-```bash
-cd /opt/seedbox/scripts
-sudo ./setup_traefik.sh votre-domaine.com votre@email.com
-```
-
-**⚠️ Important :**
-- Configurez d'abord le DNS wildcard `*.votre-domaine.com` → IP serveur
-- Ouvrez les ports 80/443 dans le firewall
-- Les **nouveaux utilisateurs** créés après installation Traefik auront automatiquement les labels
-- Les **services existants** doivent ensuite être migrés (reconstruction du
-  `docker-compose.yml` en mode Traefik, snapshot préalable, retour arrière
-  automatique en cas d'échec) :
-  ```bash
-  sudo ./scripts/generate_traefik_labels.sh
-  ```
+1. DNS wildcard `*.votre-domaine.com` → IP du serveur ; ports 80/443 ouverts
+2. Installer Traefik :
+   ```bash
+   sudo /opt/seedbox/scripts/setup_traefik.sh votre-domaine.com votre@email.com
+   ```
+3. Migrer les services (reconstruction du `docker-compose.yml`, snapshot
+   préalable, retour arrière automatique en cas d'échec) :
+   ```bash
+   sudo /opt/seedbox/scripts/generate_traefik_labels.sh
+   ```
 
 ## 🔄 Migration depuis l'ancienne version
 
-Si vous aviez l'ancienne version sans mode dual :
+Si vous aviez une très ancienne version :
 
 1. **Sauvegarder vos données**
 ```bash
@@ -729,42 +604,23 @@ sudo ./install.sh
 
 ## 📝 Notes
 
-- **Mode dual** : Choisissez entre port direct (simple) ou Traefik + SSL (production)
-- **Détection automatique** : Les scripts détectent le mode actif via le fichier `.env`
-- **Isolation** : Chaque utilisateur a son espace totalement isolé
-- **Quotas** : Appliqués au niveau système (ext4/xfs requis)
-- **SSO** : Single Sign-On avec Authelia (mode Traefik uniquement)
-- **SSL automatique** : Let's Encrypt avec renouvellement auto (mode Traefik)
-- **Services optionnels** : Installation à la carte, à tout moment
-- **Configuration** : Simple et maintenable, adaptée au mode choisi
+- **Isolation** : chaque utilisateur a son espace, ses services et son réseau Docker privé
+- **Quotas** : appliqués au niveau système (ext4/xfs requis)
+- **Services optionnels** : installation à la carte, à tout moment (menu, scripts ou API libre-service)
 
 ## 💡 Cas d'usage
 
-### Pour un usage personnel/local
-```bash
-# Installation minimale en mode port direct
-sudo ./install.sh
-# Répondre "N" à "Utiliser Traefik ?"
-# Ne sélectionnez aucun service optionnel
-# Ajoutez juste votre utilisateur personnel
-# ✅ Simple, rapide, aucun DNS requis
-```
-
 ### Pour un serveur partagé (quelques amis)
 ```bash
-# Installation avec monitoring en mode Traefik
 sudo ./install.sh
-# Répondre "o" à "Utiliser Traefik ?" (si DNS configuré)
-# Activez Scrutiny et Uptime Kuma pour monitoring
+# Activez Jellyfin, Scrutiny et Uptime Kuma
 # Ajoutez plusieurs utilisateurs avec des quotas
-# ✅ SSL + SSO pour facilité d'accès
+# ✅ HTTPS + un seul login, chacun ne voit que ses services
 ```
 
 ### Pour production (multi-utilisateurs)
 ```bash
-# Installation complète avec Traefik + backups
 sudo ./install.sh
-# Répondre "o" à "Utiliser Traefik ?"
 # Activez Duplicati (backups) et Watchtower (auto-update)
 # Configurez les quotas appropriés par utilisateur
 # ✅ HTTPS partout, un seul login, monitoring complet
@@ -791,7 +647,7 @@ Les services suivants créent automatiquement le compte administrateur :
 ### Services Nécessitant Configuration Manuelle
 
 Ces services requièrent une configuration via l'interface web au premier accès :
-- ⚠️ **Uptime Kuma**, **Tautulli**, **Duplicati**
+- ⚠️ **Uptime Kuma**, **Duplicati**
 
 Voir [AUTO_CONFIGURATION.md](docs/AUTO_CONFIGURATION.md) pour les détails complets.
 
@@ -815,15 +671,12 @@ Pour toute question ou problème :
 
 ---
 
-**Version:** 3.0 (Mode Dual: Port Direct + Traefik SSO)
-**Dernière mise à jour:** 2025-01-14
+**Version:** 4.0 (HTTPS + connexion unique Authelia)
 **Compatibilité vérifiée:** ✅ Debian 12, Ubuntu 22.04/24.04 LTS
 
-### 🆕 Nouveautés v3.0
-- ✅ **Mode dual** : Choix entre port direct et Traefik + SSL à l'installation
-- ✅ **Détection automatique** : Scripts s'adaptent au mode actif (lecture `.env`)
-- ✅ **Single Sign-On** : Un seul login pour tous les services (mode Traefik)
-- ✅ **SSL automatique** : Let's Encrypt avec renouvellement auto (mode Traefik)
-- ✅ **Gestion mot de passe** : Mise à jour automatique sur tous les services
-- ✅ **Menu Traefik** : Nouvelle section dédiée dans le menu interactif
-- ✅ **Génération labels** : Automatique lors création utilisateur/service
+### 🆕 Nouveautés v4.0
+- ✅ **Un seul mode** : HTTPS (Traefik) + connexion unique (Authelia) ; le mode port direct est retiré
+- ✅ **Applis préconfigurées** : Sonarr, Radarr, Prowlarr, Seerr, Calibre-web reliés automatiquement
+- ✅ **Réseau privé par utilisateur** : les services des autres utilisateurs ne peuvent pas joindre les vôtres
+- ✅ **Jellyfin automatique** : comptes, bibliothèques privées, bouton « Se connecter avec Authelia »
+- ✅ **Retirés** : Readarr (abandonné), Bazarr, Plex, Tautulli

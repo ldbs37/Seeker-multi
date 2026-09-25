@@ -2,7 +2,7 @@
 
 ## Tableau de bord Homarr
 
-### Mode Traefik : Homarr 1.x partagé + connexion unique
+### Homarr 1.x partagé + connexion unique
 
 Un seul Homarr (`ghcr.io/homarr-labs/homarr`) sur **https://votre-domaine.com**,
 avec connexion **automatique** via Authelia (OIDC) : on se connecte une fois
@@ -93,7 +93,7 @@ son groupe doit se reconnecter une fois.
 
 #### Connexion unique qBittorrent et gestion de fichiers
 
-Ils ont leur propre écran de connexion ; en mode Traefik il est sauté,
+Ils ont leur propre écran de connexion ; il est sauté,
 Authelia ayant déjà identifié l'utilisateur. Automatique à l'installation, à
 l'ajout d'un utilisateur et par `generate_traefik_labels.sh` (installations
 existantes), sans ouvrir d'accès aux autres conteneurs :
@@ -133,18 +133,12 @@ Filebrowser ne sont pas repris).
 Le mot de passe reste valable pour les accès directs (applis mobiles
 qBittorrent…).
 
-### Mode port direct : Homarr 0.16 par utilisateur
-
-Sans Authelia devant les services, pas de connexion unique possible : chaque
-utilisateur garde son Homarr 0.16 (port `20001`+), dont la configuration est
-générée par `configure_homarr.sh` (une tuile par service).
-
-## API libre-service (mode Traefik)
+## API libre-service
 
 Permet à chaque utilisateur d'**ajouter ou retirer ses services optionnels
 lui-même**, sans SSH ni intervention de l'admin, depuis la page
-`https://<user>.votre-domaine.com/seedbox-api/` (lien « ➕ Ajouter / retirer
-des services » sur son Homarr).
+`https://<user>.votre-domaine.com/seedbox-api/` (tuile « Mes services » sur
+son tableau de bord Homarr).
 
 Services proposés : Sonarr, Radarr, Prowlarr, Seerr, Calibre-Web
 (Readarr et Bazarr, plus proposés, restent retirables). qBittorrent, Homarr et la gestion de fichiers (services de base) ne sont
@@ -159,8 +153,7 @@ sudo /opt/seedbox/scripts/setup_api.sh --disable   # désactiver
 
 Ou : `sudo ./menu.sh` → **Traefik & SSO** → **API libre-service**.
 
-Prérequis : mode Traefik + Authelia (c'est Authelia qui identifie
-l'utilisateur ; en mode port direct l'API n'est pas disponible).
+C'est Authelia qui identifie l'utilisateur.
 
 ### Architecture
 

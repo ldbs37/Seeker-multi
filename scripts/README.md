@@ -28,8 +28,8 @@ sudo ./add_user.sh john 'Seedbox!2026x' john@example.com 500
 ```bash
 sudo ./add_user_service.sh <username> <service>
 ```
-Services : `sonarr radarr readarr bazarr prowlarr seerr calibre`.
-URL de base (mode Traefik) pré-configurée, tableau de bord Homarr mis à jour.
+Services : `sonarr radarr prowlarr seerr calibre`.
+Configuration automatique (`arr_setup.sh`), tableau de bord Homarr mis à jour.
 
 ### `list_user_services.sh`
 ```bash
@@ -66,7 +66,7 @@ services de base d'un utilisateur ne peuvent pas être retirés ainsi.
 ```bash
 sudo ./update_password.sh <username> [nouveau_mot_de_passe]
 ```
-Met à jour : Linux, Authelia, qBittorrent, gestionnaire de fichiers (mode port direct) et Jellyfin (si clé API).
+Met à jour : Linux, Authelia, qBittorrent et Jellyfin (les autres services passent par la connexion unique).
 Sans mot de passe en argument, il est demandé de façon masquée.
 
 ### `update_quota.sh` / `enable_quotas.sh`
@@ -76,11 +76,10 @@ sudo ./update_quota.sh john 1000   # 1 To ; 0 = illimité
 ```
 Quotas **projet** : la limite porte sur le dossier `data/users/<user>`.
 
-### `configure_homarr.sh`, `configure_jellyfin_user.sh <user> [mdp]`
-Régénère le tableau de bord Homarr d'un utilisateur ; crée/met à jour son
-compte Jellyfin (accès limité à ses bibliothèques).
+### `configure_jellyfin_user.sh <user> [mdp]`
+Crée/met à jour son compte Jellyfin (accès limité à ses bibliothèques).
 
-### `arr_setup.sh <user> | --all` (mode Traefik)
+### `arr_setup.sh <user> | --all`
 Configuration automatique des applis d'un utilisateur (lancée par
 `add_user.sh`, `add_user_service.sh` et `generate_traefik_labels.sh`) :
 - Sonarr / Radarr / Prowlarr (`lib_arr.sh`) : connexion « External » (Authelia),
@@ -106,12 +105,12 @@ Créé à l'ajout de l'utilisateur, supprimé avec lui (`remove_user.sh`).
 
 ### `add_service.sh`
 ```bash
-sudo ./add_service.sh <plex|jellyfin|portainer|scrutiny|uptime-kuma|dashdot|tautulli|watchtower|duplicati>
+sudo ./add_service.sh <jellyfin|portainer|scrutiny|uptime-kuma|dashdot|watchtower|duplicati>
 ```
 Reconstruit la partie système du `docker-compose.yml` (validation avant
 application). Portainer et Jellyfin : compte admin créé automatiquement.
 
-### `homarr_provision.sh` (mode Traefik)
+### `homarr_provision.sh`
 ```bash
 sudo ./homarr_provision.sh <user> | --all | --remove <user>
 sudo ./homarr_provision.sh --set-key '<id>.<jeton>'   # facultatif : clé créée à la main
@@ -123,7 +122,7 @@ Intégrations (clés d'API) branchées automatiquement ; appelé par
 add_user/add_user_service/remove_user. Relancer `--all` après avoir configuré
 Seerr ou installé Dash.
 
-### `setup_api.sh` (mode Traefik)
+### `setup_api.sh`
 ```bash
 sudo ./setup_api.sh [--refresh|--disable]
 ```
@@ -137,7 +136,7 @@ chaque demande. Détails : `docs/HOMARR_INTEGRATION.md`.
 | Script | Rôle |
 |--------|------|
 | `setup_traefik.sh <domaine> <email>` | Installe Traefik + Let's Encrypt |
-| `generate_traefik_labels.sh [--yes]` | Migre une installation « ports directs » vers Traefik + SSO (snapshot, validation, retour arrière auto) |
+| `generate_traefik_labels.sh [--yes]` | Reconstruit le `docker-compose.yml` (labels, réseaux, applis) ; migre aussi une ancienne installation « port direct » (snapshot, validation, retour arrière auto) |
 | `setup_cloudflare.sh` / `setup_duckdns.sh` | Enregistrements DNS |
 | `check_dns.sh <domaine>` | Vérifie la résolution DNS (wildcard) |
 
@@ -150,26 +149,11 @@ chaque demande. Détails : `docs/HOMARR_INTEGRATION.md`.
 | `backup.sh [--auto] [--label x]` | Snapshot de configuration dans `/opt/seedbox/backups` (données média exclues) |
 | `restore.sh [archive]` | Restauration (snapshot de sécurité préalable) |
 
-## 📊 Ports (mode port direct)
+## 📊 Port torrent
 
-Bloc de 20 ports par utilisateur : `20000 + (UID − 2001) × 20 + décalage`.
-
-| Service | Décalage | UID 2001 | UID 2002 |
-|---------|----------|----------|----------|
-| qBittorrent | 0 | 20000 | 20020 |
-| Homarr | 1 | 20001 | 20021 |
-| FileBrowser Quantum | 2 | 20002 | 20022 |
-| Sonarr | 3 | 20003 | 20023 |
-| Radarr | 4 | 20004 | 20024 |
-| Readarr | 5 | 20005 | 20025 |
-| Bazarr | 6 | 20006 | 20026 |
-| Prowlarr | 7 | 20007 | 20027 |
-| Seerr | 8 | 20008 | 20028 |
-| Calibre-Web | 9 | 20009 | 20029 |
-| Port torrent (TCP+UDP, aussi en mode Traefik) | 10 | 20010 | 20030 |
-
-En mode Traefik, seules les URL `https://<user>.<domaine>/<service>` (et
-`https://seerr-<user>.<domaine>`) sont utilisées.
+Seul port publié par utilisateur : son port torrent entrant (TCP+UDP),
+`20010 + (UID − 2001) × 20` (20010, 20030…). Tout le reste passe par
+`https://<user>.<domaine>/<service>` (et `https://seerr-<user>.<domaine>`).
 
 ## 📁 Structure
 

@@ -36,6 +36,19 @@ traefik_detect() {
     return 0
 }
 
+# Arrête le script si l'installation n'est pas en mode Traefik : le mode
+# « port direct » (http://IP:port, sans Authelia) n'est plus pris en charge.
+# Définit USE_TRAEFIK et DOMAIN. $1 = chemin du .env
+traefik_require() {
+    traefik_detect "$1"
+    [ "$USE_TRAEFIK" = true ] && [ -n "$DOMAIN" ] && return 0
+    echo "Installation en mode « port direct » : ce mode n'est plus pris en charge." >&2
+    echo "Passez en HTTPS + connexion unique (Authelia) :" >&2
+    echo "  sudo $INSTALL_DIR/scripts/setup_traefik.sh <domaine> <email>" >&2
+    echo "  sudo $INSTALL_DIR/scripts/generate_traefik_labels.sh" >&2
+    exit 1
+}
+
 # Chemin public d'un service ("" = racine, "SUBDOMAIN" = sous-domaine dédié)
 traefik_service_path() {
     case "$1" in

@@ -104,13 +104,9 @@ api_block() {
 EOF
 }
 
+# Tuile « Mes services » des tableaux de bord Homarr
 refresh_homarr() {
-    local u uid
-    while IFS=: read -r u _ uid _; do
-        [ "$uid" -ge "$SEEDBOX_UID_MIN" ] && [ "$uid" -le "$SEEDBOX_UID_MAX" ] || continue
-        [ -d "$INSTALL_DIR/data/users/$u" ] || continue
-        "$SCRIPT_DIR/configure_homarr.sh" "$u" >/dev/null 2>&1 || warn "Homarr de $u non régénéré"
-    done < /etc/passwd
+    "$SCRIPT_DIR/homarr_provision.sh" --all >/dev/null 2>&1 || warn "Tableaux de bord Homarr non mis à jour (homarr_provision.sh --all)"
 }
 
 #######################
@@ -137,9 +133,7 @@ fi
 #######################
 # Activation / mise à jour
 #######################
-traefik_detect "$ENV_FILE"
-[ "$USE_TRAEFIK" = true ] && [ -n "$DOMAIN" ] \
-    || error "L'API nécessite le mode Traefik + Authelia (identification des utilisateurs). Voir setup_traefik.sh"
+traefik_require "$ENV_FILE"
 grep -q '^  traefik:' "$DOCKER_COMPOSE_FILE" || error "Service traefik absent du docker-compose.yml"
 [[ "$DOMAIN" =~ ^[a-z0-9.-]+$ ]] || error "Domaine inattendu : $DOMAIN"
 command -v systemctl >/dev/null || error "systemd requis"

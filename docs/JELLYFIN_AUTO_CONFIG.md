@@ -13,7 +13,7 @@ vérifié sur Jellyfin 12.1 (et 10.11) avec le plugin SSO 4.0.0.4).
 | Compte de chaque utilisateur | Même nom et même mot de passe que la seedbox |
 | Bibliothèques | Pour chacun : *Séries TV* et *Films* dans son dossier (`data/users/<user>/tv`, `movies`) ; les anciennes bibliothèques *Livres* / *Musique* sont retirées (fichiers conservés) |
 | Cloisonnement | Chacun ne voit que SES bibliothèques ; les administrateurs voient tout |
-| Connexion web (mode Traefik) | Bouton **« Se connecter avec Authelia »** sur https://jellyfin.votre-domaine.com |
+| Connexion web | Bouton **« Se connecter avec Authelia »** sur https://jellyfin.votre-domaine.com |
 | Applis TV / mobile | Mot de passe seedbox, ou **Quick Connect** |
 | Clé d'API | Clé « seedbox » (`/opt/seedbox/.jellyfin_api`), pour les scripts et Homarr |
 
@@ -34,7 +34,7 @@ Un compte créé sans mot de passe connu se connecte via Authelia ; pour le mot
 de passe des applis : `sudo /opt/seedbox/scripts/update_password.sh <utilisateur>`
 (même mot de passe partout).
 
-## Connexion via Authelia (mode Traefik)
+## Connexion via Authelia
 
 Plugin communautaire [SSO Authentication](https://github.com/9p4/jellyfin-plugin-sso)
 (installé et configuré par les scripts) et client OIDC `jellyfin` dans

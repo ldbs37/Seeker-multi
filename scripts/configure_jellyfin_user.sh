@@ -34,12 +34,10 @@ for lib in lib_ports lib_traefik lib_lang lib_password lib_jellyfin; do
 done
 # shellcheck disable=SC2034  # lue par lib_jellyfin.sh
 [ -n "${3:-}" ] && JF_KEY=$3
-traefik_detect "$INSTALL_DIR/.env"
+traefik_require "$INSTALL_DIR/.env"
 
 jellyfin_wait || error "Jellyfin n'est pas accessible sur $JELLYFIN_LOCAL_URL"
 jellyfin_wizard_done || error "Assistant Jellyfin non terminé : lancez generate_traefik_labels.sh (ou terminez-le sur http://<serveur>:8096)"
 jellyfin_user_sync "$USERNAME" "$PASSWORD" || error "Compte Jellyfin de $USERNAME incomplet"
 log "✓ Jellyfin : compte et bibliothèques de $USERNAME"
-if [ "$USE_TRAEFIK" = true ]; then
-    jellyfin_sso_ensure && log "✓ Connexion via Authelia à jour"
-fi
+jellyfin_sso_ensure && log "✓ Connexion via Authelia à jour"

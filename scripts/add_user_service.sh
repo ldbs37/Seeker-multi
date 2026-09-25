@@ -60,8 +60,9 @@ id "$USERNAME" &>/dev/null || error "L'utilisateur $USERNAME n'existe pas"
 if [ -f "$ENV_FILE" ] && grep -q '^TZ=' "$ENV_FILE"; then
     TZ=$(grep '^TZ=' "$ENV_FILE" | cut -d'=' -f2)
 fi
-traefik_detect "$ENV_FILE"
+traefik_require "$ENV_FILE"
 
+# shellcheck disable=SC2034  # lue par les bibliothèques sourcées
 USER_ID=$(id -u "$USERNAME")
 # shellcheck disable=SC2034  # lue par les bibliothèques sourcées
 USER_DIR="$INSTALL_DIR/data/users/$USERNAME"
@@ -83,9 +84,6 @@ case "$SERVICE" in
         # Services de base créés par add_user.sh avec les identifiants de
         # l'utilisateur (ici, le mot de passe n'est pas connu).
         error "$SERVICE est un service de base, installé par add_user.sh" ;;
-    homarr)
-        [ "$USE_TRAEFIK" = true ] \
-            && error "Mode Traefik : le tableau de bord est le Homarr partagé (https://$DOMAIN)" ;;
 esac
 
 log "Ajout du service $SERVICE pour l'utilisateur $USERNAME..."
@@ -96,29 +94,23 @@ compose_append_services "$DOCKER_COMPOSE_FILE" "$SERVICE" \
 
 log "Démarrage du service..."
 cd "$INSTALL_DIR"
-START=("$CONTAINER_NAME")
-if [ "$USE_TRAEFIK" = true ]; then
-    # Son FlareSolverr (Prowlarr) ; Traefik et Homarr recréés seulement si
-    # leurs réseaux ont changé
-    [ "$SERVICE" = prowlarr ] && START+=("flaresolverr-$USERNAME")
-    START+=(traefik homarr)
-fi
+# Son FlareSolverr (Prowlarr) ; Traefik et Homarr recréés seulement si leurs
+# réseaux ont changé
+START=("$CONTAINER_NAME" traefik homarr)
+[ "$SERVICE" = prowlarr ] && START+=("flaresolverr-$USERNAME")
 compose_cmd up -d "${START[@]}"
 
-# Sonarr/Radarr/Readarr/Prowlarr (mode Traefik) : connexion unique, dossier
-# racine, qBittorrent, liens Prowlarr (dans les deux sens pour Prowlarr)
+# Configuration automatique (arr_setup.sh) : connexion unique, dossiers,
+# qBittorrent, liens Prowlarr, Calibre-web, Seerr
 ARR_AUTO=false
-if [ "$USE_TRAEFIK" = true ]; then
-    case "$SERVICE" in
-        sonarr|radarr|prowlarr|calibre|seerr)
-            log "Configuration automatique de $SERVICE..."
-            "$SCRIPT_DIR/arr_setup.sh" "$USERNAME" && ARR_AUTO=true ;;
-    esac
-fi
+case "$SERVICE" in
+    sonarr|radarr|prowlarr|calibre|seerr)
+        log "Configuration automatique de $SERVICE..."
+        "$SCRIPT_DIR/arr_setup.sh" "$USERNAME" && ARR_AUTO=true ;;
+esac
 
-# Mettre à jour les liens du tableau de bord Homarr (individuel ou partagé)
-"$SCRIPT_DIR/configure_homarr.sh" "$USERNAME" >/dev/null 2>&1 || true
-[ "$USE_TRAEFIK" = true ] && { "$SCRIPT_DIR/homarr_provision.sh" "$USERNAME" >/dev/null 2>&1 || true; }
+# Tableau de bord Homarr de l'utilisateur à jour
+"$SCRIPT_DIR/homarr_provision.sh" "$USERNAME" >/dev/null 2>&1 || true
 # API libre-service : état des services à jour (sauf si appelé par son ouvrier)
 [ -n "${SEEDBOX_API_WORKER:-}" ] || "$SCRIPT_DIR/seedbox_api_worker.sh" --state >/dev/null 2>&1 || true
 
@@ -126,17 +118,16 @@ sleep 5
 if docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
     log "${GREEN}✓${NC} Service $SERVICE ajouté avec succès pour $USERNAME !"
     info "Accessible sur: $(service_url "$SERVICE")"
-    [ "$USE_TRAEFIK" = true ] && info "Connexion SSO via: https://auth.$DOMAIN"
-    # Réglages à saisir dans l'appli pour des imports SANS copie (hardlinks) :
-    # téléchargements et médias sont sur le même montage /data.
-    QB_PORT=8080; [ "$USE_TRAEFIK" = true ] || QB_PORT=$(user_port "$USER_ID" qbittorrent)
+    info "Connexion SSO via: https://auth.$DOMAIN"
+    # Si la configuration automatique a échoué : réglages à saisir dans
+    # l'appli (imports SANS copie : téléchargements et médias sur /data)
     [ "$ARR_AUTO" = true ] || case "$SERVICE" in
         sonarr|radarr|readarr)
             case "$SERVICE" in sonarr) root=/data/tv ;; radarr) root=/data/movies ;; *) root=/data/books ;; esac
             echo ""
             info "Configuration recommandée (imports par hardlink, sans doubler l'espace) :"
             info "   • Dossier racine        : $root"
-            info "   • Client de téléchargement : qBittorrent, hôte qbittorrent-$USERNAME, port $QB_PORT"
+            info "   • Client de téléchargement : qBittorrent, hôte qbittorrent-$USERNAME, port 8080"
             info "     (identifiants = ceux de la seedbox)"
             info "   • Gestion des médias → « Utiliser des liens physiques » : laisser ACTIVÉ" ;;
     esac

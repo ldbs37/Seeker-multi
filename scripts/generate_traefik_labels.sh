@@ -62,7 +62,7 @@ for n in "${NAMES[@]}"; do
     svc=${n%-*}; usr=${n##*-}
     # FlareSolverr d'un utilisateur : régénéré avec son Prowlarr
     [ "$svc" = flaresolverr ] && id "$usr" &>/dev/null && continue
-    if [[ "$n" == *-* ]] && [[ " $USER_SERVICES " == *" $svc "* ]] && id "$usr" &>/dev/null; then
+    if [[ "$n" == *-* ]] && [[ " $USER_SERVICES $USER_SERVICES_LEGACY " == *" $svc "* ]] && id "$usr" &>/dev/null; then
         # Mode Traefik : Homarr partagé ; les Homarr individuels sont retirés
         # (leurs fichiers restent dans data/users/<user>/config/homarr)
         [ "$svc" = homarr ] && { DROPPED+=("$n"); continue; }
@@ -180,10 +180,6 @@ if ! compose_cmd up -d --remove-orphans; then
     compose_cmd up -d --remove-orphans || true
     error "Migration annulée (configuration restaurée)"
 fi
-
-for u in "${!DONE_USERS[@]}"; do
-    "$SCRIPT_DIR/configure_homarr.sh" "$u" >/dev/null 2>&1 || warn "Homarr de $u non régénéré"
-done
 
 # Accueil https://<domaine> (Homarr partagé) : règle d'accès + redirection
 # après connexion (configurations Authelia antérieures), client OIDC

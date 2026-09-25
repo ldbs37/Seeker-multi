@@ -82,7 +82,7 @@ Ajoute un service spécifique à un utilisateur existant.
 - `sonarr` - Gestion des séries TV
 - `radarr` - Gestion des films
 - `prowlarr` - Gestion des indexeurs
-- `seerr` - Demandes de films/séries (connexion Jellyfin/Plex)
+- `seerr` - Demandes de films/séries (connexion Jellyfin)
 - `calibre` - Bibliothèque d'ebooks
 
 ### 1.5 Lister les services d'un utilisateur
@@ -104,14 +104,12 @@ Installe un nouveau service système optionnel.
 **Services disponibles:**
 
 **Streaming:**
-- `plex` - Serveur de streaming multimédia
-- `jellyfin` - Alternative open-source à Plex (avec auto-configuration)
+- `jellyfin` - Serveur de streaming (avec auto-configuration)
 
 **Monitoring & Dashboards:**
 - `scrutiny` - Monitoring des disques S.M.A.R.T.
 - `uptime-kuma` - Monitoring de disponibilité
 - `dashdot` - Dashboard de monitoring système
-- `tautulli` - Statistiques pour Plex
 
 **Gestion & Organisation:**
 - `portainer` - Interface web de gestion Docker (avec auto-configuration)

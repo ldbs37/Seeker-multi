@@ -26,23 +26,21 @@ _fbq_get() { sed -n "s/^  $2: \"\\([0-9a-f]*\\)\"$/\\1/p" "$1" 2>/dev/null | hea
 
 # Écrit la configuration d'une instance. Idempotent (secrets conservés).
 # $1=fichier config.yaml $2=utilisateur [$3=mot de passe seedbox]
-# Variables : USE_TRAEFIK, DOMAIN ; en-tête : sso_header (lib_traefik.sh)
+# Variables : DOMAIN ; en-tête : sso_header (lib_traefik.sh)
 #
 # Compte de l'utilisateur = administrateur de SON instance (adminUsername).
 #  - Connexion unique (en-tête) : compte créé à sa première visite ;
 #    adminPassword aléatoire, jamais utilisé.
-#  - Mot de passe (port direct) : FileBrowser réapplique adminPassword à
+#  - Mot de passe (repli, en-tête pas encore créé) : FileBrowser réapplique adminPassword à
 #    chaque démarrage ; c'est donc le mot de passe seedbox (fichier en 600),
 #    réécrit par update_password.sh. Sans $3, la valeur existante est gardée.
 fbq_write_config() {
     local file="$1" user="$2" pass="${3:-}" key adminpw header="" base="/" ext="" auth lock=false
     mkdir -p "$(dirname "$file")"
     key=$(_fbq_get "$file" key); [ -n "$key" ] || key=$(openssl rand -hex 32)
-    if [ "${USE_TRAEFIK:-false}" = true ]; then
-        # externalUrl avec le chemin de base : sinon lien de partage en « //drive »
-        base=$(traefik_service_path filebrowser); ext="https://${user}.${DOMAIN}${base}"
-        header=$(sso_header 2>/dev/null || true)
-    fi
+    # externalUrl avec le chemin de base : sinon lien de partage en « //drive »
+    base=$(traefik_service_path filebrowser); ext="https://${user}.${DOMAIN}${base}"
+    header=$(sso_header 2>/dev/null || true)
     if [ -n "$header" ]; then
         adminpw="\"$(openssl rand -hex 24)\""
         auth="    password:

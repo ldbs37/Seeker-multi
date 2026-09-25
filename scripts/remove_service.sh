@@ -34,7 +34,7 @@ NAME=$1
 grep -q "^  ${NAME}:" "$DOCKER_COMPOSE_FILE" || error "Service '$NAME' absent du docker-compose.yml"
 
 case "$NAME" in
-    authelia|flaresolverr|traefik|homarr)
+    authelia|traefik|homarr)
         error "$NAME est un composant indispensable de la seedbox" ;;
     qbittorrent-*|homarr-*|filebrowser-*)
         error "Service de base d'un utilisateur : utilisez remove_user.sh pour supprimer l'utilisateur" ;;
@@ -50,7 +50,7 @@ if FLAG=$(system_service_flag "$NAME"); then
     ADMIN_UID=$(envget ADMIN_UID)
     ADMIN_GID=$(envget ADMIN_GID)
     TZ=${TZ:-Europe/Paris}; ADMIN_UID=${ADMIN_UID:-1000}; ADMIN_GID=${ADMIN_GID:-1000}
-    traefik_detect "$ENV_FILE"
+    traefik_require "$ENV_FILE"
     detect_system_services "$DOCKER_COMPOSE_FILE"
     printf -v "$FLAG" '%s' false
     KEEP=()
@@ -61,7 +61,7 @@ if FLAG=$(system_service_flag "$NAME"); then
     generate_docker_compose "$TMP" >/dev/null
     [ ${#KEEP[@]} -gt 0 ] && compose_extract_blocks "${DOCKER_COMPOSE_FILE}.bak" "${KEEP[@]}" >> "$TMP"
     # Réseaux privés des utilisateurs (déclarations, Traefik et Homarr)
-    [ "$USE_TRAEFIK" = true ] && { compose_sync_user_nets "$TMP" || true; }
+    compose_sync_user_nets "$TMP" || true
 else
     # Service d'un utilisateur ou bloc personnalisé : retrait du bloc exact
     # (Prowlarr : avec le FlareSolverr de l'utilisateur)
@@ -84,7 +84,7 @@ docker rm -f "$NAME" >/dev/null 2>&1 || true
 # Tableau de bord Homarr de l'utilisateur à jour
 usr=${NAME##*-}
 if [[ "$NAME" == *-* ]] && id "$usr" &>/dev/null; then
-    "$SCRIPT_DIR/configure_homarr.sh" "$usr" >/dev/null 2>&1 || true
+    "$SCRIPT_DIR/homarr_provision.sh" "$usr" >/dev/null 2>&1 || true
 fi
 
 log "${GREEN}✓${NC} Service $NAME supprimé (données conservées sur le disque)"

@@ -27,14 +27,12 @@ id "$USERNAME" &>/dev/null || error "L'utilisateur $USERNAME n'existe pas"
 USER_ID=$(id -u "$USERNAME")
 # shellcheck disable=SC2034  # lue par les bibliothèques sourcées
 USER_DIR="$INSTALL_DIR/data/users/$USERNAME"
-traefik_detect "$INSTALL_DIR/.env"
+traefik_require "$INSTALL_DIR/.env"
 
 echo ""
 echo -e "${BLUE}Services de ${USERNAME} (UID ${USER_ID}) :${NC}"
 MISSING=()
 for s in $USER_SERVICES; do
-    # Mode Traefik : tableau de bord = Homarr partagé (affiché plus bas)
-    [ "$s" = homarr ] && [ "$USE_TRAEFIK" = true ] && continue
     name="${s}-${USERNAME}"
     if grep -q "^  ${name}:" "$DOCKER_COMPOSE_FILE" 2>/dev/null; then
         status=$(docker ps -a --filter "name=^${name}$" --format '{{.Status}}' 2>/dev/null)
@@ -44,12 +42,12 @@ for s in $USER_SERVICES; do
             *)   state="${RED}● arrêté${NC}" ;;
         esac
         printf "  %-12s %b  %s\n" "$s" "$state" "$(service_url "$s")"
-    else
+    elif [[ " $USER_SERVICES_RETIRED " != *" $s "* ]]; then
         MISSING+=("$s")
     fi
 done
 echo ""
-[ "$USE_TRAEFIK" = true ] && info "Tableau de bord (Homarr partagé) : https://$DOMAIN"
+info "Tableau de bord (Homarr partagé) : https://$DOMAIN"
 info "Port torrent entrant : $(user_port "$USER_ID" torrent) (TCP/UDP)"
 if [ ${#MISSING[@]} -gt 0 ]; then
     info "Services installables : ${MISSING[*]}"

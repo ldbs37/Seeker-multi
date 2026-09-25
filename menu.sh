@@ -119,7 +119,7 @@ show_services_status() {
     cd "$INSTALL_DIR" || return
 
     echo -e "${CYAN}Services Système:${NC}"
-    for service in authelia flaresolverr plex jellyfin scrutiny uptime-kuma dashdot portainer tautulli watchtower duplicati; do
+    for service in authelia plex jellyfin scrutiny uptime-kuma dashdot portainer tautulli watchtower duplicati; do
         if docker ps --format "{{.Names}}" | grep -q "^${service}$"; then
             echo -e "  ${GREEN}●${NC} $service"
         elif docker ps -a --format "{{.Names}}" | grep -q "^${service}$"; then
@@ -385,7 +385,7 @@ add_user_service_menu() {
     echo "  1. sonarr    - Séries TV"
     echo "  2. radarr    - Films"
     echo "  3. prowlarr  - Indexeurs"
-    echo "  4. seerr     - Demandes de films/séries (connexion Jellyfin/Plex)"
+    echo "  4. seerr     - Demandes de films/séries (connexion Jellyfin)"
     echo "  5. calibre   - Bibliothèque ebooks"
     echo ""
 
@@ -418,24 +418,27 @@ add_service_menu() {
     echo -e "${CYAN}Services disponibles:${NC}"
     echo ""
     echo -e "${BOLD}Streaming:${NC}"
-    echo "  1. plex      - Serveur de streaming"
-    echo "  2. jellyfin  - Alternative open-source à Plex"
+    echo "  1. jellyfin  - Serveur de streaming"
     echo ""
     echo -e "${BOLD}Monitoring & Dashboards:${NC}"
-    echo "  3. scrutiny      - Monitoring disques S.M.A.R.T."
-    echo "  4. uptime-kuma   - Monitoring uptime"
-    echo "  5. dashdot       - Monitoring système élégant"
-    echo "  6. tautulli      - Statistiques Plex"
+    echo "  2. scrutiny      - Monitoring disques S.M.A.R.T."
+    echo "  3. uptime-kuma   - Monitoring uptime"
+    echo "  4. dashdot       - Monitoring système élégant"
     echo ""
     echo -e "${BOLD}Gestion & Organisation:${NC}"
-    echo "  7. portainer - Gestion Docker web"
+    echo "  5. portainer - Gestion Docker web"
     echo ""
     echo -e "${BOLD}Maintenance:${NC}"
-    echo "  8. watchtower - Mises à jour automatiques"
-    echo "  9. duplicati - Système de backup"
+    echo "  6. watchtower - Mises à jour automatiques"
+    echo "  7. duplicati - Système de backup"
     echo ""
 
-    read -r -p "Service à installer: " service
+    read -r -p "Service à installer (numéro ou nom): " service
+    case "$service" in
+        1) service=jellyfin ;;   2) service=scrutiny ;;   3) service=uptime-kuma ;;
+        4) service=dashdot ;;    5) service=portainer ;;  6) service=watchtower ;;
+        7) service=duplicati ;;
+    esac
 
     if [ -z "$service" ]; then
         warn "Service requis"
@@ -764,8 +767,8 @@ menu_traefik() {
             echo ""
         fi
 
-        echo "1. Installer Traefik"
-        echo "2. Générer les labels Docker pour services existants"
+        echo "1. Installer Traefik (ancienne installation en port direct)"
+        echo "2. Reconstruire la configuration (labels, réseaux, applis)"
         echo "3. Voir l'état de Traefik"
         echo "4. Voir les certificats SSL"
         echo "5. Redémarrer Traefik"
@@ -849,7 +852,7 @@ api_menu() {
         read -r -p "Désactiver l'API ? (o/N): " c
         [[ "$c" =~ ^[oO]$ ]] && "$SCRIPTS_DIR/setup_api.sh" --disable
     else
-        echo -e "${YELLOW}○ API inactive${NC} (mode Traefik requis)"
+        echo -e "${YELLOW}○ API inactive${NC}"
         read -r -p "Activer l'API ? (o/N): " c
         [[ "$c" =~ ^[oO]$ ]] && "$SCRIPTS_DIR/setup_api.sh"
     fi

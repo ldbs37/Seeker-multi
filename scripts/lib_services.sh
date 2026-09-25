@@ -2,11 +2,11 @@
 #######################
 # lib_services.sh — Définition des services UTILISATEUR (source unique)
 #
-# Génère les blocs docker-compose de chaque service d'un utilisateur, pour les
-# deux modes (Traefik ou port direct). Utilisée par add_user.sh et
-# add_user_service.sh.
+# Génère les blocs docker-compose de chaque service d'un utilisateur (routés
+# par Traefik, derrière Authelia). Utilisée par add_user.sh,
+# add_user_service.sh et generate_traefik_labels.sh.
 #
-# Pré-requis (variables) : USERNAME USER_ID USER_DIR INSTALL_DIR TZ USE_TRAEFIK
+# Pré-requis (variables) : USERNAME USER_ID USER_DIR INSTALL_DIR TZ
 #                          DOMAIN.
 # Dépendances : lib_ports.sh, lib_traefik.sh (sourcées par l'appelant) ;
 # lib_lang.sh, lib_filebrowser.sh (sourcées ici).
@@ -23,14 +23,21 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib_lang.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/lib_filebrowser.sh"
 
 # shellcheck disable=SC2034  # lue par les bibliothèques sourcées
-USER_SERVICES="qbittorrent homarr filebrowser sonarr radarr readarr bazarr prowlarr seerr calibre"
+USER_SERVICES="qbittorrent filebrowser sonarr radarr readarr bazarr prowlarr seerr calibre"
+# Plus proposés (installations existantes conservées) : Readarr (abandonné
+# par ses auteurs), Bazarr
+# shellcheck disable=SC2034  # lue par les scripts qui sourcent cette lib
+USER_SERVICES_RETIRED="readarr bazarr"
+# Homarr 0.16 individuel (ancien mode port direct) : plus créé ; reconnu pour
+# être retiré (migration, suppression d'un utilisateur)
+# shellcheck disable=SC2034  # lue par les scripts qui sourcent cette lib
+USER_SERVICES_LEGACY="homarr"
 
 FLARESOLVERR_IMAGE="ghcr.io/flaresolverr/flaresolverr:v3.5.2"
 
 service_image() {
     case "$1" in
         qbittorrent) echo "linuxserver/qbittorrent:5.2.3" ;;
-        homarr)      echo "ghcr.io/ajnart/homarr:0.16.1" ;;
         # FileBrowser Quantum (Filebrowser d'origine archivé le 2026-09-01)
         filebrowser) echo "$FBQ_IMAGE" ;;
         sonarr)      echo "linuxserver/sonarr:4.0.20" ;;
@@ -49,7 +56,7 @@ service_image() {
 # Dossier de configuration (côté hôte) d'un service
 service_config_dir() {
     case "$1" in
-        qbittorrent|homarr|filebrowser) echo "$USER_DIR/config/$1" ;;
+        qbittorrent|filebrowser) echo "$USER_DIR/config/$1" ;;
         *) echo "$INSTALL_DIR/$1/$USERNAME" ;;
     esac
 }
@@ -57,7 +64,7 @@ service_config_dir() {
 # Prépare dossiers et fichiers AVANT le premier démarrage du service.
 # $1=service [$2=mot de passe en clair, pour qBittorrent]
 service_prepare() {
-    local svc="$1" pass="${2:-}" cfg proxy_net=""
+    local svc="$1" pass="${2:-}" cfg
     cfg=$(service_config_dir "$svc")
     mkdir -p "$cfg" "$USER_DIR"/{downloads,tv,movies,books}
     case "$svc" in
@@ -65,38 +72,31 @@ service_prepare() {
             local conf="$cfg/qBittorrent/qBittorrent.conf"
             qbit_seed_defaults "$conf"
             if [ -n "$pass" ]; then
-                if [ "$USE_TRAEFIK" = true ]; then
-                    proxy_net=$(docker network inspect traefik_proxy \
-                        -f '{{(index .IPAM.Config 0).Subnet}}' 2>/dev/null || true)
-                fi
-                qbit_configure "$conf" "$USERNAME" "$pass" "$proxy_net" \
+                qbit_configure "$conf" "$USERNAME" "$pass" \
                     || warn "Mot de passe qBittorrent non défini (voir logs du conteneur)"
-                # Connexion unique via Traefik (remplace la prise en charge du proxy)
-                [ "$USE_TRAEFIK" = true ] && qbit_sso_configure "$conf"
+                # Connexion unique : Traefik seul dispensé de mot de passe
+                qbit_sso_configure "$conf"
             fi
             qbit_lang_configure "$conf"
             # Interface web VueTorrent (sinon interface d'origine)
             if vuetorrent_ensure; then qbit_vuetorrent_configure "$conf"
             else warn "VueTorrent non téléchargé : interface d'origine de qBittorrent"; fi
             ;;
-        homarr) mkdir -p "$USER_DIR/config/homarr-icons" ;;
         filebrowser)
-            # Mot de passe utile en mode port direct seulement (sinon connexion unique)
+            # Mot de passe : repli si la connexion unique n'est pas prête
             fbq_write_config "$cfg/config.yaml" "$USERNAME" "$pass" ;;
     esac
-    [ "$USE_TRAEFIK" = true ] && traefik_prepare_app "$svc" "$cfg" "$USER_ID"
+    traefik_prepare_app "$svc" "$cfg" "$USER_ID"
     chown -R "$USER_ID:$USER_ID" "$cfg" "$USER_DIR"/{downloads,tv,movies,books} \
         "$USER_DIR/config" 2>/dev/null || true
 }
 
 # Émet le bloc docker-compose d'un service (stdout). $1=service
 service_block() {
-    local svc="$1" name img cfg port inner tport
+    local svc="$1" name img cfg tport
     name="${svc}-${USERNAME}"
     img=$(service_image "$svc") || return 1
     cfg=$(service_config_dir "$svc")
-    port=$(user_port "$USER_ID" "$svc")
-    inner=$(traefik_service_port "$svc")
     tport=$(user_port "$USER_ID" torrent)
 
     echo ""
@@ -114,15 +114,8 @@ service_block() {
     echo "      - PGID=${USER_ID}"
     echo "      - TZ=${TZ}"
     case "$svc" in
-        homarr)
-            # Pas de fenêtre « migrez vers Homarr 1.0 » (réécriture complète,
-            # migration manuelle ; la 0.16 reste pleinement fonctionnelle)
-            echo "      - DISABLE_UPGRADE_MODAL=true"
-            ;;
         qbittorrent)
-            # WebUI : port interne = port publié en mode direct
-            if [ "$USE_TRAEFIK" = true ]; then echo "      - WEBUI_PORT=8080"
-            else echo "      - WEBUI_PORT=${port}"; inner=$port; fi
+            echo "      - WEBUI_PORT=8080"
             echo "      - TORRENTING_PORT=${tport}"
             ;;
         filebrowser)
@@ -139,9 +132,6 @@ service_block() {
             [ "$svc" = qbittorrent ] && [ -d "$INSTALL_DIR/vuetorrent/public" ] \
                 && echo "      - ${INSTALL_DIR}/vuetorrent:/vuetorrent:ro"
             ;;
-        homarr)
-            echo "      - ${cfg}:/app/data/configs"
-            echo "      - ${USER_DIR}/config/homarr-icons:/app/public/icons" ;;
         filebrowser)
             echo "      - ${USER_DIR}:/srv"
             echo "      - ${cfg}:/home/filebrowser/data" ;;
@@ -153,30 +143,17 @@ service_block() {
             echo "      - ${cfg}:/config"
             echo "      - ${USER_DIR}/books:/books" ;;
     esac
-    # Ports publiés : WebUI en mode direct ; port torrent (TCP+UDP) toujours
-    if [ "$USE_TRAEFIK" != true ] || [ "$svc" = qbittorrent ]; then
+    # Seul port publié : le port torrent entrant (TCP+UDP) ; les interfaces
+    # passent par Traefik
+    if [ "$svc" = qbittorrent ]; then
         echo "    ports:"
-        [ "$USE_TRAEFIK" != true ] && echo "      - \"${port}:${inner}\""
-        if [ "$svc" = qbittorrent ]; then
-            echo "      - \"${tport}:${tport}\""
-            echo "      - \"${tport}:${tport}/udp\""
-        fi
-    fi
-    if [ "$svc" = homarr ]; then
-        # Le HEALTHCHECK de l'image teste localhost, mais Next.js n'écoute que
-        # sur l'IP du conteneur ($HOSTNAME) : conteneur « unhealthy » à tort,
-        # donc ignoré par Traefik (404). Test sur le nom du conteneur.
-        echo "    healthcheck:"
-        echo "      test: [\"CMD-SHELL\", \"wget -q --spider http://\$\$(hostname):7575 || exit 1\"]"
-        echo "      interval: 30s"
-        echo "      timeout: 5s"
-        echo "      retries: 3"
-        echo "      start_period: 30s"
+        echo "      - \"${tport}:${tport}\""
+        echo "      - \"${tport}:${tport}/udp\""
     fi
     if [ "$svc" = filebrowser ]; then
         # Le HEALTHCHECK de l'image teste le port 80 ; ici 8080 (+ /drive)
-        local hpath="/health"
-        [ "$USE_TRAEFIK" = true ] && hpath="$(traefik_service_path filebrowser)/health"
+        local hpath
+        hpath="$(traefik_service_path filebrowser)/health"
         echo "    healthcheck:"
         echo "      test: [\"CMD\", \"curl\", \"-fs\", \"http://localhost:${FBQ_PORT}${hpath}\"]"
         echo "      interval: 30s"
@@ -184,12 +161,12 @@ service_block() {
         echo "      retries: 3"
         echo "      start_period: 20s"
     fi
-    [ "$USE_TRAEFIK" = true ] && traefik_user_labels "$svc" "$USERNAME"
+    traefik_user_labels "$svc" "$USERNAME"
     echo "    restart: unless-stopped"
-    # Mode Traefik : FlareSolverr propre à l'utilisateur, sur son réseau (un
-    # FlareSolverr partagé, navigateur piloté par tous, pourrait joindre les
-    # services des autres utilisateurs)
-    [ "$svc" = prowlarr ] && [ "$USE_TRAEFIK" = true ] && user_flaresolverr_block
+    # FlareSolverr propre à l'utilisateur, sur son réseau (un FlareSolverr
+    # partagé, navigateur piloté par tous, pourrait joindre les services des
+    # autres utilisateurs)
+    [ "$svc" = prowlarr ] && user_flaresolverr_block
     return 0
 }
 
@@ -235,10 +212,8 @@ compose_append_services() {
         service_block "$s" >> "$tmp" || { rm -f "$tmp"; return 1; }
     done
     # Réseau privé de l'utilisateur : déclaré, Traefik et Homarr raccordés
-    if [ "$USE_TRAEFIK" = true ]; then
-        compose_sync_user_nets "$tmp"
-        [ $? -eq 2 ] && { rm -f "$tmp"; return 1; }
-    fi
+    compose_sync_user_nets "$tmp"
+    [ $? -eq 2 ] && { rm -f "$tmp"; return 1; }
     if compose_validate "$tmp"; then
         mv "$tmp" "$file"
     else
@@ -249,10 +224,5 @@ compose_append_services() {
 
 # URL d'accès d'un service (affichage). $1=service
 service_url() {
-    if [ "$USE_TRAEFIK" = true ]; then
-        traefik_service_url "$1" "$USERNAME"
-    else
-        local ip; ip=$(hostname -I 2>/dev/null | awk '{print $1}')
-        echo "http://${ip:-votre-serveur}:$(user_port "$USER_ID" "$1")"
-    fi
+    traefik_service_url "$1" "$USERNAME"
 }

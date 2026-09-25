@@ -184,7 +184,7 @@ jellyfin_sync_all() {
     for u in $(_jf_seedbox_users); do
         jellyfin_user_sync "$u" || echo "Jellyfin : compte de $u incomplet" >&2
     done
-    if [ "${USE_TRAEFIK:-false}" = true ]; then jellyfin_sso_ensure || return 1; fi
+    jellyfin_sso_ensure || return 1
     return 0
 }
 

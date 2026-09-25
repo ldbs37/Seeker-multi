@@ -78,23 +78,16 @@ WebUI\ServerDomains=*
 CONF
 }
 
-# Écrit les identifiants WebUI (et réglages proxy) dans qBittorrent.conf.
+# Écrit les identifiants WebUI dans qBittorrent.conf (connexion unique :
+# voir qbit_sso_configure, lib_traefik.sh).
 # $1=fichier qBittorrent.conf  $2=utilisateur  $3=mot de passe
-# $4=(optionnel) sous-réseau du reverse-proxy à approuver (ex: 172.18.0.0/16)
 qbit_configure() {
-    local conf="$1" user="$2" pass="$3" proxy_net="${4:-}" hash
+    local conf="$1" user="$2" pass="$3" hash
     mkdir -p "$(dirname "$conf")"
     hash=$(qbit_hash "$pass") || return 1
     [ -n "$hash" ] || return 1
     ini_set "$conf" Preferences 'WebUI\Username' "$user"
     ini_set "$conf" Preferences 'WebUI\Password_PBKDF2' "\"$hash\""
-    if [ -n "$proxy_net" ]; then
-        # Derrière Traefik : utiliser l'IP réelle du client (X-Forwarded-For),
-        # sinon trop d'échecs de connexion d'un utilisateur banniraient l'IP
-        # de Traefik pendant 1 h.
-        ini_set "$conf" Preferences 'WebUI\ReverseProxySupportEnabled' 'true'
-        ini_set "$conf" Preferences 'WebUI\TrustedReverseProxiesList' "$proxy_net"
-    fi
 }
 
 #######################
@@ -136,16 +129,14 @@ vuetorrent_ensure() {
 # sans toucher au reste :
 #  - langue (lib_lang.sh), au premier chargement seulement ; chacun la
 #    change ensuite dans VueTorrent ;
-#  - mode Traefik : bouton « Déconnexion » → déconnexion Authelia puis
+#  - bouton « Déconnexion » → déconnexion Authelia puis
 #    accueil (sinon Authelia, toujours connecté, rouvre aussitôt qBittorrent).
 vuetorrent_set_defaults() {
     local html="$INSTALL_DIR/vuetorrent/public/index.html" domain="" logout=""
     [ -f "$html" ] || return 1
-    if grep -q '^USE_TRAEFIK=true' "$INSTALL_DIR/.env" 2>/dev/null; then
-        domain=$(grep '^DOMAIN=' "$INSTALL_DIR/.env" | cut -d= -f2)
-        # /logout-done : efface aussi la session Homarr (lib_compose_base.sh)
-        [ -n "$domain" ] && logout="https://auth.${domain}/logout?rd=https://${domain}/logout-done"
-    fi
+    domain=$(grep '^DOMAIN=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2)
+    # /logout-done : efface aussi la session Homarr (lib_compose_base.sh)
+    [ -n "$domain" ] && logout="https://auth.${domain}/logout?rd=https://${domain}/logout-done"
     VT_LANG="$(seedbox_lang)" VT_LOGOUT="$logout" python3 -c '
 import json, os, re, sys
 p = sys.argv[1]; s = open(p, encoding="utf-8").read()

@@ -98,12 +98,8 @@ if grep -q "^  ${USERNAME}:" "$AUTHELIA_CONFIG_DIR/users_database.yml" 2>/dev/nu
     error "L'utilisateur $USERNAME existe déjà dans Authelia"
 fi
 
-traefik_detect "$ENV_FILE"
-if [ "$USE_TRAEFIK" = true ]; then
-    info "Mode Traefik détecté (domaine: $DOMAIN)"
-else
-    info "Mode port direct détecté"
-fi
+traefik_require "$ENV_FILE"
+info "Domaine : $DOMAIN"
 
 USER_ID=$(next_seedbox_uid) || error "Plus d'UID disponible dans la plage ${SEEDBOX_UID_MIN}-${SEEDBOX_UID_MAX}"
 USER_DIR="$INSTALL_DIR/data/users/$USERNAME"
@@ -162,13 +158,8 @@ else
     info "Mode non interactif : services de base uniquement"
 fi
 # Dédoublonnage en conservant l'ordre
-# Tableau de bord : Homarr partagé (https://<domaine>) en mode Traefik,
-# Homarr 0.16 individuel en mode port direct
-if [ "$USE_TRAEFIK" = true ]; then
-    SERVICES_TO_INSTALL=(qbittorrent filebrowser)
-else
-    SERVICES_TO_INSTALL=(qbittorrent homarr filebrowser)
-fi
+# (tableau de bord : le Homarr partagé, https://<domaine>)
+SERVICES_TO_INSTALL=(qbittorrent filebrowser)
 for s in "${EXTRA_SERVICES[@]}"; do
     [[ " ${SERVICES_TO_INSTALL[*]} " == *" $s "* ]] || SERVICES_TO_INSTALL+=("$s")
 done
@@ -251,11 +242,6 @@ if command -v ufw &>/dev/null; then
     ufw allow "$TORRENT_PORT/udp" comment "torrent $USERNAME" >/dev/null 2>&1 || true
 fi
 
-# Tableau de bord Homarr pré-rempli avec les liens de l'utilisateur (généré
-# avant le premier démarrage de Homarr)
-"$SCRIPT_DIR/configure_homarr.sh" "$USERNAME" >/dev/null 2>&1 \
-    || warn "Configuration Homarr non appliquée (relancez : $SCRIPT_DIR/configure_homarr.sh $USERNAME)"
-
 log "Démarrage des conteneurs..."
 cd "$INSTALL_DIR"
 compose_cmd up -d
@@ -269,20 +255,18 @@ docker restart authelia >/dev/null 2>&1 || warn "Redémarrez Authelia pour activ
 if grep -q "^  jellyfin:" "$DOCKER_COMPOSE_FILE" && jellyfin_wait && jellyfin_wizard_done; then
     log "Jellyfin : compte et bibliothèques de $USERNAME..."
     jellyfin_user_sync "$USERNAME" "$PASSWORD" || warn "Compte Jellyfin incomplet (relancez : $SCRIPT_DIR/update_password.sh $USERNAME)"
-    if [ "$USE_TRAEFIK" = true ]; then
-        jellyfin_sso_ensure || warn "Connexion Authelia de Jellyfin non mise à jour (relancez generate_traefik_labels.sh)"
-    fi
+    jellyfin_sso_ensure || warn "Connexion Authelia de Jellyfin non mise à jour (relancez generate_traefik_labels.sh)"
 fi
 
 # Applis : Sonarr/Radarr/Prowlarr (connexion unique, dossiers, qBittorrent,
 # indexeurs), Calibre-web, Seerr (après Jellyfin : son compte et ses bibliothèques)
-if [ "$USE_TRAEFIK" = true ] && [[ " ${SERVICES_TO_INSTALL[*]} " =~ \ (sonarr|radarr|prowlarr|calibre|seerr)\  ]]; then
+if [[ " ${SERVICES_TO_INSTALL[*]} " =~ \ (sonarr|radarr|prowlarr|calibre|seerr)\  ]]; then
     log "Applis (Sonarr, Radarr, Prowlarr, Calibre-web, Seerr) : configuration automatique..."
     "$SCRIPT_DIR/arr_setup.sh" "$USERNAME" || true
 fi
 
-# Homarr partagé (mode Traefik) : tableau de bord de l'utilisateur
-[ "$USE_TRAEFIK" = true ] && { "$SCRIPT_DIR/homarr_provision.sh" "$USERNAME" || true; }
+# Homarr partagé : tableau de bord de l'utilisateur
+"$SCRIPT_DIR/homarr_provision.sh" "$USERNAME" || true
 
 #######################
 # Résumé
@@ -308,14 +292,10 @@ for s in "${SERVICES_TO_INSTALL[@]}"; do
     printf "   • %-12s %s\n" "$s" "$(service_url "$s")"
 done
 echo ""
-if [ "$USE_TRAEFIK" = true ]; then
-    info "🏠 Tableau de bord : https://$DOMAIN (connexion unique Authelia)"
-    info "💡 Connexion : identifiez-vous sur https://auth.$DOMAIN (SSO) ;"
-    info "   qBittorrent et les fichiers s'ouvrent ensuite sans mot de passe."
-    info "   Partage public : clic droit sur un fichier → Partager (lien https://$USERNAME.$DOMAIN/drive/public/…)."
-else
-    info "💡 qBittorrent et le gestionnaire de fichiers : mêmes identifiants que la seedbox."
-fi
+info "🏠 Tableau de bord : https://$DOMAIN (connexion unique Authelia)"
+info "💡 Connexion : identifiez-vous sur https://auth.$DOMAIN (SSO) ;"
+info "   qBittorrent et les fichiers s'ouvrent ensuite sans mot de passe."
+info "   Partage public : clic droit sur un fichier → Partager (lien https://$USERNAME.$DOMAIN/drive/public/…)."
 echo ""
 info "Pour ajouter d'autres services plus tard:"
 echo "   sudo $INSTALL_DIR/scripts/add_user_service.sh $USERNAME <service>"
