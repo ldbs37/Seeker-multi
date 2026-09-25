@@ -151,6 +151,27 @@ EOF
     # bord créé par homarr_provision.sh) ; "$$" : docker-compose
     echo "      - \"traefik.http.middlewares.user-root-redirect.redirectregex.regex=^https?://([a-z][a-z0-9]{0,31})\\\\.[^/]+/?\$\$\""
     echo "      - \"traefik.http.middlewares.user-root-redirect.redirectregex.replacement=https://${DOMAIN}/boards/\$\${1}\""
+    # Déconnexion : Homarr recharge la page dès que sa session disparaît
+    # (SessionQueryScopeGuard), avant d'avoir suivi AUTH_LOGOUT_REDIRECT_URL ;
+    # sa connexion automatique repassait alors par Authelia, toujours ouvert.
+    # Traefik marque la réponse à la déconnexion (cookie d'une minute) puis
+    # renvoie ce rechargement (/ ou /auth/login) vers la déconnexion Authelia,
+    # en effaçant le cookie (pas de boucle). Le cookie de marquage remplace
+    # ceux de la réponse : sans effet, Homarr supprime la session en base.
+    echo "      - \"traefik.http.routers.homarr-signout.rule=Host(\`${DOMAIN}\`) && Method(\`POST\`) && Path(\`/api/auth/signout\`)\""
+    echo "      - \"traefik.http.routers.homarr-signout.entrypoints=websecure\""
+    echo "      - \"traefik.http.routers.homarr-signout.tls.certresolver=letsencrypt\""
+    echo "      - \"traefik.http.routers.homarr-signout.service=homarr\""
+    echo "      - \"traefik.http.routers.homarr-signout.middlewares=authelia@docker,homarr-logout-mark\""
+    echo "      - \"traefik.http.middlewares.homarr-logout-mark.headers.customresponseheaders.Set-Cookie=seedbox_logout=1; Path=/; Max-Age=60; Secure; HttpOnly; SameSite=Lax\""
+    echo "      - \"traefik.http.routers.homarr-logout.rule=Host(\`${DOMAIN}\`) && (Path(\`/\`) || Path(\`/auth/login\`)) && HeaderRegexp(\`Cookie\`, \`(^|; )seedbox_logout=1\`)\""
+    echo "      - \"traefik.http.routers.homarr-logout.entrypoints=websecure\""
+    echo "      - \"traefik.http.routers.homarr-logout.tls.certresolver=letsencrypt\""
+    echo "      - \"traefik.http.routers.homarr-logout.service=homarr\""
+    echo "      - \"traefik.http.routers.homarr-logout.middlewares=homarr-logout-clear,homarr-logout-redirect\""
+    echo "      - \"traefik.http.middlewares.homarr-logout-clear.headers.customresponseheaders.Set-Cookie=seedbox_logout=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax\""
+    echo "      - \"traefik.http.middlewares.homarr-logout-redirect.redirectregex.regex=^.*\$\$\""
+    echo "      - \"traefik.http.middlewares.homarr-logout-redirect.redirectregex.replacement=https://auth.${DOMAIN}/logout?rd=https://${DOMAIN}/\""
     echo "    restart: unless-stopped"
 }
 
