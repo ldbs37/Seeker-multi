@@ -44,106 +44,117 @@ USER_ID=$(id -u "$USERNAME")
 USER_DIR="$INSTALL_DIR/data/users/$USERNAME"
 traefik_detect "$INSTALL_DIR/.env"
 
+# Mode Traefik : Homarr partagé (https://<domaine>, lib_homarr.sh), pas de
+# Homarr 0.16 individuel à configurer
+if [ "$USE_TRAEFIK" = true ] && ! grep -q "^  homarr-${USERNAME}:" "$DOCKER_COMPOSE_FILE" 2>/dev/null; then
+    exit 0
+fi
+
 HOMARR_CONFIG_DIR="$USER_DIR/config/homarr"
 mkdir -p "$HOMARR_CONFIG_DIR"
 log "Configuration de Homarr pour $USERNAME..."
 
-# Liens vers les services de l'utilisateur présents dans le compose
-# (guillemets simples dans le HTML pour rester valide en JSON)
+# Services de l'utilisateur présents dans le compose : "clé|nom|url|icône"
 declare -A SVC_LABELS=(
-    [qbittorrent]="qBittorrent" [filebrowser]="Filebrowser"
-    [sonarr]="Sonarr" [radarr]="Radarr" [readarr]="Readarr" [bazarr]="Bazarr"
-    [prowlarr]="Prowlarr" [overseerr]="Overseerr" [calibre]="Calibre-Web"
+    [qbittorrent]="qBittorrent" [filebrowser]="Fichiers" [sonarr]="Sonarr"
+    [radarr]="Radarr" [readarr]="Readarr" [bazarr]="Bazarr" [prowlarr]="Prowlarr"
+    [seerr]="Seerr (demandes)" [calibre]="Calibre-Web"
 )
-LINKS=""
-for s in qbittorrent filebrowser sonarr radarr readarr bazarr prowlarr overseerr calibre; do
+declare -A SVC_ICONS=(
+    [qbittorrent]="qbittorrent" [filebrowser]="filebrowser" [sonarr]="sonarr"
+    [radarr]="radarr" [readarr]="readarr" [bazarr]="bazarr" [prowlarr]="prowlarr"
+    [seerr]="jellyseerr" [calibre]="calibre-web"
+)
+ENTRIES=""
+for s in qbittorrent filebrowser sonarr radarr readarr bazarr prowlarr seerr calibre; do
     if grep -q "^  ${s}-${USERNAME}:" "$DOCKER_COMPOSE_FILE" 2>/dev/null; then
-        LINKS="${LINKS}<li><a href='$(service_url "$s")' target='_blank' rel='noopener'>${SVC_LABELS[$s]}</a></li>"
+        ENTRIES+="${s}|${SVC_LABELS[$s]}|$(service_url "$s")|${SVC_ICONS[$s]}"$'\n'
     fi
 done
-[ -n "$LINKS" ] || LINKS="<li>Aucun service pour le moment</li>"
-SERVICES_HTML="<h1>Bienvenue ${USERNAME} !</h1><p>Vos services :</p><ul>${LINKS}</ul>"
-# API libre-service activée (setup_api.sh) : lien de gestion des services
+# API libre-service (setup_api.sh) : tuile de gestion des services
 if [ "$USE_TRAEFIK" = true ] && grep -q '^SEEDBOX_API=true' "$INSTALL_DIR/.env" 2>/dev/null; then
-    SERVICES_HTML="${SERVICES_HTML}<p><a href='/seedbox-api/'>➕ Ajouter / retirer des services</a></p>"
+    ENTRIES+="seedbox-api|Ajouter / retirer des services|/seedbox-api/|docker"$'\n'
 fi
 
-# Heredoc NON quoté : ${SERVICES_HTML} est injecté (le JSON ne contient ni $
-# ni backtick).
-cat > "$HOMARR_CONFIG_DIR/default.json" << EOF
-{
-  "schemaVersion": 1,
-  "configProperties": {
-    "name": "default"
-  },
-  "categories": [
-    {
-      "id": "downloads",
-      "position": 1,
-      "name": "Téléchargements"
+# Configuration au format Homarr 0.16 (schemaVersion 2, calqué sur la
+# configuration par défaut officielle) : une tuile cliquable par service + une
+# note de bienvenue. Générée en Python pour un JSON toujours valide.
+HM_USER="$USERNAME" HM_ENTRIES="$ENTRIES" python3 - > "$HOMARR_CONFIG_DIR/default.json.tmp" << 'PY'
+import json, os, sys, uuid
+
+user = os.environ["HM_USER"]
+entries = [l.split("|") for l in os.environ["HM_ENTRIES"].splitlines() if l.strip()]
+ICON = "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/{}.png"
+
+def shape(i):
+    # grilles Homarr : petit = 3 colonnes, moyen = 6, grand = 10 ; sous la note
+    def loc(cols, w):
+        per_row = max(1, cols // w)
+        return {"location": {"x": (i % per_row) * w, "y": 2 + i // per_row},
+                "size": {"width": w, "height": 1}}
+    return {"sm": loc(3, 1), "md": loc(6, 1), "lg": loc(10, 2)}
+
+apps = []
+for i, (key, name, url, icon) in enumerate(entries):
+    apps.append({
+        "id": str(uuid.uuid4()),
+        "name": name,
+        "url": url,
+        "behaviour": {"onClickUrl": url, "externalUrl": url,
+                      "isOpeningNewTab": not url.startswith("/")},
+        "network": {"enabledStatusChecker": False, "statusCodes": ["200"]},
+        "appearance": {"iconUrl": ICON.format(icon), "appNameStatus": "normal",
+                       "positionAppName": "column", "lineClampAppName": 1},
+        "integration": {"type": None, "properties": []},
+        "area": {"type": "wrapper", "properties": {"id": "default"}},
+        "shape": shape(i),
+    })
+
+welcome = (f"<h2>Bienvenue {user} !</h2>"
+           "<p>Vos services sont ci-dessous. qBittorrent et Fichiers utilisent "
+           "vos identifiants de la seedbox.</p>"
+           "<p>Sonarr/Radarr : dossiers racines <code>/data/tv</code> et "
+           f"<code>/data/movies</code>, client <code>qbittorrent-{user}</code> "
+           "port <code>8080</code> (imports par liens physiques : pas de doublon "
+           "d'espace disque).</p>")
+full = lambda cols: {"location": {"x": 0, "y": 0}, "size": {"width": cols, "height": 2}}
+widgets = [{
+    "id": str(uuid.uuid4()),
+    "type": "notebook",
+    "properties": {"showToolbar": False, "content": welcome},
+    "area": {"type": "wrapper", "properties": {"id": "default"}},
+    "shape": {"sm": full(3), "md": full(6), "lg": full(10)},
+}]
+
+config = {
+    "schemaVersion": 2,
+    "configProperties": {"name": "default"},
+    "categories": [],
+    "wrappers": [{"id": "default", "position": 0}],
+    "apps": apps,
+    "widgets": widgets,
+    "settings": {
+        "common": {"searchEngine": {"type": "google", "properties": {}}},
+        "customization": {
+            "layout": {"enabledLeftSidebar": False, "enabledRightSidebar": False,
+                       "enabledDocker": False, "enabledPing": False,
+                       "enabledSearchbar": True},
+            "pageTitle": f"Seedbox · {user}",
+            "logoImageUrl": "/imgs/logo/logo.png",
+            "faviconUrl": "/imgs/favicon/favicon-squared.png",
+            "backgroundImageUrl": "", "customCss": "",
+            "colors": {"primary": "red", "secondary": "yellow", "shade": 7},
+            "appOpacity": 100,
+            "gridstack": {"columnCountSmall": 3, "columnCountMedium": 6,
+                          "columnCountLarge": 10},
+        },
+        # Accès déjà filtré par Authelia (mode Traefik) : pas de 2e connexion
+        "access": {"allowGuests": True},
     },
-    {
-      "id": "media",
-      "position": 2,
-      "name": "Média"
-    },
-    {
-      "id": "management",
-      "position": 3,
-      "name": "Gestion"
-    }
-  ],
-  "wrappers": [],
-  "apps": [],
-  "widgets": [
-    {
-      "id": "welcome",
-      "type": "html",
-      "properties": {
-        "html": "${SERVICES_HTML}"
-      },
-      "area": {
-        "type": "wrapper",
-        "properties": {
-          "gridstack": {
-            "x": 0,
-            "y": 0,
-            "w": 12,
-            "h": 2
-          }
-        }
-      }
-    }
-  ],
-  "settings": {
-    "common": {
-      "searchEngine": {
-        "enabled": true,
-        "type": "google"
-      },
-      "quickAccess": []
-    },
-    "customization": {
-      "layout": {
-        "enabledLeftSidebar": false,
-        "enabledRightSidebar": false,
-        "enabledDocker": false,
-        "enabledPing": true
-      },
-      "pageTitle": "Seedbox Dashboard",
-      "logoImageUrl": "",
-      "faviconUrl": "",
-      "backgroundImageUrl": "",
-      "customCss": "",
-      "colors": {
-        "primary": "#fa5252",
-        "secondary": "#fd7e14",
-        "shade": "#495057"
-      }
-    }
-  }
 }
-EOF
+json.dump(config, sys.stdout, ensure_ascii=False, indent=2)
+PY
+mv "$HOMARR_CONFIG_DIR/default.json.tmp" "$HOMARR_CONFIG_DIR/default.json"
 
 chown -R "$USER_ID:$USER_ID" "$HOMARR_CONFIG_DIR"
 log "✓ Tableau de bord Homarr généré"

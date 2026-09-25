@@ -96,3 +96,77 @@ qbit_configure() {
         ini_set "$conf" Preferences 'WebUI\TrustedReverseProxiesList' "$proxy_net"
     fi
 }
+
+#######################
+# VueTorrent : interface web moderne de qBittorrent (interface « alternative »)
+#
+# Une copie partagée, version épinglée et empreinte vérifiée, dans
+# $INSTALL_DIR/vuetorrent, montée en lecture seule sur /vuetorrent dans
+# chaque qBittorrent (plutôt que le mod Docker, qui la retélécharge à chaque
+# démarrage). Chemins relatifs : fonctionne sous /qbittorrent (Traefik).
+#######################
+
+VUETORRENT_VERSION="2.35.0"
+VUETORRENT_SHA256="6e0c0e6acb563710aaf32cd165cf34da0e5d61bc1a68386e4cf97a648fa8171c"
+
+# Installe (ou met à jour) VueTorrent si nécessaire. Retour 0 si disponible.
+vuetorrent_ensure() {
+    local dir="$INSTALL_DIR/vuetorrent" tmp
+    [ "$(cat "$dir/version.txt" 2>/dev/null)" = "$VUETORRENT_VERSION" ] && [ -d "$dir/public" ] && return 0
+    tmp=$(mktemp -d) || return 1
+    if curl -fsSL -m 120 -o "$tmp/vuetorrent.zip" \
+            "https://github.com/VueTorrent/VueTorrent/releases/download/v${VUETORRENT_VERSION}/vuetorrent.zip" \
+        && echo "$VUETORRENT_SHA256  $tmp/vuetorrent.zip" | sha256sum -c --quiet - >/dev/null 2>&1 \
+        && unzip -q "$tmp/vuetorrent.zip" -d "$tmp" && [ -d "$tmp/vuetorrent/public" ]; then
+        rm -rf "${dir:?}.new"
+        mv "$tmp/vuetorrent" "$dir.new" && chmod -R a+rX "$dir.new"
+        rm -rf "${dir:?}.old"; [ -d "$dir" ] && mv "$dir" "$dir.old"
+        mv "$dir.new" "$dir" && rm -rf "${dir:?}.old"
+        rm -rf "${tmp:?}"
+        vuetorrent_set_defaults || true
+        return 0
+    fi
+    rm -rf "${tmp:?}"
+    [ -d "$dir/public" ]    # version précédente encore utilisable
+}
+
+# Réglages par défaut de VueTorrent, gardés dans le navigateur (clé
+# vuetorrent_webuiSettings) : script inséré dans index.html de la copie
+# partagée (idempotent, remplacé à chaque appel), qui complète ce qui manque
+# sans toucher au reste :
+#  - langue (lib_lang.sh), au premier chargement seulement ; chacun la
+#    change ensuite dans VueTorrent ;
+#  - mode Traefik : bouton « Déconnexion » → déconnexion Authelia puis
+#    accueil (sinon Authelia, toujours connecté, rouvre aussitôt qBittorrent).
+vuetorrent_set_defaults() {
+    local html="$INSTALL_DIR/vuetorrent/public/index.html" domain="" logout=""
+    [ -f "$html" ] || return 1
+    if grep -q '^USE_TRAEFIK=true' "$INSTALL_DIR/.env" 2>/dev/null; then
+        domain=$(grep '^DOMAIN=' "$INSTALL_DIR/.env" | cut -d= -f2)
+        # /logout-done : efface aussi la session Homarr (lib_compose_base.sh)
+        [ -n "$domain" ] && logout="https://auth.${domain}/logout?rd=https://${domain}/logout-done"
+    fi
+    VT_LANG="$(seedbox_lang)" VT_LOGOUT="$logout" python3 -c '
+import json, os, re, sys
+p = sys.argv[1]; s = open(p, encoding="utf-8").read()
+s = re.sub(r"<!-- seedbox-(lang|defaults) -->.*?<!-- /seedbox-(lang|defaults) -->", "", s, flags=re.S)
+js = ("try{var k=\"vuetorrent_webuiSettings\",v=localStorage.getItem(k),o=v?JSON.parse(v):{};"
+      "if(!v)o.language=%s;var u=%s;if(u&&(!o.logoutUrl||/[?&]rd=https:[^&]*\\/$/.test(o.logoutUrl)))o.logoutUrl=u;"
+      "localStorage.setItem(k,JSON.stringify(o))}catch(e){}"
+      % (json.dumps(os.environ["VT_LANG"]), json.dumps(os.environ["VT_LOGOUT"])))
+s = s.replace("<head>", "<head><!-- seedbox-defaults --><script>" + js + "</script><!-- /seedbox-defaults -->", 1)
+open(p, "w", encoding="utf-8").write(s)' "$html"
+}
+
+# qBittorrent : langue de l'interface d'origine et des messages. $1 = conf
+qbit_lang_configure() {
+    ini_set "$1" Preferences 'General\Locale' "$(seedbox_lang)"
+}
+
+# qBittorrent : VueTorrent comme interface web (conteneur arrêté).
+# $1 = qBittorrent.conf
+qbit_vuetorrent_configure() {
+    [ -d "$INSTALL_DIR/vuetorrent/public" ] || return 1
+    ini_set "$1" Preferences 'WebUI\AlternativeUIEnabled' 'true'
+    ini_set "$1" Preferences 'WebUI\RootFolder' '/vuetorrent'
+}

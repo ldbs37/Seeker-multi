@@ -28,7 +28,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DOCKER_COMPOSE_FILE="$INSTALL_DIR/docker-compose.yml"
 ENV_FILE="$INSTALL_DIR/.env"
 
-for lib in lib_ports lib_traefik lib_qbittorrent lib_services lib_compose_base; do
+for lib in lib_ports lib_traefik lib_qbittorrent lib_services lib_compose_base lib_homarr lib_password; do
     [ -f "$SCRIPT_DIR/$lib.sh" ] || error "$lib.sh introuvable dans $SCRIPT_DIR"
     # shellcheck source=/dev/null
     source "$SCRIPT_DIR/$lib.sh"
@@ -54,11 +54,18 @@ log "Migration vers Traefik pour le domaine $DOMAIN..."
 #######################
 mapfile -t NAMES < <(compose_service_names "$DOCKER_COMPOSE_FILE")
 detect_system_services "$DOCKER_COMPOSE_FILE"
-USER_ENTRIES=(); CUSTOM=()
+USER_ENTRIES=(); CUSTOM=(); DROPPED=()
 for n in "${NAMES[@]}"; do
     [[ " $SYSTEM_SERVICES traefik " == *" $n "* ]] && continue
+    # Service système obsolète (remplacé) : retiré, pas conservé
+    [[ " $SYSTEM_SERVICES_OBSOLETE " == *" $n "* ]] && { DROPPED+=("$n"); continue; }
     svc=${n%-*}; usr=${n##*-}
+    # FlareSolverr d'un utilisateur : régénéré avec son Prowlarr
+    [ "$svc" = flaresolverr ] && id "$usr" &>/dev/null && continue
     if [[ "$n" == *-* ]] && [[ " $USER_SERVICES " == *" $svc "* ]] && id "$usr" &>/dev/null; then
+        # Mode Traefik : Homarr partagé ; les Homarr individuels sont retirés
+        # (leurs fichiers restent dans data/users/<user>/config/homarr)
+        [ "$svc" = homarr ] && { DROPPED+=("$n"); continue; }
         USER_ENTRIES+=("$svc:$usr")
     else
         CUSTOM+=("$n")
@@ -79,25 +86,45 @@ fi
     && log "✓ Snapshot de configuration créé (restore.sh pour revenir en arrière)"
 cp "$DOCKER_COMPOSE_FILE" "${DOCKER_COMPOSE_FILE}.pre-migration"
 cp "$ENV_FILE" "${ENV_FILE}.pre-migration"
+AUTHELIA_CFG="$INSTALL_DIR/authelia/configuration.yml"
+[ -f "$AUTHELIA_CFG" ] && cp -p "$AUTHELIA_CFG" "${AUTHELIA_CFG}.pre-migration"
+AUTHELIA_DB="$INSTALL_DIR/authelia/users_database.yml"
+[ -f "$AUTHELIA_DB" ] && cp -p "$AUTHELIA_DB" "${AUTHELIA_DB}.pre-migration"
 
 #######################
 # Construction du nouveau compose
 #######################
 TMP="${DOCKER_COMPOSE_FILE%.yml}.new.yml"
+# Interface VueTorrent de qBittorrent (montée par les blocs générés ci-dessous)
+if vuetorrent_ensure; then vuetorrent_set_defaults || true
+else warn "VueTorrent non téléchargé : interface d'origine de qBittorrent"; fi
 generate_docker_compose "$TMP"           # services système + .env (USE_TRAEFIK=true)
+# Connexion unique qBittorrent/Filebrowser : réseau dédié et en-tête secret
+# (.env, lus par les labels générés ci-dessous)
+SSO_OK=false
+if sso_net_ensure; then SSO_OK=true
+else warn "Réseau $SSO_NET non créé : qBittorrent et Filebrowser garderont leur mot de passe"; fi
+# Homarr partagé : secrets (.env, avant la validation) et client OIDC Authelia
+AUTHELIA_CHANGED=false
+if homarr_prepare; then AUTHELIA_CHANGED=true; fi
+# Groupes personnels u-<user> (droits sur les tableaux de bord Homarr)
+authelia_ensure_user_groups "$INSTALL_DIR/authelia/users_database.yml" && AUTHELIA_CHANGED=true
 compose_extract_blocks "${DOCKER_COMPOSE_FILE}.pre-migration" traefik >> "$TMP"
-# shellcheck disable=SC2034  # lue par les bibliothèques sourcées
-FB_PASSWORD_HASH=""
 for e in "${USER_ENTRIES[@]}"; do
     svc=${e%%:*}; USERNAME=${e#*:}
     USER_ID=$(id -u "$USERNAME"); USER_DIR="$INSTALL_DIR/data/users/$USERNAME"
     service_block "$svc" >> "$TMP"
 done
 [ ${#CUSTOM[@]} -gt 0 ] && compose_extract_blocks "${DOCKER_COMPOSE_FILE}.pre-migration" "${CUSTOM[@]}" >> "$TMP"
+[ "$SSO_OK" = true ] && { compose_ensure_sso_net "$TMP" || true; }
+# Réseau privé de chaque utilisateur (Traefik et Homarr raccordés)
+compose_sync_user_nets "$TMP"; [ $? -eq 2 ] && { rm -f "$TMP"; error "Réseaux des utilisateurs non créés (docker network create)"; }
 
 if ! compose_validate "$TMP"; then
     rm -f "$TMP"
     cp "${ENV_FILE}.pre-migration" "$ENV_FILE"
+    [ -f "${AUTHELIA_CFG}.pre-migration" ] && cp -p "${AUTHELIA_CFG}.pre-migration" "$AUTHELIA_CFG"
+    [ -f "${AUTHELIA_DB}.pre-migration" ] && cp -p "${AUTHELIA_DB}.pre-migration" "$AUTHELIA_DB"
     error "Le compose généré est invalide — aucune modification appliquée"
 fi
 
@@ -119,11 +146,21 @@ for e in "${USER_ENTRIES[@]}"; do
     case "$svc" in
         qbittorrent)
             conf="$cfg/qBittorrent/qBittorrent.conf"
-            if [ -f "$conf" ] && [ -n "$PROXY_NET" ]; then
+            [ -f "$conf" ] && { qbit_vuetorrent_configure "$conf"; qbit_lang_configure "$conf"; }
+            if [ -f "$conf" ] && [ "$SSO_OK" = true ]; then
+                # Connexion unique : Traefik seul dispensé de mot de passe
+                qbit_sso_configure "$conf"
+                chown "$USER_ID:$USER_ID" "$conf"
+            elif [ -f "$conf" ] && [ -n "$PROXY_NET" ]; then
                 ini_set "$conf" Preferences 'WebUI\ReverseProxySupportEnabled' 'true'
                 ini_set "$conf" Preferences 'WebUI\TrustedReverseProxiesList' "$PROXY_NET"
                 chown "$USER_ID:$USER_ID" "$conf"
             fi ;;
+        filebrowser)
+            # FileBrowser Quantum (remplace Filebrowser, archivé) : configuration
+            # avec connexion unique ; nouvelle base (fichiers inchangés)
+            fbq_write_config "$cfg/config.yaml" "$USERNAME"
+            chown -R "$USER_ID:$USER_ID" "$cfg" ;;
         *) traefik_prepare_app "$svc" "$cfg" "$USER_ID" ;;
     esac
     DONE_USERS[$USERNAME]=1
@@ -138,6 +175,8 @@ if ! compose_cmd up -d --remove-orphans; then
     warn "Échec du démarrage — restauration de la configuration précédente"
     cp "${DOCKER_COMPOSE_FILE}.pre-migration" "$DOCKER_COMPOSE_FILE"
     cp "${ENV_FILE}.pre-migration" "$ENV_FILE"
+    [ -f "${AUTHELIA_CFG}.pre-migration" ] && cp -p "${AUTHELIA_CFG}.pre-migration" "$AUTHELIA_CFG"
+    [ -f "${AUTHELIA_DB}.pre-migration" ] && cp -p "${AUTHELIA_DB}.pre-migration" "$AUTHELIA_DB"
     compose_cmd up -d --remove-orphans || true
     error "Migration annulée (configuration restaurée)"
 fi
@@ -146,9 +185,46 @@ for u in "${!DONE_USERS[@]}"; do
     "$SCRIPT_DIR/configure_homarr.sh" "$u" >/dev/null 2>&1 || warn "Homarr de $u non régénéré"
 done
 
+# Accueil https://<domaine> (Homarr partagé) : règle d'accès + redirection
+# après connexion (configurations Authelia antérieures), client OIDC
+authelia_ensure_home "$INSTALL_DIR/authelia/configuration.yml" "$DOMAIN" && AUTHELIA_CHANGED=true
+# Client OIDC Jellyfin (bouton « Se connecter avec Authelia »)
+if grep -q "^  jellyfin:" "$DOCKER_COMPOSE_FILE"; then
+    authelia_ensure_oidc_jellyfin "$INSTALL_DIR/authelia/configuration.yml" && AUTHELIA_CHANGED=true
+fi
+if [ "$AUTHELIA_CHANGED" = true ]; then
+    docker restart authelia >/dev/null 2>&1 \
+        && log "✓ Authelia : connexion unique Homarr + redirection vers le tableau de bord" \
+        || warn "Redémarrez Authelia : docker restart authelia"
+fi
+[ ${#DROPPED[@]} -gt 0 ] && info "Services remplacés, retirés (données conservées) : ${DROPPED[*]}"
+
 log "${GREEN}✓${NC} Migration terminée"
 info "Portail SSO : https://auth.$DOMAIN"
 for u in "${!DONE_USERS[@]}"; do info "   $u : https://$u.$DOMAIN"; done
 info "Les certificats Let's Encrypt sont obtenus au premier accès (DNS *.${DOMAIN} requis)."
+
+# Homarr partagé : configuration initiale (assistant, groupe admins, compte
+# de service et clé d'API) si nécessaire
+homarr_bootstrap && log "✓ Homarr : configuration initiale automatique (groupe admins, clé d'API)"
+
+# Jellyfin : assistant terminé si besoin (premier administrateur seedbox),
+# comptes et bibliothèques privées de chaque utilisateur, connexion via
+# Authelia (plugin SSO, droits par groupe)
+if grep -q "^  jellyfin:" "$DOCKER_COMPOSE_FILE"; then
+    log "Jellyfin : comptes, bibliothèques et connexion Authelia..."
+    if jellyfin_sync_all; then
+        log "✓ Jellyfin configuré (bouton « Se connecter avec Authelia » sur https://jellyfin.$DOMAIN)"
+    else
+        warn "Configuration de Jellyfin incomplète (docker logs jellyfin)"
+    fi
+fi
+
+# Sonarr/Radarr/Prowlarr : connexion unique (en-tête ajouté par Traefik),
+# dossiers racine, qBittorrent, Prowlarr → *arr
+[ -x "$SCRIPT_DIR/arr_setup.sh" ] && { "$SCRIPT_DIR/arr_setup.sh" --all || true; }
+
+# Homarr partagé : tableaux de bord des utilisateurs (si la clé d'API est définie)
+[ -x "$SCRIPT_DIR/homarr_provision.sh" ] && { "$SCRIPT_DIR/homarr_provision.sh" --all || true; }
 
 [ -x "$SCRIPT_DIR/healthcheck.sh" ] && { echo ""; "$SCRIPT_DIR/healthcheck.sh" --quiet || true; }

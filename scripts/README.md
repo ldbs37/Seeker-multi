@@ -11,24 +11,24 @@ Le plus simple reste le menu : `sudo /opt/seedbox/menu.sh`.
 sudo ./add_user.sh <username> <password> <email> [quota_gb] [--admin]
 ```
 Crée le compte système (UID ≥ 2001), le compte Authelia, les dossiers, le
-quota projet et les services de base **qBittorrent + Homarr + Filebrowser**,
+quota projet et les services de base **qBittorrent + Homarr + FileBrowser Quantum**,
 tous avec les mêmes identifiants. En terminal interactif, propose ensuite les
 services optionnels.
 
 - `username` : `^[a-z][a-z0-9]{0,31}$` (sert de sous-domaine et de nom de conteneur)
-- `password` : 12 caractères minimum
+- `password` : 8 caractères minimum, dont 1 majuscule et 1 caractère spécial
 - `quota_gb` : 500 par défaut, 0 = illimité (quotas à activer avant, voir `enable_quotas.sh`)
 - `--admin` : membre du groupe `admins` d'Authelia (accès Traefik, Portainer…)
 
 ```bash
-sudo ./add_user.sh john 'MySecurePass123' john@example.com 500
+sudo ./add_user.sh john 'Seedbox!2026x' john@example.com 500
 ```
 
 ### `add_user_service.sh`
 ```bash
 sudo ./add_user_service.sh <username> <service>
 ```
-Services : `sonarr radarr readarr bazarr prowlarr overseerr calibre`.
+Services : `sonarr radarr readarr bazarr prowlarr seerr calibre`.
 URL de base (mode Traefik) pré-configurée, tableau de bord Homarr mis à jour.
 
 ### `list_user_services.sh`
@@ -52,7 +52,7 @@ Retire conteneurs, blocs du `docker-compose.yml`, compte Authelia, règle de
 pare-feu, quota et compte système. Refuse de supprimer le dernier administrateur.
 
 > Les comptes seedbox sont des **comptes de service sans shell** (pas d'accès
-> SSH/SFTP) : les fichiers se gèrent via Filebrowser.
+> SSH/SFTP) : les fichiers se gèrent via FileBrowser Quantum.
 
 ### `remove_service.sh`
 ```bash
@@ -66,7 +66,7 @@ services de base d'un utilisateur ne peuvent pas être retirés ainsi.
 ```bash
 sudo ./update_password.sh <username> [nouveau_mot_de_passe]
 ```
-Met à jour : Linux, Authelia, qBittorrent, Filebrowser et Jellyfin (si clé API).
+Met à jour : Linux, Authelia, qBittorrent, gestionnaire de fichiers (mode port direct) et Jellyfin (si clé API).
 Sans mot de passe en argument, il est demandé de façon masquée.
 
 ### `update_quota.sh` / `enable_quotas.sh`
@@ -76,10 +76,31 @@ sudo ./update_quota.sh john 1000   # 1 To ; 0 = illimité
 ```
 Quotas **projet** : la limite porte sur le dossier `data/users/<user>`.
 
-### `configure_homarr.sh`, `configure_jellyfin_user.sh`, `disable_arr_auth.sh`
+### `configure_homarr.sh`, `configure_jellyfin_user.sh <user> [mdp]`
 Régénère le tableau de bord Homarr d'un utilisateur ; crée/met à jour son
-compte Jellyfin (accès limité à ses bibliothèques) ; passe l'authentification
-d'un *arr en « External » (derrière Authelia).
+compte Jellyfin (accès limité à ses bibliothèques).
+
+### `arr_setup.sh <user> | --all` (mode Traefik)
+Configuration automatique des applis d'un utilisateur (lancée par
+`add_user.sh`, `add_user_service.sh` et `generate_traefik_labels.sh`) :
+- Sonarr / Radarr / Prowlarr (`lib_arr.sh`) : connexion « External » (Authelia),
+  appliquée seulement si le service est sur le réseau privé de l'utilisateur ;
+  dossiers racine ; qBittorrent par sa clé d'API ; Prowlarr → Sonarr/Radarr ;
+  FlareSolverr de l'utilisateur ;
+- Calibre-web (`lib_calibre.sh`) : connexion par l'en-tête secret de Traefik,
+  compte `admin` renommé (mot de passe aléatoire), bibliothèque vide dans `books/` ;
+- Seerr (`lib_seerr.sh`) : jeton Jellyfin au nom de l'utilisateur (Quick
+  Connect autorisé par la clé seedbox : ni son mot de passe, ni la clé
+  administrateur de Jellyfin dans Seerr), administrateur = son compte
+  Jellyfin, ses bibliothèques, ses Sonarr / Radarr (HD-1080p).
+
+Idempotent. `disable_arr_auth.sh` (ancien nom) le lance aussi.
+
+### Réseau privé de chaque utilisateur (`lib_traefik.sh`)
+`seedbox_u_<user>` (sous-réseau /24 libre, `10.213.x.0/24` de préférence) :
+ses services y sont seuls (Seerr aussi sur `traefik_proxy` pour Jellyfin,
+qBittorrent aussi sur `seedbox_sso`) ; Traefik et Homarr y sont raccordés.
+Créé à l'ajout de l'utilisateur, supprimé avec lui (`remove_user.sh`).
 
 ## 🔧 Services système
 
@@ -89,6 +110,18 @@ sudo ./add_service.sh <plex|jellyfin|portainer|scrutiny|uptime-kuma|dashdot|taut
 ```
 Reconstruit la partie système du `docker-compose.yml` (validation avant
 application). Portainer et Jellyfin : compte admin créé automatiquement.
+
+### `homarr_provision.sh` (mode Traefik)
+```bash
+sudo ./homarr_provision.sh <user> | --all | --remove <user>
+sudo ./homarr_provision.sh --set-key '<id>.<jeton>'   # facultatif : clé créée à la main
+```
+Tableaux de bord Homarr : celui de chaque utilisateur (`https://<domaine>/boards/<user>` :
+tuiles, téléchargements, calendrier, demandes, météo) et celui des admins
+(`/boards/admin-serveur` : charge du serveur, Jellyfin, services système).
+Intégrations (clés d'API) branchées automatiquement ; appelé par
+add_user/add_user_service/remove_user. Relancer `--all` après avoir configuré
+Seerr ou installé Dash.
 
 ### `setup_api.sh` (mode Traefik)
 ```bash
@@ -125,18 +158,18 @@ Bloc de 20 ports par utilisateur : `20000 + (UID − 2001) × 20 + décalage`.
 |---------|----------|----------|----------|
 | qBittorrent | 0 | 20000 | 20020 |
 | Homarr | 1 | 20001 | 20021 |
-| Filebrowser | 2 | 20002 | 20022 |
+| FileBrowser Quantum | 2 | 20002 | 20022 |
 | Sonarr | 3 | 20003 | 20023 |
 | Radarr | 4 | 20004 | 20024 |
 | Readarr | 5 | 20005 | 20025 |
 | Bazarr | 6 | 20006 | 20026 |
 | Prowlarr | 7 | 20007 | 20027 |
-| Overseerr | 8 | 20008 | 20028 |
+| Seerr | 8 | 20008 | 20028 |
 | Calibre-Web | 9 | 20009 | 20029 |
 | Port torrent (TCP+UDP, aussi en mode Traefik) | 10 | 20010 | 20030 |
 
 En mode Traefik, seules les URL `https://<user>.<domaine>/<service>` (et
-`https://overseerr-<user>.<domaine>`) sont utilisées.
+`https://seerr-<user>.<domaine>`) sont utilisées.
 
 ## 📁 Structure
 
@@ -146,7 +179,7 @@ En mode Traefik, seules les URL `https://<user>.<domaine>/<service>` (et
 │   ├── downloads/ tv/ movies/ books/
 │   └── config/{qbittorrent,homarr,filebrowser}/
 ├── sonarr/<user>/ radarr/<user>/ readarr/<user>/ bazarr/<user>/
-├── prowlarr/<user>/ overseerr/<user>/ calibre/<user>/
+├── prowlarr/<user>/ seerr/<user>/ calibre/<user>/
 ├── authelia/  backups/  scripts/
 ├── docker-compose.yml
 └── .env
@@ -162,7 +195,7 @@ utilisez `/data/tv`, `/data/movies` ou `/data/books` comme dossier racine et
 Sourcées par les scripts, source unique de vérité :
 `lib_ports.sh` (UID/ports), `lib_services.sh` (blocs compose utilisateur),
 `lib_traefik.sh` (routage), `lib_compose_base.sh` (services système),
-`lib_qbittorrent.sh` (hash PBKDF2), `lib_autoconfig.sh` (Portainer/Jellyfin),
+`lib_qbittorrent.sh` (hash PBKDF2), `lib_filebrowser.sh` (FileBrowser Quantum), `lib_lang.sh` (langue des interfaces), `lib_jellyfin.sh` (comptes Jellyfin, connexion Authelia), `lib_autoconfig.sh` (Portainer/Jellyfin),
 `lib_quota.sh` (quotas projet).
 
 ## 🛠️ Dépannage

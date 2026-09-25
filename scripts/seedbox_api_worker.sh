@@ -20,7 +20,7 @@ ENV_FILE="$INSTALL_DIR/.env"
 DOCKER_COMPOSE_FILE="$INSTALL_DIR/docker-compose.yml"
 SPOOL="$INSTALL_DIR/api/spool"
 API_UID=65534                 # utilisateur du conteneur de l'API
-ALLOWED="sonarr radarr readarr bazarr prowlarr overseerr calibre"
+ALLOWED="sonarr radarr readarr bazarr prowlarr seerr calibre"
 
 grep -q '^SEEDBOX_API=true' "$ENV_FILE" 2>/dev/null || exit 0
 [ -d "$SPOOL/requests" ] || exit 0

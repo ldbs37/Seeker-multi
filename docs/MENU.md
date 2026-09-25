@@ -38,7 +38,7 @@ Ce sous-menu permet de gérer les utilisateurs de la seedbox :
 
 ### 1.1 Ajouter un utilisateur
 
-Crée un nouvel utilisateur avec ses services de base (qBittorrent, Homarr, Filebrowser).
+Crée un nouvel utilisateur avec ses services de base (qBittorrent, Homarr, FileBrowser Quantum).
 
 **Informations demandées:**
 - Nom d'utilisateur
@@ -81,10 +81,8 @@ Ajoute un service spécifique à un utilisateur existant.
 **Services disponibles:**
 - `sonarr` - Gestion des séries TV
 - `radarr` - Gestion des films
-- `readarr` - Gestion des livres
-- `bazarr` - Gestion des sous-titres
 - `prowlarr` - Gestion des indexeurs
-- `overseerr` - Système de requêtes
+- `seerr` - Demandes de films/séries (connexion Jellyfin/Plex)
 - `calibre` - Bibliothèque d'ebooks
 
 ### 1.5 Lister les services d'un utilisateur

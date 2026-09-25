@@ -38,7 +38,7 @@ AUTHELIA_IMAGE="authelia/authelia:4.39.28"
 IS_ADMIN=false
 
 # Bibliothèques partagées
-for lib in lib_ports lib_traefik lib_qbittorrent lib_services lib_quota; do
+for lib in lib_ports lib_traefik lib_qbittorrent lib_services lib_quota lib_password lib_jellyfin; do
     [ -f "$SCRIPT_DIR/$lib.sh" ] || error "$lib.sh introuvable dans $SCRIPT_DIR"
     # shellcheck source=/dev/null
     source "$SCRIPT_DIR/$lib.sh"
@@ -87,7 +87,8 @@ fi
 log "Validation des données..."
 [[ "$USERNAME" =~ ^[a-z][a-z0-9]{0,31}$ ]] \
     || error "Nom d'utilisateur invalide: $USERNAME (lettres minuscules et chiffres uniquement, commence par une lettre, 32 max)"
-[ ${#PASSWORD} -ge 12 ] || error "Le mot de passe doit contenir au moins 12 caractères"
+PW_REASON=$(password_check "$PASSWORD" "$IS_ADMIN") \
+    || error "Mot de passe refusé : $PW_REASON ($(password_policy "$IS_ADMIN"))"
 [[ "$EMAIL" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]] || error "Format d'email invalide: $EMAIL"
 
 if id "$USERNAME" &>/dev/null || getent group "$USERNAME" >/dev/null; then
@@ -118,8 +119,6 @@ AUTHELIA_HASH=$(docker run --rm "$AUTHELIA_IMAGE" authelia crypto hash generate 
                 | grep 'Digest:' | awk '{print $2}') || true
 [[ "$AUTHELIA_HASH" == \$argon2* ]] || error "Impossible de générer le hash Authelia (image $AUTHELIA_IMAGE accessible ?)"
 
-FB_PASSWORD_HASH=$(htpasswd -nbBC 10 "" "$PASSWORD" 2>/dev/null | cut -d: -f2 | tr -d '\n') || true
-[[ "$FB_PASSWORD_HASH" == \$2* ]] || error "Impossible de générer le hash Filebrowser (paquet apache2-utils requis)"
 
 #######################
 # Sélection des services (menu affiché sur stderr : la sélection seule est lue)
@@ -136,11 +135,9 @@ select_services() {
         echo ""
         echo "  [1] 📺 Sonarr        - Gestion séries TV"
         echo "  [2] 🎬 Radarr        - Gestion films"
-        echo "  [3] 📚 Readarr       - Gestion livres"
-        echo "  [4] 💬 Bazarr        - Sous-titres automatiques"
-        echo "  [5] 🔍 Prowlarr      - Gestion indexeurs"
-        echo "  [6] 📝 Overseerr     - Système de requêtes"
-        echo "  [7] 📖 Calibre-web   - Bibliothèque ebooks"
+        echo "  [3] 🔍 Prowlarr      - Gestion indexeurs"
+        echo "  [4] 📝 Seerr         - Demandes de films/séries (connexion Jellyfin/Plex)"
+        echo "  [5] 📖 Calibre-web   - Bibliothèque ebooks"
         echo ""
         echo "  Numéros séparés par des espaces (ex: 1 2 5), Entrée pour aucun"
     } >&2
@@ -150,11 +147,9 @@ select_services() {
         case $num in
             1) EXTRA_SERVICES+=("sonarr") ;;
             2) EXTRA_SERVICES+=("radarr") ;;
-            3) EXTRA_SERVICES+=("readarr") ;;
-            4) EXTRA_SERVICES+=("bazarr") ;;
-            5) EXTRA_SERVICES+=("prowlarr") ;;
-            6) EXTRA_SERVICES+=("overseerr") ;;
-            7) EXTRA_SERVICES+=("calibre") ;;
+            3) EXTRA_SERVICES+=("prowlarr") ;;
+            4) EXTRA_SERVICES+=("seerr") ;;
+            5) EXTRA_SERVICES+=("calibre") ;;
             *) warn "Numéro invalide ignoré: $num" ;;
         esac
     done
@@ -167,7 +162,13 @@ else
     info "Mode non interactif : services de base uniquement"
 fi
 # Dédoublonnage en conservant l'ordre
-SERVICES_TO_INSTALL=(qbittorrent homarr filebrowser)
+# Tableau de bord : Homarr partagé (https://<domaine>) en mode Traefik,
+# Homarr 0.16 individuel en mode port direct
+if [ "$USE_TRAEFIK" = true ]; then
+    SERVICES_TO_INSTALL=(qbittorrent filebrowser)
+else
+    SERVICES_TO_INSTALL=(qbittorrent homarr filebrowser)
+fi
 for s in "${EXTRA_SERVICES[@]}"; do
     [[ " ${SERVICES_TO_INSTALL[*]} " == *" $s "* ]] || SERVICES_TO_INSTALL+=("$s")
 done
@@ -224,6 +225,8 @@ log "Ajout de l'utilisateur à Authelia..."
     echo "    email: \"${EMAIL}\""
     echo "    groups:"
     echo "      - users"
+    # Groupe personnel : droits sur son tableau de bord Homarr (homarr_provision.sh)
+    echo "      - u-${USERNAME}"
     [ "$IS_ADMIN" = true ] && echo "      - admins"
 } >> "$AUTHELIA_CONFIG_DIR/users_database.yml"
 
@@ -260,6 +263,27 @@ compose_cmd up -d
 # Authelia relit sa base utilisateurs au redémarrage
 docker restart authelia >/dev/null 2>&1 || warn "Redémarrez Authelia pour activer le compte : docker restart authelia"
 
+# Jellyfin : compte (même mot de passe), SES bibliothèques ; connexion via
+# Authelia (droits par groupe). Pendant l'installation, l'assistant Jellyfin
+# n'est pas encore terminé : install.sh s'en charge ensuite.
+if grep -q "^  jellyfin:" "$DOCKER_COMPOSE_FILE" && jellyfin_wait && jellyfin_wizard_done; then
+    log "Jellyfin : compte et bibliothèques de $USERNAME..."
+    jellyfin_user_sync "$USERNAME" "$PASSWORD" || warn "Compte Jellyfin incomplet (relancez : $SCRIPT_DIR/update_password.sh $USERNAME)"
+    if [ "$USE_TRAEFIK" = true ]; then
+        jellyfin_sso_ensure || warn "Connexion Authelia de Jellyfin non mise à jour (relancez generate_traefik_labels.sh)"
+    fi
+fi
+
+# Applis : Sonarr/Radarr/Prowlarr (connexion unique, dossiers, qBittorrent,
+# indexeurs), Calibre-web, Seerr (après Jellyfin : son compte et ses bibliothèques)
+if [ "$USE_TRAEFIK" = true ] && [[ " ${SERVICES_TO_INSTALL[*]} " =~ \ (sonarr|radarr|prowlarr|calibre|seerr)\  ]]; then
+    log "Applis (Sonarr, Radarr, Prowlarr, Calibre-web, Seerr) : configuration automatique..."
+    "$SCRIPT_DIR/arr_setup.sh" "$USERNAME" || true
+fi
+
+# Homarr partagé (mode Traefik) : tableau de bord de l'utilisateur
+[ "$USE_TRAEFIK" = true ] && { "$SCRIPT_DIR/homarr_provision.sh" "$USERNAME" || true; }
+
 #######################
 # Résumé
 #######################
@@ -285,10 +309,12 @@ for s in "${SERVICES_TO_INSTALL[@]}"; do
 done
 echo ""
 if [ "$USE_TRAEFIK" = true ]; then
-    info "💡 Connexion : identifiez-vous sur https://auth.$DOMAIN (SSO)."
-    info "   qBittorrent et Filebrowser demandent ensuite les mêmes identifiants."
+    info "🏠 Tableau de bord : https://$DOMAIN (connexion unique Authelia)"
+    info "💡 Connexion : identifiez-vous sur https://auth.$DOMAIN (SSO) ;"
+    info "   qBittorrent et les fichiers s'ouvrent ensuite sans mot de passe."
+    info "   Partage public : clic droit sur un fichier → Partager (lien https://$USERNAME.$DOMAIN/drive/public/…)."
 else
-    info "💡 qBittorrent et Filebrowser : mêmes identifiants que la seedbox."
+    info "💡 qBittorrent et le gestionnaire de fichiers : mêmes identifiants que la seedbox."
 fi
 echo ""
 info "Pour ajouter d'autres services plus tard:"

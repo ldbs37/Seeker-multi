@@ -1,199 +1,94 @@
-# Configuration Automatique Jellyfin - Utilisateurs et Bibliothèques
+# Jellyfin : configuration automatique
 
-## 🎯 Objectif
+Aucune manipulation dans Jellyfin : comptes, bibliothèques privées et
+connexion via Authelia sont préparés par les scripts (`scripts/lib_jellyfin.sh`,
+vérifié sur Jellyfin 12.1 (et 10.11) avec le plugin SSO 4.0.0.4).
 
-Automatiser la création de comptes utilisateur Jellyfin et la configuration de leurs bibliothèques média personnelles.
+## Ce qui est fait
 
-## 🔑 Prérequis : Obtenir la clé API Admin
+| Élément | Détail |
+|---------|--------|
+| Assistant de démarrage | Terminé automatiquement, dans la langue de la seedbox |
+| Administrateur | Le premier administrateur seedbox (même nom, même mot de passe à l'installation) |
+| Compte de chaque utilisateur | Même nom et même mot de passe que la seedbox |
+| Bibliothèques | Pour chacun : *Séries TV* et *Films* dans son dossier (`data/users/<user>/tv`, `movies`) ; les anciennes bibliothèques *Livres* / *Musique* sont retirées (fichiers conservés) |
+| Cloisonnement | Chacun ne voit que SES bibliothèques ; les administrateurs voient tout |
+| Connexion web (mode Traefik) | Bouton **« Se connecter avec Authelia »** sur https://jellyfin.votre-domaine.com |
+| Applis TV / mobile | Mot de passe seedbox, ou **Quick Connect** |
+| Clé d'API | Clé « seedbox » (`/opt/seedbox/.jellyfin_api`), pour les scripts et Homarr |
 
-### 1. Se connecter à Jellyfin en tant qu'admin
+## Quand
 
-Accédez à `http://votre-serveur:8096` et connectez-vous avec le compte admin créé lors de l'installation.
+- **Installation** (`install.sh`, Jellyfin coché) : administrateur = premier
+  utilisateur, comptes des utilisateurs initiaux, connexion Authelia.
+- **Ajout d'un utilisateur** (`add_user.sh`) : son compte et ses bibliothèques.
+- **Changement de mot de passe** (`update_password.sh`) : mis à jour dans
+  Jellyfin ; compte créé s'il manquait.
+- **Suppression** (`remove_user.sh`) : compte et bibliothèques retirés (les
+  fichiers restent).
+- **Installation existante / ajout de Jellyfin** (`generate_traefik_labels.sh`,
+  `add_service.sh jellyfin`) : assistant terminé si besoin, comptes manquants
+  créés (mot de passe aléatoire), connexion Authelia.
 
-### 2. Générer une clé API
+Un compte créé sans mot de passe connu se connecte via Authelia ; pour le mot
+de passe des applis : `sudo /opt/seedbox/scripts/update_password.sh <utilisateur>`
+(même mot de passe partout).
 
-1. Allez dans **Tableau de bord** (icône engrenage en haut à droite)
-2. Cliquez sur **Paramètres Avancés** dans le menu de gauche
-3. Cliquez sur **Clés API**
-4. Cliquez sur **+ Nouvelle clé API**
-5. Entrez un nom (ex: "Seedbox Auto Config")
-6. Copiez la clé générée et **sauvegardez-la en lieu sûr**
+## Connexion via Authelia (mode Traefik)
 
-### 3. Sauvegarder la clé API
+Plugin communautaire [SSO Authentication](https://github.com/9p4/jellyfin-plugin-sso)
+(installé et configuré par les scripts) et client OIDC `jellyfin` dans
+Authelia (secret `JELLYFIN_OIDC_SECRET` du `.env`). À chaque connexion, les
+droits suivent les groupes Authelia :
 
-```bash
-# Créer un fichier sécurisé pour stocker la clé
-sudo bash -c 'echo "JELLYFIN_API_KEY=votre_cle_api_ici" > /opt/seedbox/.jellyfin_api'
-sudo chmod 600 /opt/seedbox/.jellyfin_api
-```
+- `users` : seul groupe autorisé à se connecter ;
+- `u-<user>` : ses bibliothèques ;
+- `admins` : administrateur Jellyfin, toutes les bibliothèques.
 
-## 📦 Utilisation
+Les comptes existants sont retrouvés par leur nom (le mot de passe reste
+valable pour les applis). Un administrateur voit une bibliothèque ajoutée
+depuis sa dernière connexion via Authelia à la connexion suivante.
 
-### Créer un utilisateur Jellyfin manuellement
+### Quick Connect (TV, applis)
 
-```bash
-cd /opt/seedbox/scripts
+Dans l'appli : *Quick Connect* affiche un code ; dans Jellyfin (navigateur,
+connecté via Authelia) : *Paramètres → Quick Connect*, saisir le code.
 
-# Charger la clé API
-source /opt/seedbox/.jellyfin_api
+## Seerr (demandes)
 
-# Créer l'utilisateur
-sudo ./configure_jellyfin_user.sh <username> <password> $JELLYFIN_API_KEY
-```
+Le Seerr de chaque utilisateur (`https://seerr-<user>.votre-domaine.com`)
+est configuré par `arr_setup.sh` (`lib_seerr.sh`) :
 
-**Exemple :**
-```bash
-source /opt/seedbox/.jellyfin_api
-sudo ./configure_jellyfin_user.sh john MyJellyfinPass123 $JELLYFIN_API_KEY
-```
+- relié à Jellyfin par un **jeton au nom de l'utilisateur** (Quick Connect,
+  autorisé par la clé d'API seedbox) : il ne voit que ses bibliothèques, et
+  la clé administrateur de Jellyfin n'est jamais confiée à Seerr ;
+- son administrateur = le compte Jellyfin de l'utilisateur : connexion avec
+  ses identifiants Jellyfin (= seedbox) ;
+- ses Sonarr / Radarr (profil HD-1080p, `/data/tv`, `/data/movies`).
+- connexion avec les identifiants Jellyfin seulement : pas de connexion
+  locale (mot de passe Seerr), pas d'inscription d'autres comptes Jellyfin ;
+- l'utilisateur est administrateur de son Seerr : ses demandes sont
+  **validées automatiquement** et envoyées à Sonarr / Radarr ;
+- pays de diffusion et région de découverte : ceux de la langue de la
+  seedbox (France pour le français), sauf s'ils ont déjà été choisis.
 
-### Intégration automatique lors de la création d'utilisateur
+Un Seerr déjà configuré à la main n'est pas modifié (seuls un Sonarr ou un
+Radarr manquants sont ajoutés). Quick Connect doit rester activé dans
+Jellyfin (réglage par défaut).
 
-Pour que chaque nouvel utilisateur obtienne automatiquement un compte Jellyfin, modifiez `/opt/seedbox/scripts/add_user.sh` :
-
-**Ajoutez à la fin du script (avant le message de succès) :**
-
-```bash
-# Configuration Jellyfin automatique (si installé)
-if docker ps --format '{{.Names}}' | grep -q "^jellyfin$"; then
-    if [ -f "$INSTALL_DIR/.jellyfin_api" ]; then
-        log "Configuration du compte Jellyfin..."
-        source "$INSTALL_DIR/.jellyfin_api"
-
-        if "$INSTALL_DIR/scripts/configure_jellyfin_user.sh" "$USERNAME" "$PASSWORD" "$JELLYFIN_API_KEY" 2>/dev/null; then
-            info "✓ Compte Jellyfin créé et configuré"
-        else
-            warn "Impossible de créer le compte Jellyfin automatiquement"
-            info "Utilisez: sudo ./scripts/configure_jellyfin_user.sh $USERNAME <password> \$JELLYFIN_API_KEY"
-        fi
-    else
-        info "Clé API Jellyfin non configurée"
-        info "Voir: docs/JELLYFIN_AUTO_CONFIG.md"
-    fi
-fi
-```
-
-## 🎬 Ce que le script configure automatiquement
-
-### 1. Compte Utilisateur
-- ✅ Crée le compte Jellyfin avec le même username/password que le système
-- ✅ Configure les permissions (lecture, téléchargement, transcodage)
-- ✅ Désactive les droits admin par défaut
-
-### 2. Bibliothèques Média Personnelles
-Chaque utilisateur obtient ses propres bibliothèques :
-
-| Bibliothèque | Chemin | Type de contenu |
-|--------------|--------|-----------------|
-| Séries TV ($USERNAME) | `/opt/seedbox/data/users/$USERNAME/tv` | tvshows |
-| Films ($USERNAME) | `/opt/seedbox/data/users/$USERNAME/movies` | movies |
-| Livres ($USERNAME) | `/opt/seedbox/data/users/$USERNAME/books` | books |
-| Musique ($USERNAME) | `/opt/seedbox/data/users/$USERNAME/music` | music |
-
-### 3. Configuration par Défaut
-- **Monitoring en temps réel** des dossiers activé
-- **Transcodage** activé (audio + vidéo)
-- **Téléchargements** autorisés
-- **Suppression de contenu** désactivée
-- **Accès distant** activé
-- **Max 5 tentatives de connexion** avant blocage
-
-## 🔐 Permissions et Sécurité
-
-### Permissions Utilisateur Standard
-```json
-{
-  "IsAdministrator": false,
-  "EnableMediaPlayback": true,
-  "EnableAudioPlaybackTranscoding": true,
-  "EnableVideoPlaybackTranscoding": true,
-  "EnableContentDeletion": false,
-  "EnableContentDownloading": true,
-  "EnableAllFolders": false
-}
-```
-
-### Isolation des Bibliothèques
-- Chaque utilisateur voit uniquement **ses propres bibliothèques**
-- Les chemins sont isolés par utilisateur
-- Les permissions système (PUID/PGID) assurent l'isolation des fichiers
-
-## 🔄 Intégration avec Sonarr/Radarr
-
-Les utilisateurs peuvent configurer Sonarr/Radarr pour télécharger directement dans leurs dossiers Jellyfin :
-
-**Sonarr :**
-- Root Folder: `/opt/seedbox/data/users/$USERNAME/tv`
-
-**Radarr :**
-- Root Folder: `/opt/seedbox/data/users/$USERNAME/movies`
-
-Jellyfin détectera automatiquement les nouveaux contenus.
-
-## 📊 Gestion des Bibliothèques
-
-### Forcer un scan manuel
+## Réparer un compte
 
 ```bash
-# Scanner toutes les bibliothèques
-curl -X POST http://localhost:8096/Library/Refresh \
-    -H "X-Emby-Token: $JELLYFIN_API_KEY"
-
-# Scanner une bibliothèque spécifique
-curl -X POST "http://localhost:8096/Items/<LIBRARY_ID>/Refresh" \
-    -H "X-Emby-Token: $JELLYFIN_API_KEY"
+sudo /opt/seedbox/scripts/configure_jellyfin_user.sh <utilisateur> [mot_de_passe]
 ```
 
-### Lister tous les utilisateurs
+Recrée ce qui manque (compte, bibliothèques, droits) sans doublon.
 
-```bash
-curl http://localhost:8096/Users \
-    -H "X-Emby-Token: $JELLYFIN_API_KEY" | jq '.[].Name'
-```
+## Sécurité
 
-## 🛠️ Dépannage
-
-### Erreur : "Jellyfin n'est pas accessible"
-```bash
-# Vérifier que Jellyfin est démarré
-docker ps | grep jellyfin
-
-# Vérifier les logs
-docker logs jellyfin
-```
-
-### Erreur : "Clé API invalide"
-```bash
-# Régénérer une nouvelle clé API dans l'interface Jellyfin
-# Mettre à jour le fichier
-sudo bash -c 'echo "JELLYFIN_API_KEY=nouvelle_cle" > /opt/seedbox/.jellyfin_api'
-```
-
-### Bibliothèques vides
-```bash
-# Vérifier les permissions des dossiers
-ls -la /opt/seedbox/data/users/<username>/
-
-# S'assurer que l'utilisateur est propriétaire
-sudo chown -R $(id -u <username>):$(id -u <username>) /opt/seedbox/data/users/<username>/
-```
-
-## 📚 Ressources
-
-- [Jellyfin API Documentation](https://api.jellyfin.org/)
-- [Jellyfin User Management](https://jellyfin.org/docs/general/server/users/)
-- [Jellyfin Libraries](https://jellyfin.org/docs/general/server/libraries.html)
-
-## ⚠️ Limitations
-
-1. **API Key requise** : Nécessite une clé API admin Jellyfin
-2. **Permissions statiques** : Les permissions sont définies au moment de la création
-3. **Pas de SSO** : L'utilisateur doit se connecter séparément à Jellyfin (pas de Single Sign-On avec Authelia)
-
-## 🚀 Améliorations Futures
-
-- [ ] Synchronisation automatique des mots de passe Authelia ↔ Jellyfin
-- [ ] SSO via Jellyfin LDAP/OpenID plugin + Authelia
-- [ ] Configuration des profils de transcodage par utilisateur
-- [ ] Quotas de stockage par bibliothèque
-- [ ] Notifications webhook lors d'ajout de contenu
+- Clé d'API créée par l'API quand le mot de passe administrateur est connu ;
+  sinon écrite dans la base de Jellyfin **Jellyfin arrêté** (quelques
+  secondes, une fois) : écrire dans la base d'un Jellyfin en marche peut
+  l'endommager.
+- Jellyfin reste joignable sans Authelia (applis TV/mobile) : sa propre
+  authentification s'applique.

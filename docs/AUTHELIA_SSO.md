@@ -2,7 +2,7 @@
 
 ## 🎯 Objectif
 
-Protéger **tous les services** (y compris qBittorrent et Filebrowser) avec Authelia, sans avoir à gérer des mots de passe séparés pour chaque service.
+Protéger **tous les services** (y compris qBittorrent et la gestion de fichiers) avec Authelia, sans avoir à gérer des mots de passe séparés pour chaque service.
 
 ## 📊 Comparaison des Architectures
 
@@ -38,7 +38,7 @@ Protéger **tous les services** (y compris qBittorrent et Filebrowser) avec Auth
 - ✅ **Un seul mot de passe** : Celui d'Authelia
 - ✅ **SSL automatique** : Let's Encrypt via Traefik
 - ✅ **URLs propres** : `user.domain.fr/service`
-- ✅ **Protection complète** : Filebrowser, qBittorrent, *arr, etc.
+- ✅ **Protection complète** : fichiers, qBittorrent, *arr, etc.
 
 ---
 
@@ -200,135 +200,37 @@ notifier:
       - "traefik.http.middlewares.authelia.forwardauth.authResponseHeaders=Remote-User,Remote-Groups,Remote-Name,Remote-Email"
 ```
 
-### 4. Protéger qBittorrent avec Authelia
+### 4. Connexion unique des services utilisateur
 
-**Ajouter labels à qBittorrent dans docker-compose.yml :**
+**Automatique** (installation, `add_user.sh`, `add_user_service.sh`,
+`generate_traefik_labels.sh` → `arr_setup.sh`). Ne pas désactiver leur
+authentification à la main : c'est l'isolement réseau ci-dessous qui la rend
+inutile, et il est vérifié avant.
 
-```yaml
-  qbittorrent-user1:
-    image: linuxserver/qbittorrent:latest
-    container_name: qbittorrent-user1
-    networks:
-      - traefik_proxy
-    environment:
-      - PUID=1001
-      - PGID=1001
-      - TZ=Europe/Paris
-      - WEBUI_PORT=8080
-    volumes:
-      - /opt/seedbox/data/users/user1:/data
-      - /opt/seedbox/data/users/user1/config/qBittorrent:/config
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.qbit-user1.rule=Host(`user1.${DOMAIN}`) && PathPrefix(`/qbittorrent`)"
-      - "traefik.http.routers.qbit-user1.entrypoints=websecure"
-      - "traefik.http.routers.qbit-user1.tls.certresolver=letsencrypt"
-      - "traefik.http.services.qbit-user1.loadbalancer.server.port=8080"
+| Service | Connexion |
+|---------|-----------|
+| Sonarr, Radarr, Prowlarr | Mode « External » : aucune page de connexion (l'API exige toujours sa clé) |
+| qBittorrent | Seule l'adresse fixe de Traefik, sur le réseau interne `seedbox_sso`, est dispensée de mot de passe |
+| FileBrowser Quantum, Calibre-web | En-tête au nom secret posé par Traefik après Authelia (nom de l'utilisateur) |
+| Seerr | Compte Jellyfin (Plex, Emby) |
 
-      # Protection Authelia
-      - "traefik.http.routers.qbit-user1.middlewares=authelia@docker"
-    restart: unless-stopped
-    # Ne plus exposer le port directement
-    # ports:
-    #   - "8090:8080"
-```
+Liens de partage publics FileBrowser Quantum : `…/drive/public/`.
 
-**Désactiver l'authentification qBittorrent :**
+## 🌐 Réseaux Docker
 
-```bash
-# Éditer le fichier de configuration
-nano /opt/seedbox/data/users/user1/config/qBittorrent/qBittorrent.conf
+- `traefik_proxy` : Traefik, Authelia, Homarr, services système, Seerr.
+- `seedbox_u_<user>` (un par utilisateur) : **tous** ses services
+  (qBittorrent, fichiers, Sonarr, Radarr, Prowlarr et son FlareSolverr,
+  Calibre-web, Seerr). Traefik et Homarr y sont raccordés ; les services d'un
+  autre utilisateur n'y sont pas, donc ne peuvent pas les joindre.
+- `seedbox_sso` (interne) : Traefik ↔ qBittorrent, adresse fixe de Traefik.
 
-# Chercher et modifier :
-[Preferences]
-WebUI\AuthSubnetWhitelistEnabled=true
-WebUI\AuthSubnetWhitelist=0.0.0.0/0
-# Ou simplement supprimer la ligne WebUI\Password_PBKDF2
-```
+Créés et tenus à jour par les scripts (`compose_sync_user_nets`,
+`lib_traefik.sh`) ; Traefik et Homarr sont recréés (quelques secondes) quand
+un utilisateur est ajouté ou supprimé.
 
-### 5. Protéger Filebrowser avec Authelia
-
-```yaml
-  filebrowser-user1:
-    image: filebrowser/filebrowser:latest
-    container_name: filebrowser-user1
-    networks:
-      - traefik_proxy
-    environment:
-      - PUID=1001
-      - PGID=1001
-      - TZ=Europe/Paris
-    volumes:
-      - /opt/seedbox/data/users/user1:/srv
-      - /opt/seedbox/filebrowser/user1:/database
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.fb-user1.rule=Host(`user1.${DOMAIN}`) && PathPrefix(`/files`)"
-      - "traefik.http.routers.fb-user1.entrypoints=websecure"
-      - "traefik.http.routers.fb-user1.tls.certresolver=letsencrypt"
-      - "traefik.http.services.fb-user1.loadbalancer.server.port=80"
-
-      # Protection Authelia
-      - "traefik.http.routers.fb-user1.middlewares=authelia@docker"
-    restart: unless-stopped
-```
-
-**Désactiver l'authentification Filebrowser :**
-
-```bash
-# Commande dans le conteneur
-docker exec filebrowser-user1 filebrowser config set --auth.method=noauth
-```
-
-### 6. Protéger Services *arr avec Authelia
-
-Exemple pour Sonarr :
-
-```yaml
-  sonarr-user1:
-    image: linuxserver/sonarr:latest
-    container_name: sonarr-user1
-    networks:
-      - traefik_proxy
-    environment:
-      - PUID=1001
-      - PGID=1001
-      - TZ=Europe/Paris
-    volumes:
-      - /opt/seedbox/sonarr/user1:/config
-      - /opt/seedbox/data/users/user1:/data
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.sonarr-user1.rule=Host(`user1.${DOMAIN}`) && PathPrefix(`/sonarr`)"
-      - "traefik.http.routers.sonarr-user1.entrypoints=websecure"
-      - "traefik.http.routers.sonarr-user1.tls.certresolver=letsencrypt"
-      - "traefik.http.services.sonarr-user1.loadbalancer.server.port=8989"
-
-      # Protection Authelia
-      - "traefik.http.routers.sonarr-user1.middlewares=authelia@docker"
-    restart: unless-stopped
-```
-
-**Désactiver l'auth Sonarr :**
-
-```bash
-sudo ./scripts/disable_arr_auth.sh user1 sonarr
-```
-
----
-
-## 🌐 Réseau Docker
-
-**Ajouter le réseau traefik_proxy à tous les services :**
-
-```yaml
-networks:
-  traefik_proxy:
-    external: true
-
-# Créer le réseau :
-docker network create traefik_proxy
-```
+> Radarr 6 et Prowlarr 2 refusent l'authentification « Basic » (que Traefik
+> aurait pu ajouter) : d'où le mode « External » limité au réseau privé.
 
 ---
 
@@ -350,7 +252,8 @@ docker network create traefik_proxy
    docker network create traefik_proxy
    ```
 
-5. **Désactiver auth interne** de chaque service
+5. **Connexion unique des applis** : faite par `generate_traefik_labels.sh`
+   (réseaux privés, `arr_setup.sh`)
 
 6. **Redémarrer** :
    ```bash
@@ -378,9 +281,11 @@ Connexion à https://auth.votre-domain.fr
  ↓
 Accès automatique à TOUS les services :
  • https://user1.votre-domain.fr/qbittorrent  → qBittorrent sans login
- • https://user1.votre-domain.fr/files        → Filebrowser sans login
+ • https://user1.votre-domain.fr/drive        → FileBrowser Quantum sans login
  • https://user1.votre-domain.fr/sonarr       → Sonarr sans login
  • https://user1.votre-domain.fr/radarr       → Radarr sans login
+ • https://user1.votre-domain.fr/prowlarr     → Prowlarr sans login
+ • https://user1.votre-domain.fr/calibre      → Calibre-web sans login
  • etc.
 ```
 

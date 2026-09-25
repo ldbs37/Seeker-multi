@@ -3,11 +3,13 @@
 # enable_quotas.sh — Active les QUOTAS PROJET sur le système de fichiers
 # contenant la seedbox (par défaut /opt/seedbox).
 #
-#   - XFS  : ajoute l'option de montage `pquota`
-#   - ext4 : active la feature `project` + l'option de montage `prjquota`
+#   - XFS  : option de montage `pquota` (racine : rootflags=pquota dans GRUB)
+#   - ext4 : fonctionnalités `project` + `quota` (tune2fs, disque démonté) et
+#            option de montage `prjquota`. Sur la RACINE, l'étape tune2fs se fait
+#            en mode rescue : le script l'indique et ne modifie rien avant.
 #
-# ⚠️ Modifie /etc/fstab (sauvegarde automatique). Sur le système de fichiers
-#    RACINE, un REDÉMARRAGE est nécessaire pour activer les quotas.
+# ⚠️ Modifie /etc/fstab (sauvegarde automatique), uniquement une fois le
+#    système de fichiers prêt.
 #
 # Usage : sudo ./enable_quotas.sh [chemin]   (défaut : /opt/seedbox)
 #######################
@@ -51,7 +53,35 @@ if [ "$FSTYPE" = "xfs" ] && ! command -v xfs_quota >/dev/null 2>&1; then
     apt-get install -y xfsprogs || error "Échec de l'installation de 'xfsprogs'"
 fi
 
+# ext4 : les quotas PROJET exigent les fonctionnalités 'project' ET 'quota'
+# (quotas internes, créées par tune2fs -O project,quota -Q prjquota), qui ne
+# s'activent que FS démonté. Vérifié AVANT de toucher à /etc/fstab : une option
+# prjquota sur un FS qui ne la supporte pas empêcherait un remontage propre.
+EXT4_READY=true
+ext4_has_features() {
+    local f
+    f=$(tune2fs -l "$SOURCE" 2>/dev/null | grep -i '^Filesystem features:')
+    [[ " $f " == *" project "* ]] && [[ " $f " == *" quota "* ]]
+}
+TUNE_CMD="e2fsck -f $SOURCE && tune2fs -O project,quota -Q prjquota $SOURCE"
+if [ "$FSTYPE" != "xfs" ] && ! ext4_has_features; then
+    EXT4_READY=false
+    if [ "$MOUNT" = "/" ]; then
+        warn "Le système de fichiers racine ($SOURCE) n'a pas les fonctionnalités ext4"
+        warn "'project' et 'quota'. Elles ne s'activent que disque DÉMONTÉ :"
+        echo ""
+        echo "  1. Démarrez le serveur en mode RESCUE (console de l'hébergeur) ou sur une clé live"
+        echo "  2. Vérifiez que $SOURCE n'est PAS monté :  lsblk -f"
+        echo "  3. Exécutez :  $TUNE_CMD"
+        echo "     (dans le rescue, le nom du disque peut différer : repérez-le avec lsblk -f)"
+        echo "  4. Redémarrez normalement, puis relancez :  sudo $0"
+        echo ""
+        error "Aucune modification effectuée (fstab intact)"
+    fi
+fi
+
 echo -e "${YELLOW}Ce script va modifier /etc/fstab pour activer les quotas projet sur $MOUNT.${NC}"
+[ "$EXT4_READY" = false ] && echo -e "${YELLOW}$MOUNT sera temporairement démonté pour activer les fonctionnalités ext4.${NC}"
 read -r -p "Continuer ? (o/N) : " confirm
 [[ "$confirm" =~ ^[oO]$ ]] || error "Annulé"
 
@@ -65,6 +95,18 @@ if [ "$FSTYPE" = "xfs" ]; then
     QOPT="pquota"
 else
     QOPT="prjquota"
+fi
+
+# ext4 non racine sans les fonctionnalités : démontage temporaire
+if [ "$EXT4_READY" = false ]; then
+    warn "Activation des fonctionnalités ext4 (démontage temporaire de $MOUNT)..."
+    umount "$MOUNT" || error "Impossible de démonter $MOUNT (fermez ce qui l'utilise : docker compose down)"
+    if ! { e2fsck -f -p "$SOURCE" && tune2fs -O project,quota -Q prjquota "$SOURCE"; }; then
+        mount "$MOUNT"
+        error "Activation échouée ($TUNE_CMD) — $MOUNT remonté sans changement"
+    fi
+    mount "$MOUNT" || error "Remontage de $MOUNT impossible : vérifiez /etc/fstab"
+    log "Fonctionnalités ext4 'project' et 'quota' activées."
 fi
 
 # Ajoute l'option de quota au champ 4 de la ligne fstab du montage cible,
@@ -84,49 +126,29 @@ else
     log "Option '$QOPT' ajoutée à la ligne fstab de $MOUNT."
 fi
 
-# ext4 : la feature 'project' doit exister sur le FS (nécessite le FS démonté)
-if [ "$FSTYPE" != "xfs" ]; then
-    if tune2fs -l "$SOURCE" 2>/dev/null | grep -qi 'project'; then
-        info "Feature ext4 'project' déjà présente."
-    else
-        if [ "$MOUNT" = "/" ]; then
-            warn "La feature ext4 'project' n'est pas activée et le FS est monté (racine)."
-            warn "Activez-la hors ligne puis relancez ce script :"
-            echo "    sudo tune2fs -O project $SOURCE   # FS démonté (mode rescue / live USB)"
-            error "Activation 'project' impossible à chaud sur la racine — redémarrage/hors-ligne requis"
-        else
-            warn "Activation de la feature 'project' (démontage temporaire de $MOUNT)..."
-            umount "$MOUNT" || error "Impossible de démonter $MOUNT (fermez ce qui l'utilise)"
-            tune2fs -O project "$SOURCE" || { mount "$MOUNT"; error "tune2fs -O project a échoué"; }
-            mount "$MOUNT"
-            log "Feature 'project' activée."
-        fi
-    fi
-fi
-
 # Activation effective
-if [ "$MOUNT" = "/" ]; then
-    warn "Le montage est la RACINE : un REDÉMARRAGE est nécessaire pour appliquer '$QOPT'."
-    info "Après redémarrage, vérifiez avec :"
-    if [ "$FSTYPE" = "xfs" ]; then
-        echo "    xfs_quota -x -c 'state -p' /"
+if [ "$FSTYPE" = "xfs" ]; then
+    if [ "$MOUNT" = "/" ]; then
+        warn "XFS racine : l'option de fstab est ignorée au démarrage."
+        info "Ajoutez 'rootflags=pquota' à GRUB_CMDLINE_LINUX dans /etc/default/grub,"
+        info "puis : sudo update-grub && sudo reboot   (vérification : xfs_quota -x -c 'state -p' /)"
     else
-        echo "    quotaon -Ppv /   # puis  repquota -Ps /"
-    fi
-    info "Ensuite, (ré)appliquez les quotas des utilisateurs avec update_quota.sh."
-else
-    log "Remontage de $MOUNT avec les nouvelles options..."
-    mount -o remount "$MOUNT" || warn "Remontage échoué — un redémarrage peut être nécessaire"
-    if [ "$FSTYPE" = "xfs" ]; then
-        if ! xfs_quota -x -c 'state -p' "$MOUNT" 2>/dev/null | grep -qi 'Accounting: ON'; then
-            warn "Quota projet XFS pas encore actif — un REDÉMARRAGE est probablement nécessaire (XFS active les quotas au montage)."
-        else
+        mount -o remount "$MOUNT" 2>/dev/null || true
+        if xfs_quota -x -c 'state -p' "$MOUNT" 2>/dev/null | grep -qi 'Accounting: ON'; then
             log "✓ Quota projet XFS actif sur $MOUNT"
+        else
+            warn "Quota projet XFS pas encore actif : REDÉMARREZ (XFS active les quotas au montage)."
         fi
+    fi
+else
+    # Quotas internes : comptage toujours actif ; quotaon active l'application
+    # des limites tout de suite (l'option fstab la rend permanente)
+    quotaon -Pv "$MOUNT" >/dev/null 2>&1 || true
+    if repquota -Ps "$MOUNT" >/dev/null 2>&1; then
+        log "✓ Quotas projet ext4 actifs sur $MOUNT"
+        info "Appliquez les quotas des utilisateurs existants : sudo $(dirname "$0")/update_quota.sh <user> <Go>"
     else
-        quotacheck -cuPm "$MOUNT" 2>/dev/null || quotacheck -cuPmf "$MOUNT" 2>/dev/null || warn "quotacheck a signalé un problème"
-        quotaon -Pv "$MOUNT" 2>/dev/null || warn "quotaon a échoué"
-        log "✓ Quotas projet ext4 activés sur $MOUNT"
+        warn "Quotas pas encore actifs : redémarrez, puis vérifiez avec  repquota -Ps $MOUNT"
     fi
 fi
 

@@ -3,7 +3,7 @@
 #######################
 # Script de modification de mot de passe
 # Usage: ./update_password.sh <username> [nouveau_mot_de_passe]
-# Met à jour : système Linux, Authelia (SSO), qBittorrent, Filebrowser et,
+# Met à jour : système Linux, Authelia (SSO), qBittorrent, gestion de fichiers et,
 # si configuré, Jellyfin — tous avec le même mot de passe.
 #######################
 
@@ -27,12 +27,19 @@ INSTALL_DIR="/opt/seedbox"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AUTHELIA_DB="$INSTALL_DIR/authelia/users_database.yml"
 AUTHELIA_IMAGE="authelia/authelia:4.39.28"
-FILEBROWSER_IMAGE="filebrowser/filebrowser:v2.63.23"
-JELLYFIN_URL="http://localhost:8096"
-MIN_LEN=12   # minimum imposé par Filebrowser ; appliqué à tous les services
 
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/lib_qbittorrent.sh" || error "lib_qbittorrent.sh introuvable"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/lib_password.sh" || error "lib_password.sh introuvable"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/lib_traefik.sh" || error "lib_traefik.sh introuvable"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/lib_filebrowser.sh" || error "lib_filebrowser.sh introuvable"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/lib_lang.sh" || error "lib_lang.sh introuvable"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/lib_jellyfin.sh" || error "lib_jellyfin.sh introuvable"
 
 if [ $# -lt 1 ]; then
     echo "Usage: $0 <username> [nouveau_mot_de_passe]"
@@ -50,19 +57,25 @@ id "$USERNAME" &>/dev/null || error "L'utilisateur $USERNAME n'existe pas"
 USER_ID=$(id -u "$USERNAME")
 USER_DIR="$INSTALL_DIR/data/users/$USERNAME"
 
+# Règle renforcée pour les administrateurs (groupe "admins" d'Authelia)
+IS_ADMIN=false
+password_user_is_admin "$USERNAME" "$AUTHELIA_DB" && IS_ADMIN=true
+
 if [ -z "$NEW_PASSWORD" ]; then
     echo ""
+    info "Mot de passe : $(password_policy "$IS_ADMIN")"
     while true; do
-        read -r -s -p "Nouveau mot de passe (min $MIN_LEN caractères): " NEW_PASSWORD; echo
-        if [ ${#NEW_PASSWORD} -lt $MIN_LEN ]; then
-            warn "Le mot de passe doit contenir au moins $MIN_LEN caractères"; continue
+        read -r -s -p "Nouveau mot de passe: " NEW_PASSWORD; echo
+        if ! PW_REASON=$(password_check "$NEW_PASSWORD" "$IS_ADMIN"); then
+            warn "Mot de passe refusé : $PW_REASON"; continue
         fi
         read -r -s -p "Confirmez le mot de passe: " NEW_PASSWORD_CONFIRM; echo
         [ "$NEW_PASSWORD" = "$NEW_PASSWORD_CONFIRM" ] && break
         warn "Les mots de passe ne correspondent pas"
     done
 fi
-[ ${#NEW_PASSWORD} -ge $MIN_LEN ] || error "Le mot de passe doit contenir au moins $MIN_LEN caractères"
+PW_REASON=$(password_check "$NEW_PASSWORD" "$IS_ADMIN") \
+    || error "Mot de passe refusé : $PW_REASON ($(password_policy "$IS_ADMIN"))"
 
 container_exists() { docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx "$1"; }
 
@@ -133,39 +146,35 @@ if container_exists "$QB" && [ -f "$QB_CONF" ]; then
 fi
 
 #######################
-# 4. Filebrowser (base verrouillée tant que le serveur tourne)
+# 4. Gestion de fichiers (FileBrowser Quantum)
 #######################
+# Connexion unique (mode Traefik) : pas de mot de passe propre. Port direct :
+# mot de passe dans sa configuration, réappliqué au redémarrage.
 FB="filebrowser-$USERNAME"
-FB_CFG="$USER_DIR/config/filebrowser"
-if container_exists "$FB" && [ -f "$FB_CFG/filebrowser.db" ]; then
-    log "Mise à jour du mot de passe Filebrowser..."
-    docker stop "$FB" >/dev/null 2>&1 || true
-    if docker run --rm --user "$USER_ID:$USER_ID" -v "$FB_CFG:/config" \
-         --entrypoint /bin/filebrowser "$FILEBROWSER_IMAGE" \
-         -d /config/filebrowser.db users update "$USERNAME" --password "$NEW_PASSWORD" >/dev/null 2>&1; then
-        UPDATED+=("Filebrowser")
+FB_CFG="$USER_DIR/config/filebrowser/config.yaml"
+traefik_detect "$INSTALL_DIR/.env"
+if container_exists "$FB" && [ -f "$FB_CFG" ] && grep -qE '^      enabled: true$' <(sed -n '/^    password:/,/^    [a-z]/p' "$FB_CFG"); then
+    log "Mise à jour du mot de passe du gestionnaire de fichiers..."
+    if fbq_write_config "$FB_CFG" "$USERNAME" "$NEW_PASSWORD"; then
+        chown "$USER_ID:$USER_ID" "$FB_CFG"
+        docker restart "$FB" >/dev/null 2>&1 || warn "Échec du redémarrage de $FB"
+        UPDATED+=("Fichiers")
     else
-        warn "Impossible de mettre à jour Filebrowser (Paramètres → Gestion des utilisateurs)"
+        warn "Impossible de mettre à jour le gestionnaire de fichiers"
     fi
-    docker start "$FB" >/dev/null 2>&1 || warn "Échec du redémarrage de $FB"
 fi
 
 #######################
-# 5. Jellyfin (si une clé API a été configurée)
+# 5. Jellyfin : compte créé s'il manque (avec ses bibliothèques), sinon
+#    mot de passe mis à jour
 #######################
-if container_exists jellyfin && [ -f "$INSTALL_DIR/.jellyfin_api" ]; then
-    # shellcheck source=/dev/null
-    source "$INSTALL_DIR/.jellyfin_api"
-    JID=$(curl -s "$JELLYFIN_URL/Users" -H "X-Emby-Token: ${JELLYFIN_API_KEY:-}" 2>/dev/null \
-          | python3 -c "import json,sys;print(next((u['Id'] for u in json.load(sys.stdin) if u['Name']=='$USERNAME'),''))" 2>/dev/null) || true
-    if [ -n "$JID" ]; then
-        code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$JELLYFIN_URL/Users/$JID/Password" \
-               -H "Content-Type: application/json" -H "X-Emby-Token: $JELLYFIN_API_KEY" \
-               -d "{\"NewPw\":\"$(json_escape "$NEW_PASSWORD")\",\"ResetPassword\":false}")
-        if [[ "$code" == 2* ]]; then UPDATED+=("Jellyfin")
-        else warn "Jellyfin a refusé la mise à jour (HTTP $code)"; fi
+if container_exists jellyfin && jellyfin_wait && jellyfin_wizard_done; then
+    log "Mise à jour du compte Jellyfin..."
+    if jellyfin_user_sync "$USERNAME" "$NEW_PASSWORD"; then
+        UPDATED+=("Jellyfin")
+        [ "$USE_TRAEFIK" = true ] && { jellyfin_sso_ensure || true; }
     else
-        info "Pas de compte Jellyfin pour $USERNAME"
+        warn "Impossible de mettre à jour Jellyfin"
     fi
 fi
 
@@ -178,6 +187,6 @@ info "Mot de passe mis à jour pour $USERNAME :"
 for u in "${UPDATED[@]}"; do info "   ✓ $u"; done
 info ""
 info "Homarr n'a pas d'authentification propre (protégé par Authelia)."
-info "Services *arr : leur authentification interne est indépendante"
-info "(ou déléguée au proxy via disable_arr_auth.sh)."
+info "Mode Traefik : Sonarr, Radarr, Prowlarr et Calibre-web n'ont pas de"
+info "mot de passe propre (connexion via Authelia, voir arr_setup.sh)."
 info "═══════════════════════════════════════════════════════════"

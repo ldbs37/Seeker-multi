@@ -23,7 +23,7 @@ service_port_offset() {
     case "$1" in
         qbittorrent) echo 0 ;;  homarr) echo 1 ;;     filebrowser) echo 2 ;;
         sonarr) echo 3 ;;       radarr) echo 4 ;;     readarr) echo 5 ;;
-        bazarr) echo 6 ;;       prowlarr) echo 7 ;;   overseerr) echo 8 ;;
+        bazarr) echo 6 ;;       prowlarr) echo 7 ;;   seerr) echo 8 ;;
         calibre) echo 9 ;;      torrent) echo 10 ;;
         *) return 1 ;;
     esac

@@ -7,8 +7,9 @@
 # add_user_service.sh.
 #
 # Pré-requis (variables) : USERNAME USER_ID USER_DIR INSTALL_DIR TZ USE_TRAEFIK
-#                          DOMAIN ; FB_PASSWORD_HASH pour filebrowser.
-# Dépendances : lib_ports.sh, lib_traefik.sh (sourcées par l'appelant).
+#                          DOMAIN.
+# Dépendances : lib_ports.sh, lib_traefik.sh (sourcées par l'appelant) ;
+# lib_lang.sh, lib_filebrowser.sh (sourcées ici).
 #
 # Organisation des données d'un utilisateur ($USER_DIR, monté sur /data) :
 #   downloads/ tv/ movies/ books/ config/
@@ -16,20 +17,30 @@
 # hardlink (pas de copie : l'espace disque n'est pas doublé pendant le seed).
 #######################
 
+# shellcheck source=lib_lang.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib_lang.sh"
+# shellcheck source=lib_filebrowser.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib_filebrowser.sh"
+
 # shellcheck disable=SC2034  # lue par les bibliothèques sourcées
-USER_SERVICES="qbittorrent homarr filebrowser sonarr radarr readarr bazarr prowlarr overseerr calibre"
+USER_SERVICES="qbittorrent homarr filebrowser sonarr radarr readarr bazarr prowlarr seerr calibre"
+
+FLARESOLVERR_IMAGE="ghcr.io/flaresolverr/flaresolverr:v3.5.2"
 
 service_image() {
     case "$1" in
         qbittorrent) echo "linuxserver/qbittorrent:5.2.3" ;;
         homarr)      echo "ghcr.io/ajnart/homarr:0.16.1" ;;
-        filebrowser) echo "filebrowser/filebrowser:v2.63.23" ;;
+        # FileBrowser Quantum (Filebrowser d'origine archivé le 2026-09-01)
+        filebrowser) echo "$FBQ_IMAGE" ;;
         sonarr)      echo "linuxserver/sonarr:4.0.20" ;;
         radarr)      echo "linuxserver/radarr:6.4.4" ;;
         readarr)     echo "lscr.io/linuxserver/readarr:develop" ;;
         bazarr)      echo "linuxserver/bazarr:1.6.1" ;;
         prowlarr)    echo "linuxserver/prowlarr:2.6.5" ;;
-        overseerr)   echo "sctx/overseerr:1.35.0" ;;
+        # Seerr : successeur d'Overseerr/Jellyseerr (fusion) ; connexion via
+        # Jellyfin, Plex ou Emby (Overseerr n'acceptait que Plex)
+        seerr)       echo "seerr/seerr:v3.0.1" ;;
         calibre)     echo "linuxserver/calibre-web:0.6.27" ;;
         *) return 1 ;;
     esac
@@ -60,9 +71,18 @@ service_prepare() {
                 fi
                 qbit_configure "$conf" "$USERNAME" "$pass" "$proxy_net" \
                     || warn "Mot de passe qBittorrent non défini (voir logs du conteneur)"
+                # Connexion unique via Traefik (remplace la prise en charge du proxy)
+                [ "$USE_TRAEFIK" = true ] && qbit_sso_configure "$conf"
             fi
+            qbit_lang_configure "$conf"
+            # Interface web VueTorrent (sinon interface d'origine)
+            if vuetorrent_ensure; then qbit_vuetorrent_configure "$conf"
+            else warn "VueTorrent non téléchargé : interface d'origine de qBittorrent"; fi
             ;;
         homarr) mkdir -p "$USER_DIR/config/homarr-icons" ;;
+        filebrowser)
+            # Mot de passe utile en mode port direct seulement (sinon connexion unique)
+            fbq_write_config "$cfg/config.yaml" "$USERNAME" "$pass" ;;
     esac
     [ "$USE_TRAEFIK" = true ] && traefik_prepare_app "$svc" "$cfg" "$USER_ID"
     chown -R "$USER_ID:$USER_ID" "$cfg" "$USER_DIR"/{downloads,tv,movies,books} \
@@ -83,13 +103,22 @@ service_block() {
     echo "  ${name}:"
     echo "    image: ${img}"
     echo "    container_name: ${name}"
-    # Filebrowser (image officielle) ignore PUID/PGID : UID imposé ici
-    [ "$svc" = filebrowser ] && echo "    user: \"${USER_ID}:${USER_ID}\""
+    # Filebrowser (image officielle) ignore PUID/PGID ; Seerr tourne en
+    # utilisateur fixe (node, 1000) : UID imposé pour écrire sa configuration
+    case "$svc" in
+        filebrowser|seerr) echo "    user: \"${USER_ID}:${USER_ID}\"" ;;
+    esac
+    [ "$svc" = seerr ] && echo "    init: true"
     echo "    environment:"
     echo "      - PUID=${USER_ID}"
     echo "      - PGID=${USER_ID}"
     echo "      - TZ=${TZ}"
     case "$svc" in
+        homarr)
+            # Pas de fenêtre « migrez vers Homarr 1.0 » (réécriture complète,
+            # migration manuelle ; la 0.16 reste pleinement fonctionnelle)
+            echo "      - DISABLE_UPGRADE_MODAL=true"
+            ;;
         qbittorrent)
             # WebUI : port interne = port publié en mode direct
             if [ "$USE_TRAEFIK" = true ]; then echo "      - WEBUI_PORT=8080"
@@ -97,32 +126,28 @@ service_block() {
             echo "      - TORRENTING_PORT=${tport}"
             ;;
         filebrowser)
-            echo "      - FB_ROOT=/srv"
-            echo "      - FB_DATABASE=/config/filebrowser.db"
-            echo "      - FB_PORT=80"
-            echo "      - FB_ADDRESS=0.0.0.0"
-            # Compte initial = identifiants seedbox (appliqué uniquement à la
-            # création de la base ; sans effet ensuite)
-            echo "      - FB_USERNAME=${USERNAME}"
-            # bcrypt : "$" doublés pour docker-compose
-            [ -n "${FB_PASSWORD_HASH:-}" ] && echo "      - FB_PASSWORD=${FB_PASSWORD_HASH//\$/\$\$}"
-            [ "$USE_TRAEFIK" = true ] && echo "      - FB_BASE_URL=/files"
+            # Configuration (et base) : config.yaml généré par lib_filebrowser.sh
+            echo "      - FILEBROWSER_CONFIG=/home/filebrowser/data/config.yaml"
             ;;
     esac
     echo "    volumes:"
     case "$svc" in
         qbittorrent|sonarr|radarr|readarr|bazarr)
             echo "      - ${cfg}:/config"
-            echo "      - ${USER_DIR}:/data" ;;
+            echo "      - ${USER_DIR}:/data"
+            # Interface VueTorrent partagée (lib_qbittorrent.sh), lecture seule
+            [ "$svc" = qbittorrent ] && [ -d "$INSTALL_DIR/vuetorrent/public" ] \
+                && echo "      - ${INSTALL_DIR}/vuetorrent:/vuetorrent:ro"
+            ;;
         homarr)
             echo "      - ${cfg}:/app/data/configs"
             echo "      - ${USER_DIR}/config/homarr-icons:/app/public/icons" ;;
         filebrowser)
             echo "      - ${USER_DIR}:/srv"
-            echo "      - ${cfg}:/config" ;;
+            echo "      - ${cfg}:/home/filebrowser/data" ;;
         prowlarr)
             echo "      - ${cfg}:/config" ;;
-        overseerr)
+        seerr)
             echo "      - ${cfg}:/app/config" ;;
         calibre)
             echo "      - ${cfg}:/config"
@@ -137,7 +162,48 @@ service_block() {
             echo "      - \"${tport}:${tport}/udp\""
         fi
     fi
+    if [ "$svc" = homarr ]; then
+        # Le HEALTHCHECK de l'image teste localhost, mais Next.js n'écoute que
+        # sur l'IP du conteneur ($HOSTNAME) : conteneur « unhealthy » à tort,
+        # donc ignoré par Traefik (404). Test sur le nom du conteneur.
+        echo "    healthcheck:"
+        echo "      test: [\"CMD-SHELL\", \"wget -q --spider http://\$\$(hostname):7575 || exit 1\"]"
+        echo "      interval: 30s"
+        echo "      timeout: 5s"
+        echo "      retries: 3"
+        echo "      start_period: 30s"
+    fi
+    if [ "$svc" = filebrowser ]; then
+        # Le HEALTHCHECK de l'image teste le port 80 ; ici 8080 (+ /drive)
+        local hpath="/health"
+        [ "$USE_TRAEFIK" = true ] && hpath="$(traefik_service_path filebrowser)/health"
+        echo "    healthcheck:"
+        echo "      test: [\"CMD\", \"curl\", \"-fs\", \"http://localhost:${FBQ_PORT}${hpath}\"]"
+        echo "      interval: 30s"
+        echo "      timeout: 5s"
+        echo "      retries: 3"
+        echo "      start_period: 20s"
+    fi
     [ "$USE_TRAEFIK" = true ] && traefik_user_labels "$svc" "$USERNAME"
+    echo "    restart: unless-stopped"
+    # Mode Traefik : FlareSolverr propre à l'utilisateur, sur son réseau (un
+    # FlareSolverr partagé, navigateur piloté par tous, pourrait joindre les
+    # services des autres utilisateurs)
+    [ "$svc" = prowlarr ] && [ "$USE_TRAEFIK" = true ] && user_flaresolverr_block
+    return 0
+}
+
+# Bloc docker-compose du FlareSolverr de l'utilisateur (stdout)
+user_flaresolverr_block() {
+    echo ""
+    echo "  flaresolverr-${USERNAME}:"
+    echo "    image: ${FLARESOLVERR_IMAGE}"
+    echo "    container_name: flaresolverr-${USERNAME}"
+    echo "    environment:"
+    echo "      - LOG_LEVEL=info"
+    echo "      - TZ=${TZ}"
+    echo "    networks:"
+    echo "      - $(user_net "$USERNAME")"
     echo "    restart: unless-stopped"
 }
 
@@ -168,6 +234,11 @@ compose_append_services() {
     for s in "$@"; do
         service_block "$s" >> "$tmp" || { rm -f "$tmp"; return 1; }
     done
+    # Réseau privé de l'utilisateur : déclaré, Traefik et Homarr raccordés
+    if [ "$USE_TRAEFIK" = true ]; then
+        compose_sync_user_nets "$tmp"
+        [ $? -eq 2 ] && { rm -f "$tmp"; return 1; }
+    fi
     if compose_validate "$tmp"; then
         mv "$tmp" "$file"
     else

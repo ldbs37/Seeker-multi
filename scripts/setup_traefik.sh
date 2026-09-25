@@ -279,6 +279,19 @@ fi
 log "✓ Domaine configuré dans .env"
 
 #######################
+# 10. Connexion unique qBittorrent / Filebrowser (réseau dédié, en-tête secret)
+#######################
+
+# shellcheck source=/dev/null
+source "$(dirname "$0")/lib_traefik.sh"
+if sso_net_ensure; then
+    compose_ensure_sso_net "$DOCKER_COMPOSE_FILE" || true
+    log "✓ Connexion unique qBittorrent/Filebrowser préparée (réseau $SSO_NET)"
+else
+    warn "Réseau $SSO_NET non créé : qBittorrent et Filebrowser garderont leur mot de passe"
+fi
+
+#######################
 # Résumé
 #######################
 

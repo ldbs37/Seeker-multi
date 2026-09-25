@@ -46,8 +46,14 @@ if [ ! -f "$SOURCE_DIR/scripts/lib_compose_base.sh" ]; then
 fi
 # shellcheck source=scripts/lib_compose_base.sh
 source "$SOURCE_DIR/scripts/lib_compose_base.sh"
+# shellcheck source=scripts/lib_lang.sh
+source "$SOURCE_DIR/scripts/lib_lang.sh"
 # shellcheck source=scripts/lib_autoconfig.sh
 source "$SOURCE_DIR/scripts/lib_autoconfig.sh"
+# shellcheck source=scripts/lib_password.sh
+source "$SOURCE_DIR/scripts/lib_password.sh"
+# shellcheck source=scripts/lib_homarr.sh
+source "$SOURCE_DIR/scripts/lib_homarr.sh"
 
 # Tableau pour stocker les utilisateurs
 declare -a INITIAL_USERS INITIAL_PASSWORDS INITIAL_EMAILS INITIAL_QUOTAS
@@ -71,8 +77,6 @@ PORTAINER_USER=""
 PORTAINER_PASSWORD=""
 
 # Identifiants Jellyfin
-JELLYFIN_USER=""
-JELLYFIN_PASSWORD=""
 
 #######################
 # Fonctions utilitaires
@@ -91,14 +95,6 @@ validate_username() {
     local username=$1
     if [[ ! "$username" =~ ^[a-z][a-z0-9]{0,31}$ ]]; then
         error "Nom d'utilisateur invalide: $username (lettres minuscules et chiffres uniquement, commence par une lettre, 32 max)"
-    fi
-}
-
-# Validation de mot de passe
-validate_password() {
-    local password=$1
-    if [ ${#password} -lt 12 ]; then
-        error "Le mot de passe doit contenir au moins 12 caractères"
     fi
 }
 
@@ -383,6 +379,15 @@ configure_authelia() {
 ---
 server:
   address: 'tcp://0.0.0.0:9091/'
+  # Contrôle d'accès par session (cookie) uniquement : un identifiant HTTP
+  # Basic mémorisé par le navigateur provoquait sinon un défi Basic (fenêtre
+  # de connexion) et des boucles de redirection
+  endpoints:
+    authz:
+      forward-auth:
+        implementation: 'ForwardAuth'
+        authn_strategies:
+          - name: 'CookieSession'
 
 log:
   level: info
@@ -410,25 +415,36 @@ ${admin_domains}
 ${admin_domains}
       policy: deny
 
+    # Racine du domaine : redirection vers le tableau de bord de l'utilisateur
+    # connecté (conteneur "home") ; tout utilisateur authentifié
+    - domain: '${DOMAIN}'
+      policy: one_factor
+
     # Espaces utilisateurs ISOLÉS : chaque utilisateur n'accède qu'à SES
     # sous-domaines. Le groupe nommé (?P<User>…) doit correspondre au nom de
     # l'utilisateur connecté, sinon la règle ne s'applique pas (→ deny).
     #   <user>.domaine            : Homarr, qBittorrent, Filebrowser, *arr…
-    #   <service>-<user>.domaine  : services en sous-domaine (ex. Overseerr)
+    #   <service>-<user>.domaine  : services en sous-domaine (ex. Seerr)
     # (noms d'utilisateur limités à [a-z0-9] : pas d'ambiguïté possible)
     - domain_regex:
         - '^(?P<User>[a-z0-9]+)\.${DOMAIN//./\\.}$'
-        - '^overseerr-(?P<User>[a-z0-9]+)\.${DOMAIN//./\\.}$'
+        - '^seerr-(?P<User>[a-z0-9]+)\.${DOMAIN//./\\.}$'
       policy: one_factor
 
 session:
   name: authelia_session
   secret: '${session_secret}'
-  expiration: 1h
-  inactivity: 5m
+  # Reconnexion au plus toutes les 12 h, ou après 2 h d'inactivité
+  # (« Se souvenir de moi » : 1 mois)
+  expiration: 12h
+  inactivity: 2h
+  remember_me: 1M
   cookies:
     - domain: '${DOMAIN}'
       authelia_url: 'https://auth.${DOMAIN}'
+      # Après une connexion directe sur auth.<domaine> : accueil, qui renvoie
+      # chacun vers son tableau de bord
+      default_redirection_url: 'https://${DOMAIN}'
 
 storage:
   encryption_key: '${encryption_key}'
@@ -493,6 +509,22 @@ configure_installation() {
     echo -e "\n${BLUE}╔════════════════════════════════════════════╗${NC}"
     echo -e "${BLUE}║  Installation Seedbox Multi-Utilisateurs  ║${NC}"
     echo -e "${BLUE}╚════════════════════════════════════════════╝${NC}\n"
+
+    # Langue par défaut des interfaces (qBittorrent, VueTorrent, fichiers,
+    # Homarr, Jellyfin) ; chacun peut ensuite changer la sienne
+    local i=1 l choice
+    echo "Langue par défaut des interfaces :"
+    for l in $SEEDBOX_LANGS; do echo "  $i) $(lang_label "$l")"; i=$((i + 1)); done
+    while true; do
+        read -r -p "Choix [1] : " choice
+        choice=${choice:-1}
+        l=$(echo "$SEEDBOX_LANGS" | awk -v n="$choice" '{ if (n ~ /^[0-9]+$/ && n >= 1 && n <= NF) print $n }')
+        [ -n "$l" ] && break
+        warn "Choix invalide"
+    done
+    SEEDBOX_LANG=$l
+    info "Langue : $(lang_label "$SEEDBOX_LANG")"
+    echo ""
 
     # Configuration du domaine
     while true; do
@@ -664,27 +696,8 @@ configure_installation() {
     read -r -p "Installer Jellyfin (alternative open-source à Plex) ? (o/N): " input
     if [[ $input =~ ^[oO]$ ]]; then
         INSTALL_JELLYFIN=true
-
-        # Configurer les identifiants Jellyfin
-        echo -e "\n${BLUE}Configuration Jellyfin:${NC}"
-        read -r -p "Nom d'utilisateur admin [admin]: " JELLYFIN_USER
-        JELLYFIN_USER=${JELLYFIN_USER:-"admin"}
-
-        while true; do
-            read -r -s -p "Mot de passe admin (min 8 caractères): " JELLYFIN_PASSWORD
-            echo
-            if [ ${#JELLYFIN_PASSWORD} -ge 8 ]; then
-                read -r -s -p "Confirmez le mot de passe: " JELLYFIN_PASSWORD_CONFIRM
-                echo
-                if [ "$JELLYFIN_PASSWORD" = "$JELLYFIN_PASSWORD_CONFIRM" ]; then
-                    break
-                else
-                    warn "Les mots de passe ne correspondent pas"
-                fi
-            else
-                warn "Le mot de passe doit contenir au moins 8 caractères"
-            fi
-        done
+        info "Jellyfin : administrateur = premier utilisateur (même mot de passe) ;"
+        info "chaque utilisateur a son compte et ses bibliothèques privées."
     fi
 
     # Vérification conflit Plex/Jellyfin
@@ -697,8 +710,6 @@ configure_installation() {
         read -r -p "Voulez-vous annuler l'installation de Jellyfin ? (O/n): " confirm
         if [[ ! $confirm =~ ^[nN]$ ]]; then
             INSTALL_JELLYFIN=false
-            JELLYFIN_USER=""
-            JELLYFIN_PASSWORD=""
             info "Installation de Jellyfin annulée"
         else
             warn "Les deux services seront installés - des conflits peuvent survenir"
@@ -782,10 +793,14 @@ configure_installation() {
             break
         done
 
+        # Le premier utilisateur est administrateur : règle renforcée
+        local is_admin=false reason
+        [ ${#INITIAL_USERS[@]} -eq 0 ] && is_admin=true
+        info "Mot de passe : $(password_policy "$is_admin")"
         while true; do
-            read -r -s -p "Mot de passe (min 12 caractères): " password
+            read -r -s -p "Mot de passe: " password
             echo
-            if [ ${#password} -ge 12 ]; then
+            if reason=$(password_check "$password" "$is_admin"); then
                 read -r -s -p "Confirmez: " password_confirm
                 echo
                 if [ "$password" = "$password_confirm" ]; then
@@ -793,7 +808,7 @@ configure_installation() {
                 fi
                 warn "Les mots de passe ne correspondent pas"
             else
-                warn "Mot de passe trop court"
+                warn "Mot de passe refusé : $reason"
             fi
         done
 
@@ -861,8 +876,39 @@ deploy_services() {
     if [ "$INSTALL_PORTAINER" = true ] && [ -n "$PORTAINER_USER" ] && [ -n "$PORTAINER_PASSWORD" ]; then
         autoconfig_portainer "$PORTAINER_USER" "$PORTAINER_PASSWORD" || true
     fi
-    if [ "$INSTALL_JELLYFIN" = true ] && [ -n "$JELLYFIN_USER" ] && [ -n "$JELLYFIN_PASSWORD" ]; then
-        autoconfig_jellyfin "$JELLYFIN_USER" "$JELLYFIN_PASSWORD" || true
+    # Jellyfin : administrateur = premier utilisateur (même mot de passe),
+    # comptes et bibliothèques privées de chacun, connexion via Authelia
+    if [ "$INSTALL_JELLYFIN" = true ]; then
+        log "Configuration automatique de Jellyfin..."
+        if jellyfin_wait && jellyfin_wizard_ensure "${INITIAL_USERS[0]}" "${INITIAL_PASSWORDS[0]}"; then
+            local j
+            for ((j=0; j<${#INITIAL_USERS[@]}; j++)); do
+                jellyfin_user_sync "${INITIAL_USERS[$j]}" "${INITIAL_PASSWORDS[$j]}" \
+                    || warn "Compte Jellyfin de ${INITIAL_USERS[$j]} incomplet"
+            done
+            if [ "$USE_TRAEFIK" = "true" ]; then
+                jellyfin_sso_ensure || warn "Connexion Authelia de Jellyfin non configurée (relancez generate_traefik_labels.sh)"
+            fi
+            log "✓ Jellyfin configuré (${INITIAL_USERS[0]} administrateur)"
+        else
+            warn "Jellyfin n'est pas prêt : relancez generate_traefik_labels.sh (ou terminez l'assistant sur http://<serveur>:8096)"
+        fi
+    fi
+
+    # Applis des utilisateurs, après Jellyfin (Seerr : son compte et ses
+    # bibliothèques) : Sonarr/Radarr/Prowlarr, Calibre-web, Seerr
+    if [ "$USE_TRAEFIK" = "true" ]; then
+        "$INSTALL_DIR/scripts/arr_setup.sh" --all || true
+    fi
+
+    # Homarr partagé : configuration initiale sans assistant (groupe admins,
+    # clé d'API) puis tableaux de bord des utilisateurs
+    if [ "$USE_TRAEFIK" = "true" ]; then
+        log "Configuration automatique de Homarr..."
+        local hrc=0
+        homarr_bootstrap || hrc=$?
+        [ "$hrc" -ge 2 ] && warn "Configuration initiale de Homarr incomplète (relancez generate_traefik_labels.sh)"
+        "$INSTALL_DIR/scripts/homarr_provision.sh" --all || true
     fi
 
     # Plex tourne en réseau hôte : le pare-feu s'applique à lui (contrairement
@@ -921,6 +967,17 @@ main() {
     # Configurer Traefik si activé : crée le réseau traefik_proxy (requis par
     # les services utilisateurs) et ajoute le conteneur Traefik au compose.
     setup_traefik_if_enabled
+    # Homarr partagé + connexion unique : secrets (.env) et client OIDC dans
+    # la configuration Authelia (avant son premier démarrage)
+    if [ "$USE_TRAEFIK" = "true" ]; then
+        local hrc=0
+        homarr_prepare || hrc=$?
+        [ "$hrc" -ge 2 ] && warn "Connexion unique Homarr non configurée (relancez generate_traefik_labels.sh)"
+        # Client OIDC Jellyfin (bouton « Se connecter avec Authelia »)
+        if [ "$INSTALL_JELLYFIN" = true ]; then
+            authelia_ensure_oidc_jellyfin "$INSTALL_DIR/authelia/configuration.yml" || true
+        fi
+    fi
     show_progress 8 10 "Installation"
 
     # Créer les utilisateurs avec add_user.sh (le premier = administrateur ;
@@ -961,9 +1018,11 @@ main() {
                 echo "  - $s : https://${sub}.$DOMAIN"
             done
         fi
-        info "👥 Chaque utilisateur : https://<utilisateur>.$DOMAIN (tableau de bord Homarr)"
-        echo "     qBittorrent …/qbittorrent · Filebrowser …/files · Sonarr …/sonarr · Radarr …/radarr"
-        echo "     (qBittorrent et Filebrowser redemandent les identifiants de la seedbox)"
+        info "🏠 Tableau de bord (Homarr, connexion unique) : https://$DOMAIN"
+        echo "     (préconfiguré : chaque utilisateur arrive sur son tableau de bord privé)"
+        info "👥 Chaque utilisateur : https://<utilisateur>.$DOMAIN renvoie au tableau de bord"
+        echo "     qBittorrent …/qbittorrent · Fichiers …/drive · Sonarr …/sonarr · Radarr …/radarr"
+        echo "     (connexion unique : qBittorrent et Filebrowser s'ouvrent sans redemander de mot de passe)"
         info "⏳ Certificats Let's Encrypt obtenus au premier accès (DNS *.${DOMAIN} requis)"
     else
         [ "$INSTALL_JELLYFIN" = true ] && echo "  - Jellyfin : http://<ip-du-serveur>:8096"

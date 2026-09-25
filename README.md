@@ -14,23 +14,31 @@ Une solution **simple et efficace** de seedbox multi-utilisateurs avec authentif
 ### 📋 Services Par Utilisateur
 
 **Services Obligatoires (tous les utilisateurs) :**
-- 📥 **qBittorrent + VueTorrent** - Client torrent moderne
+- 📥 **qBittorrent + VueTorrent** - Client torrent avec l'interface moderne VueTorrent (installée et activée automatiquement)
 - 🖥️ **Homarr** - Dashboard personnel avec auto-découverte
-- 📂 **Filebrowser** - Gestionnaire de fichiers web
+- 📂 **FileBrowser Quantum** - Gestionnaire de fichiers web (aperçus, recherche, liens de partage publics)
 
 **Services Optionnels (installables à la demande) :**
 - 📺 **Sonarr** - Gestion de séries TV
 - 🎬 **Radarr** - Gestion de films
-- 📚 **Readarr** - Gestion de livres
-- 💬 **Bazarr** - Gestion de sous-titres
 - 🔍 **Prowlarr** - Gestion d'indexeurs
-- 📝 **Overseerr** - Système de requêtes
+- 📝 **Seerr** - Demandes de films/séries (successeur d'Overseerr)
 - 📖 **Calibre-web** - Bibliothèque ebooks
+
+**Tout est préconfiguré** (mode Traefik) :
+- 🔐 Connexion unique via Authelia : aucune page de connexion (Seerr : identifiants Jellyfin)
+- 🔗 Sonarr / Radarr → qBittorrent, dossiers `tv/` et `movies/`
+- 🔍 Prowlarr → Sonarr / Radarr, avec son FlareSolverr
+- 📝 Seerr → Jellyfin (seulement vos bibliothèques) et Sonarr / Radarr ; demandes validées automatiquement
+- 📖 Calibre-web → bibliothèque `books/`
+- 🛡️ Chaque utilisateur a son réseau Docker privé : les autres ne peuvent pas joindre ses services
+
+> Readarr (abandonné par ses auteurs) et Bazarr ne sont plus proposés.
 
 ### 🛡️ Services Système (accès administrateur)
 - 🔐 **Authelia** - Authentification centralisée
-- 🎥 **Plex / Jellyfin** - Serveurs de streaming média
-- 🚦 **FlareSolverr** - Bypass Cloudflare
+- 🎥 **Plex / Jellyfin** - Serveurs de streaming média (Jellyfin : comptes et bibliothèques privées automatiques, connexion via Authelia — voir [docs/JELLYFIN_AUTO_CONFIG.md](docs/JELLYFIN_AUTO_CONFIG.md))
+- 🚦 **FlareSolverr** - Bypass Cloudflare (mode Traefik : un par utilisateur ayant Prowlarr, sur son réseau)
 - 🐋 **Portainer** - Gestion Docker via interface web
 
 ### 🔧 Services Optionnels (accès administrateur)
@@ -43,7 +51,7 @@ Une solution **simple et efficace** de seedbox multi-utilisateurs avec authentif
 
 ### 👥 Rôles Utilisateurs
 - **Administrateur** (premier utilisateur créé) : Accès aux services système + services utilisateur
-- **Utilisateurs Standard** : Accès uniquement aux services utilisateur (qBittorrent, Homarr, Filebrowser + optionnels)
+- **Utilisateurs Standard** : Accès uniquement aux services utilisateur (qBittorrent, Homarr, FileBrowser Quantum + optionnels)
 
 ### 🔒 Sécurité
 - **SSO (Single Sign-On)** - Un seul login pour tous les services (mode Traefik)
@@ -138,7 +146,7 @@ Le script vous guidera à travers la configuration :
 5. **Utilisateurs supplémentaires (optionnel)**
    - Créés comme utilisateurs standard
    - Choisissez les services optionnels à installer pour chaque utilisateur
-   - Services obligatoires : qBittorrent + Homarr + Filebrowser
+   - Services obligatoires : qBittorrent + Homarr + FileBrowser Quantum
 
 ## 🎮 Menu Interactif de Gestion
 
@@ -197,22 +205,24 @@ sudo ./add_user.sh <username> <password> <email> [quota_gb] [--admin]
 **Exemples:**
 ```bash
 # Créer un utilisateur standard (quota 500 Go)
-sudo ./add_user.sh john 'MySecurePass123' john@example.com 500
+sudo ./add_user.sh john 'Seedbox!2026x' john@example.com 500
 
 # Créer un administrateur
-sudo ./add_user.sh admin 'AdminPass4567' admin@example.com 1000 --admin
+sudo ./add_user.sh admin 'Admin!Seedbox42' admin@example.com 1000 --admin
 ```
 
 **Règles :**
 - **Nom d'utilisateur** : minuscules et chiffres, commence par une lettre
   (`^[a-z][a-z0-9]{0,31}$`) — il sert de sous-domaine et de nom de conteneur.
-- **Mot de passe** : 12 caractères minimum (exigence de Filebrowser, appliquée
-  partout pour un mot de passe unique sur tous les services).
+- **Mot de passe** : 8 caractères minimum, dont 1 majuscule et 1 caractère
+  spécial ; le même mot de passe sert à tous les
+  services (Linux, Authelia, qBittorrent, gestion de fichiers, Jellyfin). Le compte
+  admin de Portainer, distinct, demande 12 caractères minimum.
 - **UID** : attribués à partir de 2001 ; chaque utilisateur reçoit un bloc de
   20 ports à partir de 20000 (voir [Accès aux services](#-accès-aux-services)).
 
 **Services installés automatiquement :**
-- **Tous les utilisateurs** : qBittorrent + Homarr + Filebrowser
+- **Tous les utilisateurs** : qBittorrent + Homarr + FileBrowser Quantum
 - **Services optionnels** : Choisis lors de la création (Sonarr, Radarr, etc.)
 - **Mode interactif** : Le script propose une sélection de services à installer
 
@@ -258,10 +268,13 @@ l'installation. Lancez une fois :
 sudo ./enable_quotas.sh            # cible /opt/seedbox par défaut
 ```
 
-- **ext4** : active la feature `project` + l'option `prjquota`.
-- **XFS** : ajoute l'option `pquota`.
-- Sur le système de fichiers **racine (`/`)**, un **redémarrage** est requis
-  pour que l'activation prenne effet.
+- **ext4** : fonctionnalités `project` + `quota` et option `prjquota`. Ces
+  fonctionnalités ne s'activent que **disque démonté** : sur la partition
+  **racine**, le script affiche la commande à lancer en **mode rescue**
+  (`e2fsck -f /dev/sdXN && tune2fs -O project,quota -Q prjquota /dev/sdXN`)
+  sans rien modifier ; relancez-le ensuite, les quotas s'activent sans autre
+  redémarrage.
+- **XFS** : option `pquota` (sur la racine : `rootflags=pquota` dans GRUB).
 
 Tant que les quotas ne sont pas activés, `add_user.sh` crée les utilisateurs
 normalement mais **sans appliquer** de limite (un avertissement s'affiche).
@@ -341,18 +354,15 @@ sudo ./update_password.sh <username> [nouveau_mot_de_passe]
 **Si le mot de passe n'est pas fourni, il sera demandé de manière sécurisée.**
 
 **Ce qui est mis à jour automatiquement :**
-- ✅ **Mot de passe du compte système** (compte de service sans accès SSH : les fichiers se gèrent via Filebrowser)
+- ✅ **Mot de passe du compte système** (compte de service sans accès SSH : les fichiers se gèrent via FileBrowser Quantum)
 - ✅ **Mot de passe Authelia** (authentification centralisée)
-- ✅ **Mot de passe Jellyfin** (si configuré avec clé API)
+- ✅ **Mot de passe Jellyfin** (compte créé s'il manque)
 - ✅ **Mot de passe qBittorrent** (hash PBKDF2 dans fichier config)
-- ✅ **Mot de passe Filebrowser** (via CLI dans le conteneur)
+- ✅ **Mot de passe du gestionnaire de fichiers** (mode port direct ; en mode Traefik, connexion unique)
 
-**Services *arr (Sonarr, Radarr, Prowlarr, etc.) :**
-- 💡 **Recommandé** : Désactiver l'authentification et s'appuyer sur Authelia
-  ```bash
-  sudo ./disable_arr_auth.sh <username> <service>
-  ```
-- ⚠️ **Alternative** : Mettre à jour manuellement (Settings → General → Security)
+**Sonarr, Radarr, Prowlarr, Calibre-web :** en mode Traefik, pas de mot de
+passe propre (connexion via Authelia, réglée par `arr_setup.sh`) ; en mode
+port direct, à changer dans l'appli (Settings → General → Security).
 
 **Exemple:**
 ```bash
@@ -394,7 +404,7 @@ Pour retirer un service système : `sudo ./remove_service.sh <service>`.
 ### 🧩 API libre-service des utilisateurs (mode Traefik)
 
 Chaque utilisateur peut ajouter ou retirer lui-même ses services optionnels
-(Sonarr, Radarr, Readarr, Bazarr, Prowlarr, Overseerr, Calibre-Web) depuis
+(Sonarr, Radarr, Prowlarr, Seerr, Calibre-Web) depuis
 `https://<utilisateur>.votre-domaine.com/seedbox-api/`, lien affiché sur son
 tableau de bord Homarr. Activation (désactivée par défaut) :
 
@@ -434,7 +444,7 @@ dossier sous le **même** montage `/data`. Sonarr/Radarr importent donc par
 `downloads/` pour le seed et dans `tv/`/`movies/` pour la bibliothèque).
 Dans Sonarr/Radarr, gardez *Settings → Media Management → Use Hardlinks
 instead of Copy* activé et choisissez `/data/tv` (ou `/data/movies`,
-`/data/books`) comme dossier racine. Filebrowser et Jellyfin affichent la
+`/data/books`) comme dossier racine. FileBrowser Quantum et Jellyfin affichent la
 taille des deux entrées, mais le quota ne compte le fichier qu'une fois.
 
 ## 🌐 Accès aux Services
@@ -480,13 +490,13 @@ Chaque utilisateur reçoit un bloc de 20 ports sans collision possible :
 |---------|----------|---------------------------|---------------------------|
 | qBittorrent (WebUI) | 0 | 20000 | 20020 |
 | Homarr | 1 | 20001 | 20021 |
-| Filebrowser | 2 | 20002 | 20022 |
+| FileBrowser Quantum | 2 | 20002 | 20022 |
 | Sonarr | 3 | 20003 | 20023 |
 | Radarr | 4 | 20004 | 20024 |
-| Readarr | 5 | 20005 | 20025 |
-| Bazarr | 6 | 20006 | 20026 |
+| Readarr (plus proposé) | 5 | 20005 | 20025 |
+| Bazarr (plus proposé) | 6 | 20006 | 20026 |
 | Prowlarr | 7 | 20007 | 20027 |
-| Overseerr | 8 | 20008 | 20028 |
+| Seerr | 8 | 20008 | 20028 |
 | Calibre-Web | 9 | 20009 | 20029 |
 | **Port torrent entrant** (TCP+UDP) | 10 | 20010 | 20030 |
 
@@ -515,22 +525,24 @@ Traefik, Portainer, Scrutiny, Dashdot, Tautulli, Uptime Kuma et Duplicati sont
 
 #### Services Utilisateur (exemple pour user `john`)
 - **qBittorrent:** `https://john.votre-domaine.com/qbittorrent`
-- **Homarr:** `https://john.votre-domaine.com`
-- **Filebrowser:** `https://john.votre-domaine.com/files`
+- **Tableau de bord (Homarr partagé, connexion unique):** `https://votre-domaine.com` (`https://john.votre-domaine.com` y renvoie)
+- **Fichiers (FileBrowser Quantum):** `https://john.votre-domaine.com/drive` — liens de partage publics en `…/drive/public/share/…` (ancienne adresse `/files` redirigée)
 - **Sonarr:** `https://john.votre-domaine.com/sonarr`
 - **Radarr:** `https://john.votre-domaine.com/radarr`
-- **Readarr:** `https://john.votre-domaine.com/readarr`
-- **Bazarr:** `https://john.votre-domaine.com/bazarr`
 - **Prowlarr:** `https://john.votre-domaine.com/prowlarr`
-- **Overseerr:** `https://overseerr-john.votre-domaine.com` (sous-domaine dédié : Overseerr ne gère pas les sous-chemins)
+- **Seerr (demandes):** `https://seerr-john.votre-domaine.com` (sous-domaine dédié : pas de sous-chemins)
 - **Calibre:** `https://john.votre-domaine.com/calibre`
 
 #### 🔐 Connexion SSO (Mode Traefik)
 1. Connectez-vous sur `https://auth.votre-domaine.com`
 2. Une fois authentifié, accédez à **vos services** sans re-login
 3. Chaque utilisateur n'accède qu'à `https://<son-nom>.votre-domaine.com` et
-   `https://overseerr-<son-nom>.votre-domaine.com` ; Plex et Jellyfin gardent
+   `https://seerr-<son-nom>.votre-domaine.com` ; Plex et Jellyfin gardent
    leur propre connexion (applis TV/mobiles)
+4. Sonarr, Radarr, Prowlarr, qBittorrent, les fichiers et Calibre-web
+   s'ouvrent directement, sans page de connexion. Ils ne sont joignables que
+   par Traefik (après Authelia), le Homarr partagé et les autres services du
+   même utilisateur (réseau Docker `seedbox_u_<user>`).
 
 ## 🔧 Maintenance
 

@@ -15,7 +15,12 @@
 # ADMIN_BIND=0.0.0.0 dans .env pour les exposer (déconseillé : pas d'auth).
 #######################
 
-SYSTEM_SERVICES="authelia plex flaresolverr scrutiny uptime-kuma watchtower duplicati jellyfin dashdot tautulli portainer"
+# Services système retirés par une version précédente (remplacés) : jamais
+# conservés comme blocs « personnalisés » lors d'une reconstruction
+# (home : redirection nginx, remplacée par le Homarr partagé)
+# shellcheck disable=SC2034  # lue par les scripts qui sourcent cette lib
+SYSTEM_SERVICES_OBSOLETE="home"
+SYSTEM_SERVICES="authelia homarr plex flaresolverr scrutiny uptime-kuma watchtower duplicati jellyfin dashdot tautulli portainer"
 
 # Variable INSTALL_* correspondant à un service système optionnel
 system_service_flag() {
@@ -92,6 +97,141 @@ EOF
     echo "    restart: unless-stopped"
 }
 
+# Homarr 1.x partagé (mode Traefik) sur https://<domaine>, connexion unique
+# via Authelia (OIDC, voir lib_homarr.sh). Authelia y redirige après une
+# connexion directe (default_redirection_url) ; https://<user>.<domaine>/
+# renvoie au tableau de bord de l'utilisateur (routeur de priorité minimale :
+# les autres routeurs du même hôte — /qbittorrent, /drive… — et les
+# sous-domaines nommés restent prioritaires).
+_block_homarr() {
+    [ "$USE_TRAEFIK" = "true" ] || return 0
+    local re
+    # Regex Go : "\." doublé pour YAML, "$$" pour docker-compose
+    re='^[a-z][a-z0-9]{0,31}\\.'"$(printf '%s' "$DOMAIN" | sed 's/\./\\\\./g')"'$$'
+    cat << 'EOF'
+
+  homarr:
+    image: ghcr.io/homarr-labs/homarr:v1.77.2
+    container_name: homarr
+    environment:
+      - PUID=${ADMIN_UID}
+      - PGID=${ADMIN_GID}
+      - TZ=${TZ}
+      - SECRET_ENCRYPTION_KEY=${HOMARR_SECRET_KEY}
+      - AUTH_PROVIDERS=oidc
+      - AUTH_OIDC_ISSUER=https://auth.${DOMAIN}
+      - AUTH_OIDC_CLIENT_ID=homarr
+      - AUTH_OIDC_CLIENT_SECRET=${HOMARR_OIDC_SECRET}
+      - AUTH_OIDC_CLIENT_NAME=Authelia
+      - AUTH_OIDC_AUTO_LOGIN=true
+      # Déconnexion Homarr → déconnexion Authelia (sinon la connexion
+      # automatique reconnecte aussitôt), puis retour à l'accueil
+      - AUTH_LOGOUT_REDIRECT_URL=https://auth.${DOMAIN}/logout?rd=https://${DOMAIN}/logout-done
+      # Session Homarr courte : si l'on change de compte Authelia sans passer
+      # par une déconnexion, Homarr redemande l'identité (reconnexion
+      # automatique et invisible via Authelia) au bout d'une heure au plus
+      - AUTH_SESSION_EXPIRY_TIME=1h
+    volumes:
+      - ./homarr/appdata:/appdata
+EOF
+    echo "    networks:"
+    echo "      - traefik_proxy"
+    echo "    labels:"
+    echo "      - \"traefik.enable=true\""
+    echo "      - \"traefik.docker.network=traefik_proxy\""
+    echo "      - \"traefik.http.routers.homarr.rule=Host(\`${DOMAIN}\`)\""
+    echo "      - \"traefik.http.routers.homarr.entrypoints=websecure\""
+    echo "      - \"traefik.http.routers.homarr.tls.certresolver=letsencrypt\""
+    echo "      - \"traefik.http.routers.homarr.middlewares=authelia@docker\""
+    echo "      - \"traefik.http.routers.homarr.service=homarr\""
+    echo "      - \"traefik.http.services.homarr.loadbalancer.server.port=7575\""
+    echo "      - \"traefik.http.routers.user-root.rule=HostRegexp(\`${re}\`) && Path(\`/\`)\""
+    echo "      - \"traefik.http.routers.user-root.priority=1\""
+    echo "      - \"traefik.http.routers.user-root.entrypoints=websecure\""
+    echo "      - \"traefik.http.routers.user-root.tls=true\""
+    echo "      - \"traefik.http.routers.user-root.service=homarr\""
+    echo "      - \"traefik.http.routers.user-root.middlewares=user-root-redirect\""
+    # https://<user>.<domaine>/ → https://<domaine>/boards/<user> (tableau de
+    # bord créé par homarr_provision.sh) ; "$$" : docker-compose
+    echo "      - \"traefik.http.middlewares.user-root-redirect.redirectregex.regex=^https?://([a-z][a-z0-9]{0,31})\\\\.[^/]+/?\$\$\""
+    echo "      - \"traefik.http.middlewares.user-root-redirect.redirectregex.replacement=https://${DOMAIN}/boards/\$\${1}\""
+    # Déconnexion : Homarr recharge la page dès que sa session disparaît
+    # (SessionQueryScopeGuard), avant d'avoir suivi AUTH_LOGOUT_REDIRECT_URL ;
+    # sa connexion automatique repassait alors par Authelia, toujours ouvert.
+    # Traefik marque la réponse à la déconnexion (cookie d'une minute) puis
+    # renvoie ce rechargement (/ ou /auth/login) vers la déconnexion Authelia,
+    # en effaçant le cookie (pas de boucle). Le cookie de marquage remplace
+    # ceux de la réponse : sans effet, Homarr supprime la session en base.
+    echo "      - \"traefik.http.routers.homarr-signout.rule=Host(\`${DOMAIN}\`) && Method(\`POST\`) && Path(\`/api/auth/signout\`)\""
+    echo "      - \"traefik.http.routers.homarr-signout.entrypoints=websecure\""
+    echo "      - \"traefik.http.routers.homarr-signout.tls.certresolver=letsencrypt\""
+    echo "      - \"traefik.http.routers.homarr-signout.service=homarr\""
+    echo "      - \"traefik.http.routers.homarr-signout.middlewares=authelia@docker,homarr-logout-mark\""
+    echo "      - \"traefik.http.middlewares.homarr-logout-mark.headers.customresponseheaders.Set-Cookie=seedbox_logout=1; Path=/; Max-Age=60; Secure; HttpOnly; SameSite=Lax\""
+    echo "      - \"traefik.http.routers.homarr-logout.rule=Host(\`${DOMAIN}\`) && (Path(\`/\`) || Path(\`/auth/login\`)) && HeaderRegexp(\`Cookie\`, \`(^|; )seedbox_logout=1\`)\""
+    echo "      - \"traefik.http.routers.homarr-logout.entrypoints=websecure\""
+    echo "      - \"traefik.http.routers.homarr-logout.tls.certresolver=letsencrypt\""
+    echo "      - \"traefik.http.routers.homarr-logout.service=homarr\""
+    echo "      - \"traefik.http.routers.homarr-logout.middlewares=homarr-logout-clear,homarr-logout-redirect\""
+    echo "      - \"traefik.http.middlewares.homarr-logout-clear.headers.customresponseheaders.Set-Cookie=seedbox_logout=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax\""
+    echo "      - \"traefik.http.middlewares.homarr-logout-redirect.redirectregex.regex=^.*\$\$\""
+    echo "      - \"traefik.http.middlewares.homarr-logout-redirect.redirectregex.replacement=https://auth.${DOMAIN}/logout?rd=https://${DOMAIN}/logout-done\""
+    # Fin de TOUTE déconnexion (Homarr, VueTorrent, FileBrowser → Authelia →
+    # /logout-done) : session Homarr effacée (cookie homarr.session-token,
+    # propre à ${DOMAIN}), puis accueil. Sans cela, après un changement de
+    # compte Authelia, Homarr gardait la session du compte précédent.
+    echo "      - \"traefik.http.routers.logout-done.rule=Host(\`${DOMAIN}\`) && Path(\`/logout-done\`)\""
+    echo "      - \"traefik.http.routers.logout-done.entrypoints=websecure\""
+    echo "      - \"traefik.http.routers.logout-done.tls.certresolver=letsencrypt\""
+    echo "      - \"traefik.http.routers.logout-done.service=homarr\""
+    echo "      - \"traefik.http.routers.logout-done.middlewares=logout-done-clear,logout-done-redirect\""
+    echo "      - \"traefik.http.middlewares.logout-done-clear.headers.customresponseheaders.Set-Cookie=homarr.session-token=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax\""
+    echo "      - \"traefik.http.middlewares.logout-done-redirect.redirectregex.regex=^.*\$\$\""
+    # Jellyfin installé : sa session est effacée aussi (maillon suivant)
+    local after="https://${DOMAIN}/"
+    [ "${INSTALL_JELLYFIN:-false}" = true ] && after="https://jellyfin.${DOMAIN}/logout-done"
+    echo "      - \"traefik.http.middlewares.logout-done-redirect.redirectregex.replacement=${after}\""
+    echo "    restart: unless-stopped"
+}
+
+# Ajoute à une configuration Authelia existante (installations antérieures)
+# la règle d'accès de l'accueil et la redirection après connexion.
+# $1 = configuration.yml, $2 = domaine. Retour 0 si le fichier a été modifié.
+authelia_ensure_home() {
+    local cfg="$1" domain="$2"
+    [ -f "$cfg" ] || return 1
+    AE_DOMAIN="$domain" python3 - "$cfg" << 'PY'
+import os, re, sys
+path, dom = sys.argv[1], os.environ["AE_DOMAIN"]
+s = open(path).read(); orig = s
+if not re.search(r"^\s*default_redirection_url:", s, re.M):
+    s = re.sub(r"^(\s*)authelia_url: '(https://auth\.[^']+)'\n",
+               lambda m: f"{m.group(0)}{m.group(1)}default_redirection_url: 'https://{dom}'\n",
+               s, count=1, flags=re.M)
+# Règle cherchée uniquement dans access_control (session.cookies contient
+# aussi une ligne « - domain: '<domaine>' »)
+ac = re.search(r"^access_control:\n(.*?)(?=^\S)", s, re.M | re.S)
+if ac and not re.search(r"^\s*- domain: '" + re.escape(dom) + r"'\s*$", ac.group(1), re.M):
+    rule = (f"    # Racine du domaine : redirection vers le tableau de bord\n"
+            f"    - domain: '{dom}'\n      policy: one_factor\n\n")
+    s = re.sub(r"^    - domain_regex:", lambda m: rule + m.group(0), s, count=1, flags=re.M)
+# Contrôle d'accès par session uniquement (pas de défi HTTP Basic)
+if not re.search(r"^  endpoints:", s, re.M):
+    s = re.sub(r"^(server:\n  address: [^\n]*\n)",
+               lambda m: m.group(1) + "  endpoints:\n    authz:\n      forward-auth:\n"
+               "        implementation: 'ForwardAuth'\n        authn_strategies:\n"
+               "          - name: 'CookieSession'\n",
+               s, count=1, flags=re.M)
+# Sessions trop courtes des anciennes installations (1 h / 5 min d'inactivité)
+s = s.replace("  expiration: 1h\n  inactivity: 5m\n",
+              "  expiration: 12h\n  inactivity: 2h\n  remember_me: 1M\n", 1)
+if s != orig:
+    open(path, "w").write(s)
+    sys.exit(0)
+sys.exit(1)
+PY
+}
+
 _block_plex() {
     # network_mode: host (découverte DLNA/GDM) : accès http://IP:32400/web
     cat << 'EOF'
@@ -124,9 +264,6 @@ _block_flaresolverr() {
     ports:
       - "${ADMIN_BIND:-127.0.0.1}:8191:8191"
 EOF
-    # Backend interne (proxy de résolution) : joignable par les *arr via son
-    # nom d'hôte, jamais publié sur Internet
-    [ "$USE_TRAEFIK" = "true" ] && printf '    networks:\n      - traefik_proxy\n'
     echo "    restart: unless-stopped"
 }
 
@@ -214,7 +351,7 @@ _block_jellyfin() {
     cat << 'EOF'
 
   jellyfin:
-    image: jellyfin/jellyfin:10.11.11
+    image: jellyfin/jellyfin:12.1
     container_name: jellyfin
     user: "${ADMIN_UID}:${ADMIN_GID}"
     volumes:
@@ -229,6 +366,20 @@ _block_jellyfin() {
       - TZ=${TZ}
 EOF
     _sys_labels jellyfin jellyfin 8096 false
+    if [ "$USE_TRAEFIK" = "true" ]; then
+        # Maillon de la chaîne de déconnexion (voir _block_homarr) : session
+        # Jellyfin (stockage du navigateur sur jellyfin.<domaine>) effacée par
+        # l'en-tête standard Clear-Site-Data, puis retour à l'accueil
+        echo "      - \"traefik.http.routers.jellyfin-logout-done.rule=Host(\`jellyfin.${DOMAIN}\`) && Path(\`/logout-done\`)\""
+        echo "      - \"traefik.http.routers.jellyfin-logout-done.entrypoints=websecure\""
+        echo "      - \"traefik.http.routers.jellyfin-logout-done.tls.certresolver=letsencrypt\""
+        echo "      - \"traefik.http.routers.jellyfin-logout-done.service=jellyfin\""
+        echo "      - \"traefik.http.routers.jellyfin-logout-done.middlewares=jellyfin-logout-clear,jellyfin-logout-redirect\""
+        echo "      - \"traefik.http.middlewares.jellyfin-logout-clear.headers.customresponseheaders.Clear-Site-Data=\\\"storage\\\"\""
+        echo "      - \"traefik.http.middlewares.jellyfin-logout-redirect.redirectregex.regex=^.*\$\$\""
+        echo "      - \"traefik.http.middlewares.jellyfin-logout-redirect.redirectregex.replacement=https://${DOMAIN}/\""
+        echo "      - \"traefik.http.routers.jellyfin.service=jellyfin\""
+    fi
     echo "    restart: unless-stopped"
 }
 
@@ -292,6 +443,7 @@ EOF
 # Crée les dossiers de données des services système sélectionnés
 _system_dirs() {
     mkdir -p "$INSTALL_DIR/authelia" "$INSTALL_DIR/data/users"
+    [ "$USE_TRAEFIK" = "true" ] && mkdir -p "$INSTALL_DIR/homarr/appdata"
     [ "${INSTALL_PLEX:-false}" = true ]        && mkdir -p "$INSTALL_DIR/plex"
     [ "${INSTALL_SCRUTINY:-false}" = true ]    && mkdir -p "$INSTALL_DIR/scrutiny/config" "$INSTALL_DIR/scrutiny/influxdb"
     [ "${INSTALL_UPTIME_KUMA:-false}" = true ] && mkdir -p "$INSTALL_DIR/uptime-kuma"
@@ -309,12 +461,18 @@ _system_dirs() {
 # Émet (stdout) l'en-tête et les services système sélectionnés
 compose_base_content() {
     if [ "$USE_TRAEFIK" = "true" ]; then
-        printf 'networks:\n  traefik_proxy:\n    external: true\n\n'
+        printf 'networks:\n'
+        # Réseau de la connexion unique qBittorrent (lib_traefik.sh), s'il existe
+        grep -q '^TRAEFIK_SSO_IP=' "$INSTALL_DIR/.env" 2>/dev/null \
+            && printf '  seedbox_sso:\n    external: true\n'
+        printf '  traefik_proxy:\n    external: true\n\n'
     fi
     echo "services:"
     _block_authelia
+    _block_homarr
     [ "${INSTALL_PLEX:-false}" = true ]        && _block_plex
-    _block_flaresolverr
+    # Mode Traefik : un FlareSolverr par utilisateur ayant Prowlarr (lib_services.sh)
+    [ "$USE_TRAEFIK" = "true" ] || _block_flaresolverr
     [ "${INSTALL_SCRUTINY:-false}" = true ]    && _block_scrutiny
     [ "${INSTALL_UPTIME_KUMA:-false}" = true ] && _block_uptime_kuma
     [ "${INSTALL_WATCHTOWER:-false}" = true ]  && _block_watchtower
@@ -332,10 +490,12 @@ write_env_file() {
     if [ -f "$INSTALL_DIR/.env" ] && grep -q '^ADMIN_BIND=' "$INSTALL_DIR/.env"; then
         admin_bind=$(grep '^ADMIN_BIND=' "$INSTALL_DIR/.env" | cut -d'=' -f2)
     fi
-    local extra=""
+    local extra="" lang="${SEEDBOX_LANG:-}"
+    # Langue des interfaces (lib_lang.sh) : choisie à l'installation, conservée ensuite
+    [ -n "$lang" ] || lang=$(grep '^SEEDBOX_LANG=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d'=' -f2)
     # Autres clés (ex. SEEDBOX_API_KEY de setup_api.sh) conservées telles quelles
     if [ -f "$INSTALL_DIR/.env" ]; then
-        extra=$(grep -vE '^(TZ|DOMAIN|ADMIN_UID|ADMIN_GID|USE_TRAEFIK|ADMIN_BIND)=' "$INSTALL_DIR/.env" | grep -E '^[A-Z_][A-Z0-9_]*=' || true)
+        extra=$(grep -vE '^(TZ|DOMAIN|ADMIN_UID|ADMIN_GID|USE_TRAEFIK|ADMIN_BIND|SEEDBOX_LANG)=' "$INSTALL_DIR/.env" | grep -E '^[A-Z_][A-Z0-9_]*=' || true)
     fi
     cat > "$INSTALL_DIR/.env" << EOF
 TZ=$TZ
@@ -344,6 +504,7 @@ ADMIN_UID=$ADMIN_UID
 ADMIN_GID=$ADMIN_GID
 USE_TRAEFIK=$USE_TRAEFIK
 ADMIN_BIND=$admin_bind
+SEEDBOX_LANG=${lang:-fr}
 EOF
     [ -z "$extra" ] || printf '%s\n' "$extra" >> "$INSTALL_DIR/.env"
     chmod 600 "$INSTALL_DIR/.env"

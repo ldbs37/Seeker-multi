@@ -59,6 +59,23 @@ sudo ./install.sh
 
 ## 📝 Configuration Interactive
 
+### 0. Langue des interfaces
+
+```
+Langue par défaut des interfaces :
+  1) Français
+  2) English
+  3) Deutsch
+  4) Español
+  5) Italiano
+Choix [1] :
+```
+
+Appliquée à qBittorrent (et VueTorrent), à la gestion de fichiers, à Homarr
+et à Jellyfin ; chacun peut ensuite choisir la sienne dans l'appli. Gardée
+dans `/opt/seedbox/.env` (`SEEDBOX_LANG`) ; pour la changer plus tard :
+modifier cette ligne puis `sudo /opt/seedbox/scripts/generate_traefik_labels.sh --yes`.
+
 ### 1. Configuration du domaine
 
 ```
@@ -259,17 +276,15 @@ Cela créera automatiquement:
 
 ### Ports attribués automatiquement
 
-L'utilisateur Alice (UID 1001) obtiendra:
-- qBittorrent: `8090`
-- Sonarr: `8990`
-- Radarr: `7879`
-- Readarr: `8788`
-- Bazarr: `6768`
-- Prowlarr: `9697`
-- Overseerr: `5056`
-- Homarr: `7576`
-- Calibre: `8084`
-- Filebrowser: `8082`
+Mode port direct uniquement (en mode Traefik, tout passe par
+`https://alice.votre-domaine.com/...`). Le premier utilisateur (UID 2001)
+obtient le bloc 20000-20019 :
+- qBittorrent: `20000` · Homarr: `20001` · Fichiers (FileBrowser Quantum): `20002`
+- Sonarr: `20003` · Radarr: `20004` · Prowlarr: `20007` · Seerr: `20008` · Calibre: `20009`
+- (Readarr `20005` et Bazarr `20006` : installations existantes, plus proposés)
+- Port torrent entrant (TCP/UDP) : `20010`
+
+`sudo ./scripts/list_user_services.sh alice` affiche les adresses exactes.
 
 ## 🔐 Sécurité
 

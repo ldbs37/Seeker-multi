@@ -3,7 +3,8 @@
 #######################
 # Script d'ajout de service à un utilisateur existant
 # Usage: ./add_user_service.sh <username> <service>
-# Services: sonarr, radarr, readarr, bazarr, prowlarr, overseerr, calibre
+# Services: sonarr, radarr, prowlarr, seerr, calibre
+#           (readarr, abandonné par ses auteurs, et bazarr ne sont plus proposés)
 #           (ainsi que qbittorrent, homarr, filebrowser s'ils manquent)
 #######################
 
@@ -41,10 +42,8 @@ usage() {
     echo "Services disponibles:"
     echo "  - sonarr      : Gestion de séries TV"
     echo "  - radarr      : Gestion de films"
-    echo "  - readarr     : Gestion de livres"
-    echo "  - bazarr      : Gestion de sous-titres"
     echo "  - prowlarr    : Gestion d'indexeurs"
-    echo "  - overseerr   : Système de requêtes"
+    echo "  - seerr       : demandes de films/séries (connexion Jellyfin/Plex)"
     echo "  - calibre     : Bibliothèque ebooks"
     exit 1
 }
@@ -68,7 +67,6 @@ USER_ID=$(id -u "$USERNAME")
 USER_DIR="$INSTALL_DIR/data/users/$USERNAME"
 CONTAINER_NAME="${SERVICE}-${USERNAME}"
 # shellcheck disable=SC2034  # lue par les bibliothèques sourcées
-FB_PASSWORD_HASH=""
 
 if grep -q "^  ${CONTAINER_NAME}:" "$DOCKER_COMPOSE_FILE" \
    || docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
@@ -77,10 +75,17 @@ if grep -q "^  ${CONTAINER_NAME}:" "$DOCKER_COMPOSE_FILE" \
 fi
 
 case "$SERVICE" in
+    readarr)
+        error "Readarr n'est plus maintenu par ses auteurs (projet archivé) : il n'est plus proposé" ;;
+    bazarr)
+        error "Bazarr n'est plus proposé (sous-titres : plugin OpenSubtitles de Jellyfin)" ;;
     qbittorrent|filebrowser)
         # Services de base créés par add_user.sh avec les identifiants de
         # l'utilisateur (ici, le mot de passe n'est pas connu).
         error "$SERVICE est un service de base, installé par add_user.sh" ;;
+    homarr)
+        [ "$USE_TRAEFIK" = true ] \
+            && error "Mode Traefik : le tableau de bord est le Homarr partagé (https://$DOMAIN)" ;;
 esac
 
 log "Ajout du service $SERVICE pour l'utilisateur $USERNAME..."
@@ -91,10 +96,29 @@ compose_append_services "$DOCKER_COMPOSE_FILE" "$SERVICE" \
 
 log "Démarrage du service..."
 cd "$INSTALL_DIR"
-compose_cmd up -d "$CONTAINER_NAME"
+START=("$CONTAINER_NAME")
+if [ "$USE_TRAEFIK" = true ]; then
+    # Son FlareSolverr (Prowlarr) ; Traefik et Homarr recréés seulement si
+    # leurs réseaux ont changé
+    [ "$SERVICE" = prowlarr ] && START+=("flaresolverr-$USERNAME")
+    START+=(traefik homarr)
+fi
+compose_cmd up -d "${START[@]}"
 
-# Mettre à jour les liens du tableau de bord Homarr
+# Sonarr/Radarr/Readarr/Prowlarr (mode Traefik) : connexion unique, dossier
+# racine, qBittorrent, liens Prowlarr (dans les deux sens pour Prowlarr)
+ARR_AUTO=false
+if [ "$USE_TRAEFIK" = true ]; then
+    case "$SERVICE" in
+        sonarr|radarr|prowlarr|calibre|seerr)
+            log "Configuration automatique de $SERVICE..."
+            "$SCRIPT_DIR/arr_setup.sh" "$USERNAME" && ARR_AUTO=true ;;
+    esac
+fi
+
+# Mettre à jour les liens du tableau de bord Homarr (individuel ou partagé)
 "$SCRIPT_DIR/configure_homarr.sh" "$USERNAME" >/dev/null 2>&1 || true
+[ "$USE_TRAEFIK" = true ] && { "$SCRIPT_DIR/homarr_provision.sh" "$USERNAME" >/dev/null 2>&1 || true; }
 # API libre-service : état des services à jour (sauf si appelé par son ouvrier)
 [ -n "${SEEDBOX_API_WORKER:-}" ] || "$SCRIPT_DIR/seedbox_api_worker.sh" --state >/dev/null 2>&1 || true
 
@@ -106,7 +130,7 @@ if docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
     # Réglages à saisir dans l'appli pour des imports SANS copie (hardlinks) :
     # téléchargements et médias sont sur le même montage /data.
     QB_PORT=8080; [ "$USE_TRAEFIK" = true ] || QB_PORT=$(user_port "$USER_ID" qbittorrent)
-    case "$SERVICE" in
+    [ "$ARR_AUTO" = true ] || case "$SERVICE" in
         sonarr|radarr|readarr)
             case "$SERVICE" in sonarr) root=/data/tv ;; radarr) root=/data/movies ;; *) root=/data/books ;; esac
             echo ""

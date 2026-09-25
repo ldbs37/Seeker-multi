@@ -129,7 +129,7 @@ show_services_status() {
     echo ""
 
     echo -e "${CYAN}Services Utilisateurs:${NC}"
-    docker ps --format "{{.Names}}" | grep -E "(qbittorrent|homarr|sonarr|radarr|readarr|bazarr|prowlarr|overseerr|calibre|filebrowser)-" | sort
+    docker ps --format "{{.Names}}" | grep -E "(qbittorrent|homarr|sonarr|radarr|readarr|bazarr|prowlarr|seerr|calibre|filebrowser)-" | sort
     echo ""
 
     pause
@@ -244,23 +244,31 @@ add_user_menu() {
     echo -e "${BOLD}${BLUE}➕ Ajouter un Utilisateur${NC}\n"
 
     read -r -p "Nom d'utilisateur (minuscules/chiffres): " username
-    local password password2
+    # Rôle demandé AVANT le mot de passe : règle renforcée pour les admins
+    read -r -p "Cet utilisateur est-il un administrateur ? (o/N): " is_admin
+    local admin=false
+    [[ $is_admin =~ ^[oO]$ ]] && admin=true
+
+    local password password2 reason
+    # shellcheck source=/dev/null
+    source "$SCRIPTS_DIR/lib_password.sh"
+    info "Mot de passe : $(password_policy "$admin")"
     while true; do
-        read -r -s -p "Mot de passe (min 12): " password; echo ""
+        read -r -s -p "Mot de passe: " password; echo ""
+        if ! reason=$(password_check "$password" "$admin"); then
+            warn "Mot de passe refusé : $reason"; continue
+        fi
         read -r -s -p "Confirmez: " password2; echo ""
-        [ "$password" = "$password2" ] && [ ${#password} -ge 12 ] && break
-        warn "Mots de passe différents ou trop courts, recommencez"
+        [ "$password" = "$password2" ] && break
+        warn "Les mots de passe ne correspondent pas, recommencez"
     done
     read -r -p "Email: " email
     read -r -p "Quota (GB) [500]: " quota
     quota=${quota:-500}
 
     echo ""
-    read -r -p "Cet utilisateur est-il un administrateur ? (o/N): " is_admin
-
-    echo ""
     local admin_flag="" rc=0
-    if [[ $is_admin =~ ^[oO]$ ]]; then
+    if [ "$admin" = true ]; then
         admin_flag="--admin"
         info "Création de l'utilisateur ADMINISTRATEUR: $username..."
         info "(Services inclus: qBittorrent + Homarr + Filebrowser + sélection interactive)"
@@ -376,14 +384,16 @@ add_user_service_menu() {
     echo -e "${CYAN}Services disponibles:${NC}"
     echo "  1. sonarr    - Séries TV"
     echo "  2. radarr    - Films"
-    echo "  3. readarr   - Livres"
-    echo "  4. bazarr    - Sous-titres"
-    echo "  5. prowlarr  - Indexeurs"
-    echo "  6. overseerr - Requêtes"
-    echo "  7. calibre   - Bibliothèque ebooks"
+    echo "  3. prowlarr  - Indexeurs"
+    echo "  4. seerr     - Demandes de films/séries (connexion Jellyfin/Plex)"
+    echo "  5. calibre   - Bibliothèque ebooks"
     echo ""
 
-    read -r -p "Service à ajouter: " service
+    read -r -p "Service à ajouter (numéro ou nom): " service
+    case "$service" in
+        1) service=sonarr ;;  2) service=radarr ;;  3) service=prowlarr ;;
+        4) service=seerr ;;   5) service=calibre ;;
+    esac
 
     if [ -z "$service" ]; then
         warn "Service requis"
