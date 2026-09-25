@@ -65,6 +65,12 @@ est configuré par `arr_setup.sh` (`lib_seerr.sh`) :
 - son administrateur = le compte Jellyfin de l'utilisateur : connexion avec
   ses identifiants Jellyfin (= seedbox) ;
 - ses Sonarr / Radarr (profil HD-1080p, `/data/tv`, `/data/movies`).
+- connexion avec les identifiants Jellyfin seulement : pas de connexion
+  locale (mot de passe Seerr), pas d'inscription d'autres comptes Jellyfin ;
+- l'utilisateur est administrateur de son Seerr : ses demandes sont
+  **validées automatiquement** et envoyées à Sonarr / Radarr ;
+- pays de diffusion et région de découverte : ceux de la langue de la
+  seedbox (France pour le français), sauf s'ils ont déjà été choisis.
 
 Un Seerr déjà configuré à la main n'est pas modifié (seuls un Sonarr ou un
 Radarr manquants sont ajoutés). Quick Connect doit rester activé dans

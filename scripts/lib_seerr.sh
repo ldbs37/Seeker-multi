@@ -9,6 +9,11 @@
 # - Compte administrateur du Seerr = compte Jellyfin de l'utilisateur :
 #   connexion avec ses identifiants Jellyfin (= seedbox).
 # - Bibliothèques : ses « Séries TV (<user>) » et « Films (<user>) ».
+# - Connexion : identifiants Jellyfin seulement ; ni connexion locale, ni
+#   inscription d'autres comptes Jellyfin (Seerr d'une seule personne,
+#   administrateur : ses demandes sont validées automatiquement).
+# - Pays de diffusion et région de découverte : celui de la langue de la
+#   seedbox (France pour fr), s'ils ne sont pas déjà choisis.
 # - Sonarr / Radarr de l'utilisateur (clé d'API, profil HD-1080p ou premier
 #   profil, /data/tv et /data/movies), ajoutés s'ils manquent.
 # Vérifié sur Seerr 3.0.1 et Jellyfin 12.1. Idempotent ; ne touche pas à un
@@ -69,7 +74,7 @@ print(json.dumps(d))'
 # si configuré (ou déjà configuré).
 seerr_configure() {
     local user="$1" dir="$INSTALL_DIR/seerr/$1" settings db tok="" jid="" libs="[]" info="{}" \
-          sonarr="" radarr="" email state
+          sonarr="" radarr="" email state region
     settings="$dir/settings.json"; db="$dir/db/db.sqlite3"
     _wait_config "$settings" "seerr-$user" || return 1
     for _ in $(seq 1 30); do [ -s "$db" ] && break; sleep 2; done
@@ -94,10 +99,14 @@ print(json.dumps([{"id": f["ItemId"], "name": f["Name"], "enabled": True, "type"
             "$INSTALL_DIR/authelia/users_database.yml" 2>/dev/null)
     fi
 
-    # Déjà configuré et rien à ajouter : pas de redémarrage
+    region=$(lang_jellyfin "$(seedbox_lang)" | cut -d' ' -f2)
+    # Déjà configuré et rien à changer : pas de redémarrage
     if [ "$state" = init ] && SONARR="$sonarr" RADARR="$radarr" python3 -c '
 import json, os, sys
 s = json.load(open(sys.argv[1]))
+if s["jellyfin"].get("ip") == "jellyfin" and (s["main"].get("localLogin") or s["main"].get("newPlexLogin")
+        or not s["main"].get("streamingRegion") or not s["main"].get("discoverRegion")):
+    sys.exit(1)
 for k in ("sonarr", "radarr"):
     v = os.environ[k.upper()]
     if v and not any(x.get("hostname") == json.loads(v)["hostname"] for x in s.get(k, [])):
@@ -105,7 +114,7 @@ for k in ("sonarr", "radarr"):
         return 0
     fi
     docker stop "seerr-$user" >/dev/null 2>&1 || true
-    ST="$state" TOK="$tok" JID="$jid" LIBS="$libs" INFO="$info" SONARR="$sonarr" RADARR="$radarr" \
+    REGION="$region" ST="$state" TOK="$tok" JID="$jid" LIBS="$libs" INFO="$info" SONARR="$sonarr" RADARR="$radarr" \
     U="$user" D="$DOMAIN" EMAIL="${email:-$user@$DOMAIN}" LANG_SB="$(seedbox_lang)" \
     DEV="${SEERR_DEVICE_PREFIX}${user}" python3 - "$settings" "$db" << 'PY'
 import json, os, sqlite3, sys
@@ -129,6 +138,14 @@ if e["ST"] == "new":
         c.execute("insert into user (id, %s) values (1, %s)" % (", ".join(fields), ", ".join("?" * len(fields))),
                   list(fields.values()))
     c.commit()
+# Seerr configuré par la seedbox : connexion Jellyfin seulement, pas de
+# connexion locale ni de nouveaux comptes
+if s["jellyfin"].get("ip") == "jellyfin":
+    s["main"].update(localLogin=False, newPlexLogin=False)
+    # Pays de diffusion / région de découverte, sauf choix de l'utilisateur
+    for k in ("streamingRegion", "discoverRegion"):
+        if not s["main"].get(k):
+            s["main"][k] = e["REGION"]
 # Sonarr / Radarr manquants (jamais de doublon, rien de remplacé)
 for key, env in (("sonarr", "SONARR"), ("radarr", "RADARR")):
     if not e[env]:
