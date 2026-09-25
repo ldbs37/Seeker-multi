@@ -29,7 +29,7 @@ Une solution **simple et efficace** de seedbox multi-utilisateurs avec authentif
 - 🔐 Connexion unique via Authelia : aucune page de connexion, Seerr compris
 - 🔗 Sonarr / Radarr → qBittorrent, dossiers `tv/` et `movies/`
 - 🔍 Prowlarr → Sonarr / Radarr, avec son FlareSolverr
-- 🇫🇷 Sonarr / Radarr / Prowlarr en français (dates au format français, titres des films en français) ; téléchargements en français par défaut ; fichiers nommés pour Jellyfin (identifiant TMDB/TVDB dans le dossier : reconnaissance sans erreur)
+- 🇫🇷 Sonarr / Radarr / Prowlarr en français (dates au format français, titres des films en français) ; téléchargements en français par défaut ; fichiers nommés pour Jellyfin (identifiant TMDB/TVDB dans le dossier : reconnaissance sans erreur) ; profil optimisé (720p à 4K, 4 Go max par film, 2 Go/h par épisode, x265, AV1, 10 bits, HDR, Atmos, VFF préférés)
 - 📝 Seerr → Jellyfin (seulement vos bibliothèques) et Sonarr / Radarr ; demandes validées automatiquement
 - 📖 Calibre-web → bibliothèque `books/`
 - 🛡️ Chaque utilisateur a son réseau Docker privé : les autres ne peuvent pas joindre ses services
