@@ -21,6 +21,12 @@
 #   (langue française) exigé par les profils, ajouté une fois. Les MULTi sont
 #   reconnues comme françaises si l'indexeur l'indique (Multi Languages).
 #   Réglages modifiés ensuite conservés.
+# - Nommage pour Jellyfin : renommage activé, identifiant dans le dossier et
+#   le fichier ([tmdbid-…] pour Radarr, [tvdbid-…] pour Sonarr : Jellyfin
+#   reconnaît le média sans deviner). Appliqué une fois (tant que le
+#   renommage est désactivé, réglage d'origine), films et séries déjà
+#   présents compris (renommés et déplacés ; fichiers liés à qBittorrent :
+#   le partage continue).
 # Idempotent. Vérifié sur Sonarr 4.0.20, Radarr 6.4.4, Prowlarr 2.6.5 et
 # qBittorrent 5.2.3 (binaires officiels).
 #
@@ -169,6 +175,63 @@ _arr_put_profiles() {
     done
 }
 
+# Commande d'un *arr, attendue (5 min au plus). $1=service $2=utilisateur $3=corps JSON
+_arr_command() {
+    local id st
+    id=$(arr_api "$1" "$2" POST /command "$3" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])') || return 1
+    for _ in $(seq 1 150); do
+        st=$(arr_api "$1" "$2" GET "/command/$id" | python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])') || return 1
+        case "$st" in completed) return 0 ;; failed|aborted|cancelled|orphaned) return 1 ;; esac
+        sleep 2
+    done
+    return 1
+}
+
+# Nommage pour Jellyfin (voir l'en-tête). $1=sonarr|radarr $2=utilisateur
+arr_naming() {
+    local svc="$1" user="$2" naming items body
+    naming=$(arr_api "$svc" "$user" GET /config/naming) || return 1
+    body=$(N="$naming" S="$svc" python3 -c '
+import json, os, sys
+n = json.loads(os.environ["N"])
+if os.environ["S"] == "radarr":
+    if n.get("renameMovies"):
+        sys.exit(3)
+    n.update(renameMovies=True, replaceIllegalCharacters=True, colonReplacementFormat="smart",
+             movieFolderFormat="{Movie Title} ({Release Year}) [tmdbid-{TmdbId}]",
+             standardMovieFormat="{Movie Title} ({Release Year}) [tmdbid-{TmdbId}] - {Quality Full}")
+else:
+    if n.get("renameEpisodes"):
+        sys.exit(3)
+    ep = "{Series TitleYear} - S{season:00}E{episode:00} - {Episode Title} {Quality Full}"
+    n.update(renameEpisodes=True, replaceIllegalCharacters=True, multiEpisodeStyle=5,
+             seriesFolderFormat="{Series TitleYear} [tvdbid-{TvdbId}]",
+             seasonFolderFormat="Season {season:00}", specialsFolderFormat="Specials",
+             standardEpisodeFormat=ep, animeEpisodeFormat=ep,
+             dailyEpisodeFormat="{Series TitleYear} - {Air-Date} - {Episode Title} {Quality Full}")
+print(json.dumps(n))')
+    case $? in 0) ;; 3) return 0 ;; *) return 1 ;; esac
+    arr_api "$svc" "$user" PUT "/config/naming/$(printf '%s' "$body" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')" "$body" >/dev/null || return 1
+    # Médias déjà présents : fichiers renommés, puis dossiers déplacés (par
+    # dossier racine)
+    local kind=movie ids=movieIds rename=RenameMovie
+    [ "$svc" = sonarr ] && { kind=series; ids=seriesIds; rename=RenameSeries; }
+    items=$(arr_api "$svc" "$user" GET "/$kind") || return 1
+    [ "$(printf '%s' "$items" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')" = 0 ] && return 0
+    _arr_command "$svc" "$user" "$(I="$items" K="$ids" R="$rename" python3 -c '
+import json, os
+print(json.dumps({"name": os.environ["R"], os.environ["K"]: [m["id"] for m in json.loads(os.environ["I"])]}))')" || return 1
+    I="$items" K="$ids" python3 -c '
+import json, os, posixpath
+groups = {}
+for m in json.loads(os.environ["I"]):
+    groups.setdefault(posixpath.dirname(m["path"].rstrip("/")), []).append(m["id"])
+for root, ids in groups.items():
+    print(json.dumps({os.environ["K"]: ids, "rootFolderPath": root, "moveFiles": True}))' | while IFS= read -r body; do
+        arr_api "$svc" "$user" PUT "/$kind/editor" "$body" >/dev/null || exit 1
+    done
+}
+
 # Dossier racine. $1=service $2=utilisateur
 arr_root_folder() {
     local svc="$1" user="$2" path body qp mp
@@ -284,6 +347,7 @@ arr_chain() {
         arr_root_folder "$svc" "$user" || { echo "$svc-$user : dossier racine non créé" >&2; rc=1; }
         if [ "$svc" != readarr ]; then
             arr_french_profiles "$svc" "$user" || { echo "$svc-$user : profils en français non appliqués" >&2; rc=1; }
+            arr_naming "$svc" "$user" || { echo "$svc-$user : nommage pour Jellyfin non appliqué" >&2; rc=1; }
         fi
         if [ -n "$qkey" ]; then
             arr_download_client "$svc" "$user" "$qkey" || { echo "$svc-$user : client qBittorrent non ajouté" >&2; rc=1; }
