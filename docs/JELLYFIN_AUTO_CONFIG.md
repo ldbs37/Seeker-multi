@@ -70,7 +70,7 @@ est configuré par `arr_setup.sh` (`lib_seerr.sh`) :
   prolongée chaque jour par le timer `seedbox-seerr-sessions`) ; le bouton
   « Déconnexion » de Seerr déconnecte d'Authelia ;
 - adresse : `https://seerr-<user>.votre-domaine.com` (Seerr ne gère pas de
-  sous-chemin ; `https://<user>.votre-domaine.com/seerr` y renvoie) ;
+  sous-chemin) ;
 - ses Sonarr / Radarr (profil HD-1080p, `/data/tv`, `/data/movies`).
 - pas de connexion locale (mot de passe Seerr), pas d'inscription d'autres
   comptes Jellyfin ;

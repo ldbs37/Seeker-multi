@@ -298,15 +298,6 @@ traefik_user_labels() {
             echo "      - \"traefik.http.middlewares.${r}-logout.replacepath.path=/api/logout\""
             echo "      - \"traefik.http.routers.${r}-logout.middlewares=${r}-logout\""
             echo "      - \"traefik.http.routers.${r}.service=${r}\""
-            # Seerr ne gère pas de sous-chemin : https://<user>.<domaine>/seerr
-            # renvoie vers son sous-domaine
-            echo "      - \"traefik.http.routers.${r}-path.rule=Host(\`${user}.${DOMAIN}\`) && PathPrefix(\`/seerr\`)\""
-            echo "      - \"traefik.http.routers.${r}-path.entrypoints=websecure\""
-            echo "      - \"traefik.http.routers.${r}-path.tls.certresolver=letsencrypt\""
-            echo "      - \"traefik.http.routers.${r}-path.service=${r}\""
-            echo "      - \"traefik.http.middlewares.${r}-path.redirectregex.regex=^.*\$\$\""
-            echo "      - \"traefik.http.middlewares.${r}-path.redirectregex.replacement=https://${host}/\""
-            echo "      - \"traefik.http.routers.${r}-path.middlewares=authelia@docker,${r}-path\""
             ;;
         calibre)
             echo "      - \"traefik.http.middlewares.${r}-hdr.headers.customrequestheaders.X-Script-Name=/calibre\""
