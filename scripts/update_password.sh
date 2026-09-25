@@ -27,7 +27,6 @@ INSTALL_DIR="/opt/seedbox"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AUTHELIA_DB="$INSTALL_DIR/authelia/users_database.yml"
 AUTHELIA_IMAGE="authelia/authelia:4.39.28"
-JELLYFIN_URL="http://localhost:8096"
 
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/lib_qbittorrent.sh" || error "lib_qbittorrent.sh introuvable"
@@ -37,6 +36,10 @@ source "$SCRIPT_DIR/lib_password.sh" || error "lib_password.sh introuvable"
 source "$SCRIPT_DIR/lib_traefik.sh" || error "lib_traefik.sh introuvable"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/lib_filebrowser.sh" || error "lib_filebrowser.sh introuvable"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/lib_lang.sh" || error "lib_lang.sh introuvable"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/lib_jellyfin.sh" || error "lib_jellyfin.sh introuvable"
 
 if [ $# -lt 1 ]; then
     echo "Usage: $0 <username> [nouveau_mot_de_passe]"
@@ -162,21 +165,16 @@ if container_exists "$FB" && [ -f "$FB_CFG" ] && grep -qE '^      enabled: true$
 fi
 
 #######################
-# 5. Jellyfin (si une clé API a été configurée)
+# 5. Jellyfin : compte créé s'il manque (avec ses bibliothèques), sinon
+#    mot de passe mis à jour
 #######################
-if container_exists jellyfin && [ -f "$INSTALL_DIR/.jellyfin_api" ]; then
-    # shellcheck source=/dev/null
-    source "$INSTALL_DIR/.jellyfin_api"
-    JID=$(curl -s "$JELLYFIN_URL/Users" -H "X-Emby-Token: ${JELLYFIN_API_KEY:-}" 2>/dev/null \
-          | python3 -c "import json,sys;print(next((u['Id'] for u in json.load(sys.stdin) if u['Name']=='$USERNAME'),''))" 2>/dev/null) || true
-    if [ -n "$JID" ]; then
-        code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$JELLYFIN_URL/Users/$JID/Password" \
-               -H "Content-Type: application/json" -H "X-Emby-Token: $JELLYFIN_API_KEY" \
-               -d "{\"NewPw\":\"$(json_escape "$NEW_PASSWORD")\",\"ResetPassword\":false}")
-        if [[ "$code" == 2* ]]; then UPDATED+=("Jellyfin")
-        else warn "Jellyfin a refusé la mise à jour (HTTP $code)"; fi
+if container_exists jellyfin && jellyfin_wait && jellyfin_wizard_done; then
+    log "Mise à jour du compte Jellyfin..."
+    if jellyfin_user_sync "$USERNAME" "$NEW_PASSWORD"; then
+        UPDATED+=("Jellyfin")
+        [ "$USE_TRAEFIK" = true ] && { jellyfin_sso_ensure || true; }
     else
-        info "Pas de compte Jellyfin pour $USERNAME"
+        warn "Impossible de mettre à jour Jellyfin"
     fi
 fi
 

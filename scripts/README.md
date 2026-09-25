@@ -76,7 +76,7 @@ sudo ./update_quota.sh john 1000   # 1 To ; 0 = illimité
 ```
 Quotas **projet** : la limite porte sur le dossier `data/users/<user>`.
 
-### `configure_homarr.sh`, `configure_jellyfin_user.sh`, `disable_arr_auth.sh`
+### `configure_homarr.sh`, `configure_jellyfin_user.sh <user> [mdp]`, `disable_arr_auth.sh`
 Régénère le tableau de bord Homarr d'un utilisateur ; crée/met à jour son
 compte Jellyfin (accès limité à ses bibliothèques) ; passe l'authentification
 d'un *arr en « External » (derrière Authelia).
@@ -174,7 +174,7 @@ utilisez `/data/tv`, `/data/movies` ou `/data/books` comme dossier racine et
 Sourcées par les scripts, source unique de vérité :
 `lib_ports.sh` (UID/ports), `lib_services.sh` (blocs compose utilisateur),
 `lib_traefik.sh` (routage), `lib_compose_base.sh` (services système),
-`lib_qbittorrent.sh` (hash PBKDF2), `lib_filebrowser.sh` (FileBrowser Quantum), `lib_lang.sh` (langue des interfaces), `lib_autoconfig.sh` (Portainer/Jellyfin),
+`lib_qbittorrent.sh` (hash PBKDF2), `lib_filebrowser.sh` (FileBrowser Quantum), `lib_lang.sh` (langue des interfaces), `lib_jellyfin.sh` (comptes Jellyfin, connexion Authelia), `lib_autoconfig.sh` (Portainer/Jellyfin),
 `lib_quota.sh` (quotas projet).
 
 ## 🛠️ Dépannage

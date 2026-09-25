@@ -38,7 +38,7 @@ AUTHELIA_IMAGE="authelia/authelia:4.39.28"
 IS_ADMIN=false
 
 # Bibliothèques partagées
-for lib in lib_ports lib_traefik lib_qbittorrent lib_services lib_quota lib_password; do
+for lib in lib_ports lib_traefik lib_qbittorrent lib_services lib_quota lib_password lib_jellyfin; do
     [ -f "$SCRIPT_DIR/$lib.sh" ] || error "$lib.sh introuvable dans $SCRIPT_DIR"
     # shellcheck source=/dev/null
     source "$SCRIPT_DIR/$lib.sh"
@@ -269,6 +269,17 @@ docker restart authelia >/dev/null 2>&1 || warn "Redémarrez Authelia pour activ
 
 # Homarr partagé (mode Traefik) : tableau de bord de l'utilisateur
 [ "$USE_TRAEFIK" = true ] && { "$SCRIPT_DIR/homarr_provision.sh" "$USERNAME" || true; }
+
+# Jellyfin : compte (même mot de passe), SES bibliothèques ; connexion via
+# Authelia (droits par groupe). Pendant l'installation, l'assistant Jellyfin
+# n'est pas encore terminé : install.sh s'en charge ensuite.
+if grep -q "^  jellyfin:" "$DOCKER_COMPOSE_FILE" && jellyfin_wait && jellyfin_wizard_done; then
+    log "Jellyfin : compte et bibliothèques de $USERNAME..."
+    jellyfin_user_sync "$USERNAME" "$PASSWORD" || warn "Compte Jellyfin incomplet (relancez : $SCRIPT_DIR/update_password.sh $USERNAME)"
+    if [ "$USE_TRAEFIK" = true ]; then
+        jellyfin_sso_ensure || warn "Connexion Authelia de Jellyfin non mise à jour (relancez generate_traefik_labels.sh)"
+    fi
+fi
 
 #######################
 # Résumé

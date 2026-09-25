@@ -29,7 +29,7 @@ Une solution **simple et efficace** de seedbox multi-utilisateurs avec authentif
 
 ### 🛡️ Services Système (accès administrateur)
 - 🔐 **Authelia** - Authentification centralisée
-- 🎥 **Plex / Jellyfin** - Serveurs de streaming média
+- 🎥 **Plex / Jellyfin** - Serveurs de streaming média (Jellyfin : comptes et bibliothèques privées automatiques, connexion via Authelia — voir [docs/JELLYFIN_AUTO_CONFIG.md](docs/JELLYFIN_AUTO_CONFIG.md))
 - 🚦 **FlareSolverr** - Bypass Cloudflare
 - 🐋 **Portainer** - Gestion Docker via interface web
 
@@ -348,7 +348,7 @@ sudo ./update_password.sh <username> [nouveau_mot_de_passe]
 **Ce qui est mis à jour automatiquement :**
 - ✅ **Mot de passe du compte système** (compte de service sans accès SSH : les fichiers se gèrent via FileBrowser Quantum)
 - ✅ **Mot de passe Authelia** (authentification centralisée)
-- ✅ **Mot de passe Jellyfin** (si configuré avec clé API)
+- ✅ **Mot de passe Jellyfin** (compte créé s'il manque)
 - ✅ **Mot de passe qBittorrent** (hash PBKDF2 dans fichier config)
 - ✅ **Mot de passe du gestionnaire de fichiers** (mode port direct ; en mode Traefik, connexion unique)
 

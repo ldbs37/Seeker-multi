@@ -77,8 +77,6 @@ PORTAINER_USER=""
 PORTAINER_PASSWORD=""
 
 # Identifiants Jellyfin
-JELLYFIN_USER=""
-JELLYFIN_PASSWORD=""
 
 #######################
 # Fonctions utilitaires
@@ -698,27 +696,8 @@ configure_installation() {
     read -r -p "Installer Jellyfin (alternative open-source à Plex) ? (o/N): " input
     if [[ $input =~ ^[oO]$ ]]; then
         INSTALL_JELLYFIN=true
-
-        # Configurer les identifiants Jellyfin
-        echo -e "\n${BLUE}Configuration Jellyfin:${NC}"
-        read -r -p "Nom d'utilisateur admin [admin]: " JELLYFIN_USER
-        JELLYFIN_USER=${JELLYFIN_USER:-"admin"}
-
-        while true; do
-            read -r -s -p "Mot de passe admin (min 8 caractères): " JELLYFIN_PASSWORD
-            echo
-            if [ ${#JELLYFIN_PASSWORD} -ge 8 ]; then
-                read -r -s -p "Confirmez le mot de passe: " JELLYFIN_PASSWORD_CONFIRM
-                echo
-                if [ "$JELLYFIN_PASSWORD" = "$JELLYFIN_PASSWORD_CONFIRM" ]; then
-                    break
-                else
-                    warn "Les mots de passe ne correspondent pas"
-                fi
-            else
-                warn "Le mot de passe doit contenir au moins 8 caractères"
-            fi
-        done
+        info "Jellyfin : administrateur = premier utilisateur (même mot de passe) ;"
+        info "chaque utilisateur a son compte et ses bibliothèques privées."
     fi
 
     # Vérification conflit Plex/Jellyfin
@@ -731,8 +710,6 @@ configure_installation() {
         read -r -p "Voulez-vous annuler l'installation de Jellyfin ? (O/n): " confirm
         if [[ ! $confirm =~ ^[nN]$ ]]; then
             INSTALL_JELLYFIN=false
-            JELLYFIN_USER=""
-            JELLYFIN_PASSWORD=""
             info "Installation de Jellyfin annulée"
         else
             warn "Les deux services seront installés - des conflits peuvent survenir"
@@ -899,8 +876,23 @@ deploy_services() {
     if [ "$INSTALL_PORTAINER" = true ] && [ -n "$PORTAINER_USER" ] && [ -n "$PORTAINER_PASSWORD" ]; then
         autoconfig_portainer "$PORTAINER_USER" "$PORTAINER_PASSWORD" || true
     fi
-    if [ "$INSTALL_JELLYFIN" = true ] && [ -n "$JELLYFIN_USER" ] && [ -n "$JELLYFIN_PASSWORD" ]; then
-        autoconfig_jellyfin "$JELLYFIN_USER" "$JELLYFIN_PASSWORD" || true
+    # Jellyfin : administrateur = premier utilisateur (même mot de passe),
+    # comptes et bibliothèques privées de chacun, connexion via Authelia
+    if [ "$INSTALL_JELLYFIN" = true ]; then
+        log "Configuration automatique de Jellyfin..."
+        if jellyfin_wait && jellyfin_wizard_ensure "${INITIAL_USERS[0]}" "${INITIAL_PASSWORDS[0]}"; then
+            local j
+            for ((j=0; j<${#INITIAL_USERS[@]}; j++)); do
+                jellyfin_user_sync "${INITIAL_USERS[$j]}" "${INITIAL_PASSWORDS[$j]}" \
+                    || warn "Compte Jellyfin de ${INITIAL_USERS[$j]} incomplet"
+            done
+            if [ "$USE_TRAEFIK" = "true" ]; then
+                jellyfin_sso_ensure || warn "Connexion Authelia de Jellyfin non configurée (relancez generate_traefik_labels.sh)"
+            fi
+            log "✓ Jellyfin configuré (${INITIAL_USERS[0]} administrateur)"
+        else
+            warn "Jellyfin n'est pas prêt : relancez generate_traefik_labels.sh (ou terminez l'assistant sur http://<serveur>:8096)"
+        fi
     fi
 
     # Homarr partagé : configuration initiale sans assistant (groupe admins,
@@ -975,6 +967,10 @@ main() {
         local hrc=0
         homarr_prepare || hrc=$?
         [ "$hrc" -ge 2 ] && warn "Connexion unique Homarr non configurée (relancez generate_traefik_labels.sh)"
+        # Client OIDC Jellyfin (bouton « Se connecter avec Authelia »)
+        if [ "$INSTALL_JELLYFIN" = true ]; then
+            authelia_ensure_oidc_jellyfin "$INSTALL_DIR/authelia/configuration.yml" || true
+        fi
     fi
     show_progress 8 10 "Installation"
 

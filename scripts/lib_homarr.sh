@@ -14,6 +14,10 @@
 
 HOMARR_AUTHELIA_IMAGE="authelia/authelia:4.39.28"
 
+# Clé d'API Jellyfin (jellyfin_ensure_api_key), pour l'intégration Jellyfin
+# shellcheck source=lib_jellyfin.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib_jellyfin.sh"
+
 # Ajoute les secrets manquants au .env (idempotent, jamais régénérés)
 homarr_ensure_env() {
     local env="$INSTALL_DIR/.env"
@@ -257,39 +261,3 @@ seerr_api_key() {
         "$INSTALL_DIR/seerr/$1/settings.json" 2>/dev/null
 }
 
-# Clé d'API Jellyfin du serveur (administrateur). Enregistrée dans
-# $INSTALL_DIR/.jellyfin_api (aussi utilisé par update_password.sh) ; sinon
-# reprise d'une clé existante de Jellyfin, ou création (table ApiKeys, Jellyfin
-# arrêté le temps de l'écriture). Affiche la clé.
-jellyfin_ensure_api_key() {
-    local f="$INSTALL_DIR/.jellyfin_api" db key
-    key=$(sed -n 's/^JELLYFIN_API_KEY=\([0-9a-f]\{32\}\)$/\1/p' "$f" 2>/dev/null)
-    if [ -z "$key" ]; then
-        db=$(find "$INSTALL_DIR/jellyfin/config" -maxdepth 3 -name jellyfin.db 2>/dev/null | head -1)
-        [ -n "$db" ] || return 1
-        key=$(python3 -c '
-import sqlite3, sys
-db = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
-row = db.execute("select AccessToken from ApiKeys where Name = ? order by Id limit 1", ("seedbox",)).fetchone()
-print(row[0] if row else "")' "$db" 2>/dev/null)
-        if [ -z "$key" ]; then
-            key=$(openssl rand -hex 16)
-            docker stop jellyfin >/dev/null 2>&1 || true
-            python3 -c '
-import datetime, sqlite3, sys
-db = sqlite3.connect(sys.argv[1])
-now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-cols = {c[1] for c in db.execute("pragma table_info(ApiKeys)")}
-row = {"DateCreated": now, "DateLastActivity": now, "Name": "seedbox", "AccessToken": sys.argv[2]}
-row = {k: v for k, v in row.items() if k in cols}
-db.execute("insert into ApiKeys(%s) values (%s)" % (",".join(row), ",".join("?" * len(row))), list(row.values()))
-db.commit()' "$db" "$key"
-            local rc=$?
-            docker start jellyfin >/dev/null 2>&1 || true
-            [ "$rc" -eq 0 ] || return 1
-        fi
-        printf 'JELLYFIN_URL=http://localhost:8096\nJELLYFIN_API_KEY=%s\n' "$key" > "$f"
-        chmod 600 "$f"
-    fi
-    echo "$key"
-}

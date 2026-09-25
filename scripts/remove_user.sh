@@ -26,7 +26,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DOCKER_COMPOSE_FILE="$INSTALL_DIR/docker-compose.yml"
 AUTHELIA_DB="$INSTALL_DIR/authelia/users_database.yml"
 
-for lib in lib_ports lib_traefik lib_services lib_quota; do
+for lib in lib_ports lib_traefik lib_services lib_quota lib_password lib_jellyfin; do
     [ -f "$SCRIPT_DIR/$lib.sh" ] || error "$lib.sh introuvable dans $SCRIPT_DIR"
     # shellcheck source=/dev/null
     source "$SCRIPT_DIR/$lib.sh"
@@ -76,6 +76,10 @@ USER_ID=$(id -u "$USERNAME")
 
 # Homarr partagé : tableau de bord et applis de l'utilisateur
 [ -x "$SCRIPT_DIR/homarr_provision.sh" ] && { "$SCRIPT_DIR/homarr_provision.sh" --remove "$USERNAME" >/dev/null 2>&1 || true; }
+# Jellyfin : compte et bibliothèques (fichiers conservés)
+if grep -q "^  jellyfin:" "$DOCKER_COMPOSE_FILE" 2>/dev/null && jellyfin_wait; then
+    jellyfin_user_remove "$USERNAME" >/dev/null 2>&1 && log "Compte Jellyfin de $USERNAME supprimé" || true
+fi
 
 # 1) Arrêt et suppression des conteneurs de l'utilisateur
 log "Arrêt des services..."

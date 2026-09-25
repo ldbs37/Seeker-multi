@@ -28,7 +28,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DOCKER_COMPOSE_FILE="$INSTALL_DIR/docker-compose.yml"
 ENV_FILE="$INSTALL_DIR/.env"
 
-for lib in lib_ports lib_traefik lib_qbittorrent lib_services lib_compose_base lib_homarr; do
+for lib in lib_ports lib_traefik lib_qbittorrent lib_services lib_compose_base lib_homarr lib_password; do
     [ -f "$SCRIPT_DIR/$lib.sh" ] || error "$lib.sh introuvable dans $SCRIPT_DIR"
     # shellcheck source=/dev/null
     source "$SCRIPT_DIR/$lib.sh"
@@ -184,6 +184,10 @@ done
 # Accueil https://<domaine> (Homarr partagé) : règle d'accès + redirection
 # après connexion (configurations Authelia antérieures), client OIDC
 authelia_ensure_home "$INSTALL_DIR/authelia/configuration.yml" "$DOMAIN" && AUTHELIA_CHANGED=true
+# Client OIDC Jellyfin (bouton « Se connecter avec Authelia »)
+if grep -q "^  jellyfin:" "$DOCKER_COMPOSE_FILE"; then
+    authelia_ensure_oidc_jellyfin "$INSTALL_DIR/authelia/configuration.yml" && AUTHELIA_CHANGED=true
+fi
 if [ "$AUTHELIA_CHANGED" = true ]; then
     docker restart authelia >/dev/null 2>&1 \
         && log "✓ Authelia : connexion unique Homarr + redirection vers le tableau de bord" \
@@ -199,6 +203,18 @@ info "Les certificats Let's Encrypt sont obtenus au premier accès (DNS *.${DOMA
 # Homarr partagé : configuration initiale (assistant, groupe admins, compte
 # de service et clé d'API) si nécessaire
 homarr_bootstrap && log "✓ Homarr : configuration initiale automatique (groupe admins, clé d'API)"
+
+# Jellyfin : assistant terminé si besoin (premier administrateur seedbox),
+# comptes et bibliothèques privées de chaque utilisateur, connexion via
+# Authelia (plugin SSO, droits par groupe)
+if grep -q "^  jellyfin:" "$DOCKER_COMPOSE_FILE"; then
+    log "Jellyfin : comptes, bibliothèques et connexion Authelia..."
+    if jellyfin_sync_all; then
+        log "✓ Jellyfin configuré (bouton « Se connecter avec Authelia » sur https://jellyfin.$DOMAIN)"
+    else
+        warn "Configuration de Jellyfin incomplète (docker logs jellyfin)"
+    fi
+fi
 
 # Homarr partagé : tableaux de bord des utilisateurs (si la clé d'API est définie)
 [ -x "$SCRIPT_DIR/homarr_provision.sh" ] && { "$SCRIPT_DIR/homarr_provision.sh" --all || true; }

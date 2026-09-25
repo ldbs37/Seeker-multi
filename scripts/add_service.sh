@@ -24,7 +24,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DOCKER_COMPOSE_FILE="$INSTALL_DIR/docker-compose.yml"
 ENV_FILE="$INSTALL_DIR/.env"
 
-for lib in lib_ports lib_traefik lib_services lib_compose_base lib_autoconfig; do
+for lib in lib_ports lib_traefik lib_services lib_compose_base lib_autoconfig lib_password lib_jellyfin; do
     [ -f "$SCRIPT_DIR/$lib.sh" ] || error "$lib.sh introuvable dans $SCRIPT_DIR"
     # shellcheck source=/dev/null
     source "$SCRIPT_DIR/$lib.sh"
@@ -62,8 +62,9 @@ fi
 
 # Identifiants admin demandés AVANT toute modification
 ADMIN_USER=""; ADMIN_PASS=""
-if [ "$SERVICE" = portainer ] || [ "$SERVICE" = jellyfin ]; then
-    minlen=8; [ "$SERVICE" = portainer ] && minlen=12
+# (Jellyfin : administrateur = premier administrateur seedbox, automatique)
+if [ "$SERVICE" = portainer ]; then
+    minlen=12
     read -r -p "Nom d'utilisateur admin $SERVICE [admin]: " ADMIN_USER
     ADMIN_USER=${ADMIN_USER:-admin}
     while true; do
@@ -105,7 +106,18 @@ compose_cmd up -d "$SERVICE"
 
 case "$SERVICE" in
     portainer) autoconfig_portainer "$ADMIN_USER" "$ADMIN_PASS" || true ;;
-    jellyfin)  autoconfig_jellyfin "$ADMIN_USER" "$ADMIN_PASS" || true ;;
+    jellyfin)
+        # Comptes et bibliothèques de chaque utilisateur, administrateur =
+        # premier administrateur seedbox, connexion via Authelia (client OIDC)
+        if [ "$USE_TRAEFIK" = true ] && authelia_ensure_oidc_jellyfin "$INSTALL_DIR/authelia/configuration.yml"; then
+            docker restart authelia >/dev/null 2>&1 || warn "Redémarrez Authelia : docker restart authelia"
+        fi
+        if jellyfin_sync_all; then
+            log "✓ Jellyfin : comptes et bibliothèques des utilisateurs configurés"
+            info "Mot de passe Jellyfin (applis TV/mobile) : sudo $SCRIPT_DIR/update_password.sh <utilisateur>"
+        else
+            warn "Configuration automatique de Jellyfin incomplète : relancez generate_traefik_labels.sh"
+        fi ;;
     plex)      # réseau hôte : le pare-feu s'applique
                command -v ufw &>/dev/null && { ufw allow 32400/tcp comment 'Plex' >/dev/null 2>&1 || true; } ;;
 esac
