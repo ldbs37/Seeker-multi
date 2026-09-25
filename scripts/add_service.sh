@@ -33,8 +33,8 @@ done
 usage() {
     echo "Usage: $0 <service_name>"
     echo ""
-    echo "Streaming:   plex, jellyfin"
-    echo "Monitoring:  scrutiny, uptime-kuma, dashdot, tautulli"
+    echo "Streaming:   jellyfin"
+    echo "Monitoring:  scrutiny, uptime-kuma, dashdot"
     echo "Gestion:     portainer"
     echo "Maintenance: watchtower, duplicati"
     exit 1
@@ -54,11 +54,7 @@ fi
 envget() { grep "^$1=" "$ENV_FILE" | cut -d'=' -f2; }
 TZ=$(envget TZ); DOMAIN=$(envget DOMAIN); ADMIN_UID=$(envget ADMIN_UID); ADMIN_GID=$(envget ADMIN_GID)
 TZ=${TZ:-Europe/Paris}; ADMIN_UID=${ADMIN_UID:-1000}; ADMIN_GID=${ADMIN_GID:-1000}
-traefik_detect "$ENV_FILE"
-
-if [ "$SERVICE" = plex ] && grep -q "^  jellyfin:" "$DOCKER_COMPOSE_FILE"; then
-    warn "Plex et Jellyfin utilisent tous deux le port UDP 1900 (DLNA) : conflit possible"
-fi
+traefik_require "$ENV_FILE"
 
 # Identifiants admin demandés AVANT toute modification
 ADMIN_USER=""; ADMIN_PASS=""
@@ -94,7 +90,7 @@ cp "$ENV_FILE" "$ENV_FILE.bak"
 generate_docker_compose "$TMP"
 [ ${#KEEP[@]} -gt 0 ] && compose_extract_blocks "${DOCKER_COMPOSE_FILE}.bak" "${KEEP[@]}" >> "$TMP"
 # Réseaux privés des utilisateurs (déclarations, Traefik et Homarr)
-[ "$USE_TRAEFIK" = true ] && { compose_sync_user_nets "$TMP" || true; }
+compose_sync_user_nets "$TMP" || true
 
 if ! compose_validate "$TMP"; then
     rm -f "$TMP"; cp "$ENV_FILE.bak" "$ENV_FILE"
@@ -111,7 +107,7 @@ case "$SERVICE" in
     jellyfin)
         # Comptes et bibliothèques de chaque utilisateur, administrateur =
         # premier administrateur seedbox, connexion via Authelia (client OIDC)
-        if [ "$USE_TRAEFIK" = true ] && authelia_ensure_oidc_jellyfin "$INSTALL_DIR/authelia/configuration.yml"; then
+        if authelia_ensure_oidc_jellyfin "$INSTALL_DIR/authelia/configuration.yml"; then
             docker restart authelia >/dev/null 2>&1 || warn "Redémarrez Authelia : docker restart authelia"
         fi
         if jellyfin_sync_all; then
@@ -122,8 +118,6 @@ case "$SERVICE" in
         else
             warn "Configuration automatique de Jellyfin incomplète : relancez generate_traefik_labels.sh"
         fi ;;
-    plex)      # réseau hôte : le pare-feu s'applique
-               command -v ufw &>/dev/null && { ufw allow 32400/tcp comment 'Plex' >/dev/null 2>&1 || true; } ;;
 esac
 
 sleep 3
@@ -135,16 +129,9 @@ fi
 
 # Accès
 case "$SERVICE" in
-    plex)       info "Accès : http://<serveur>:32400/web" ;;
-    jellyfin)   if [ "$USE_TRAEFIK" = true ]; then info "Accès : https://jellyfin.$DOMAIN"; else info "Accès : http://<serveur>:8096"; fi ;;
+    jellyfin)   info "Accès : https://jellyfin.$DOMAIN" ;;
     watchtower) info "Mises à jour automatiques chaque nuit à 4h" ;;
     *)
         sub=$SERVICE; [ "$SERVICE" = uptime-kuma ] && sub=uptime
-        port=$(grep -A12 "^  ${SERVICE}:" "$DOCKER_COMPOSE_FILE" | grep -oE ':[0-9]+:[0-9]+"' | head -1 | cut -d: -f2)
-        if [ "$USE_TRAEFIK" = true ]; then
-            info "Accès (administrateurs, SSO) : https://${sub}.$DOMAIN"
-        else
-            info "Accès local uniquement (sécurité) : tunnel SSH puis http://localhost:${port}"
-            info "   ssh -L ${port}:localhost:${port} <utilisateur>@<serveur>"
-        fi ;;
+        info "Accès (administrateurs, SSO) : https://${sub}.$DOMAIN"
 esac

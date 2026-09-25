@@ -148,8 +148,8 @@ fi
 #######################
 # 4. Gestion de fichiers (FileBrowser Quantum)
 #######################
-# Connexion unique (mode Traefik) : pas de mot de passe propre. Port direct :
-# mot de passe dans sa configuration, réappliqué au redémarrage.
+# Connexion unique : pas de mot de passe propre. Repli (en-tête pas encore
+# créé) : mot de passe dans sa configuration, réappliqué au redémarrage.
 FB="filebrowser-$USERNAME"
 FB_CFG="$USER_DIR/config/filebrowser/config.yaml"
 traefik_detect "$INSTALL_DIR/.env"
@@ -172,7 +172,7 @@ if container_exists jellyfin && jellyfin_wait && jellyfin_wizard_done; then
     log "Mise à jour du compte Jellyfin..."
     if jellyfin_user_sync "$USERNAME" "$NEW_PASSWORD"; then
         UPDATED+=("Jellyfin")
-        [ "$USE_TRAEFIK" = true ] && { jellyfin_sso_ensure || true; }
+        jellyfin_sso_ensure || true
     else
         warn "Impossible de mettre à jour Jellyfin"
     fi

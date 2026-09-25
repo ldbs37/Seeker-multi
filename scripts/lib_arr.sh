@@ -16,7 +16,7 @@
 # Idempotent. Vérifié sur Sonarr 4.0.20, Radarr 6.4.4, Prowlarr 2.6.5 et
 # qBittorrent 5.2.3 (binaires officiels).
 #
-# Variables : INSTALL_DIR, USE_TRAEFIK. Fonctions de lib_traefik.sh
+# Variables : INSTALL_DIR. Fonctions de lib_traefik.sh
 # (traefik_service_port) et lib_homarr.sh
 # (arr_api_key, qbit_ensure_api_key).
 #######################
@@ -191,12 +191,10 @@ arr_chain() {
     [ ${#have[@]} -gt 0 ] || return 0
     for svc in "${have[@]}"; do
         arr_wait "$svc" "$user" || { echo "$svc-$user ne répond pas" >&2; rc=1; continue; }
-        if [ "${USE_TRAEFIK:-false}" = true ]; then
-            if ! arr_isolated "$svc" "$user"; then
-                echo "$svc-$user : hors du réseau privé de $user, connexion unique non appliquée (lancez generate_traefik_labels.sh)" >&2; rc=1
-            else
-                arr_external "$svc" "$user" || { echo "$svc-$user : connexion unique non appliquée" >&2; rc=1; }
-            fi
+        if ! arr_isolated "$svc" "$user"; then
+            echo "$svc-$user : hors du réseau privé de $user, connexion unique non appliquée (lancez generate_traefik_labels.sh)" >&2; rc=1
+        else
+            arr_external "$svc" "$user" || { echo "$svc-$user : connexion unique non appliquée" >&2; rc=1; }
         fi
     done
     qkey=""

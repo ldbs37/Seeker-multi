@@ -104,13 +104,9 @@ api_block() {
 EOF
 }
 
+# Tuile « Mes services » des tableaux de bord Homarr
 refresh_homarr() {
-    local u uid
-    while IFS=: read -r u _ uid _; do
-        [ "$uid" -ge "$SEEDBOX_UID_MIN" ] && [ "$uid" -le "$SEEDBOX_UID_MAX" ] || continue
-        [ -d "$INSTALL_DIR/data/users/$u" ] || continue
-        "$SCRIPT_DIR/configure_homarr.sh" "$u" >/dev/null 2>&1 || warn "Homarr de $u non régénéré"
-    done < /etc/passwd
+    "$SCRIPT_DIR/homarr_provision.sh" --all >/dev/null 2>&1 || warn "Tableaux de bord Homarr non mis à jour (homarr_provision.sh --all)"
 }
 
 #######################
@@ -118,8 +114,9 @@ refresh_homarr() {
 #######################
 if [ "$MODE" = --disable ]; then
     log "Désactivation de l'API libre-service..."
-    systemctl disable --now seedbox-api-worker.path >/dev/null 2>&1 || true
-    rm -f "$UNIT_DIR/seedbox-api-worker.path" "$UNIT_DIR/seedbox-api-worker.service"
+    systemctl disable --now seedbox-api-worker.path seedbox-api-worker.timer >/dev/null 2>&1 || true
+    rm -f "$UNIT_DIR/seedbox-api-worker.path" "$UNIT_DIR/seedbox-api-worker.timer" \
+          "$UNIT_DIR/seedbox-api-worker.service"
     systemctl daemon-reload 2>/dev/null || true
     remove_block
     docker rm -f seedbox-api >/dev/null 2>&1 || true
@@ -137,9 +134,7 @@ fi
 #######################
 # Activation / mise à jour
 #######################
-traefik_detect "$ENV_FILE"
-[ "$USE_TRAEFIK" = true ] && [ -n "$DOMAIN" ] \
-    || error "L'API nécessite le mode Traefik + Authelia (identification des utilisateurs). Voir setup_traefik.sh"
+traefik_require "$ENV_FILE"
 grep -q '^  traefik:' "$DOCKER_COMPOSE_FILE" || error "Service traefik absent du docker-compose.yml"
 [[ "$DOMAIN" =~ ^[a-z0-9.-]+$ ]] || error "Domaine inattendu : $DOMAIN"
 command -v systemctl >/dev/null || error "systemd requis"
@@ -181,8 +176,21 @@ Unit=seedbox-api-worker.service
 [Install]
 WantedBy=multi-user.target
 EOF
+# État des conteneurs (voyants de la page) rafraîchi chaque minute
+cat > "$UNIT_DIR/seedbox-api-worker.timer" << EOF
+[Unit]
+Description=Seedbox - état des services pour l'API libre-service
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+Unit=seedbox-api-worker.service
+
+[Install]
+WantedBy=timers.target
+EOF
 systemctl daemon-reload
-systemctl enable --now seedbox-api-worker.path >/dev/null
+systemctl enable --now seedbox-api-worker.path seedbox-api-worker.timer >/dev/null
 
 # Conteneur (bloc régénéré à chaque fois : suit un changement de domaine)
 cp "$DOCKER_COMPOSE_FILE" "${DOCKER_COMPOSE_FILE}.bak"
@@ -203,5 +211,5 @@ refresh_homarr
 
 log "${GREEN}✓${NC} API libre-service active"
 info "Chaque utilisateur : https://<utilisateur>.${DOMAIN}/seedbox-api/ (lien sur Homarr)"
-info "Services proposés : sonarr radarr readarr bazarr prowlarr seerr calibre"
+info "Services proposés : sonarr radarr prowlarr seerr calibre ; redémarrage de tous ses services"
 info "Journal des actions : journalctl -t seedbox-api"

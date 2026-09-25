@@ -212,7 +212,7 @@ inutile, et il est vérifié avant.
 | Sonarr, Radarr, Prowlarr | Mode « External » : aucune page de connexion (l'API exige toujours sa clé) |
 | qBittorrent | Seule l'adresse fixe de Traefik, sur le réseau interne `seedbox_sso`, est dispensée de mot de passe |
 | FileBrowser Quantum, Calibre-web | En-tête au nom secret posé par Traefik après Authelia (nom de l'utilisateur) |
-| Seerr | Compte Jellyfin (Plex, Emby) |
+| Seerr | Compte Jellyfin |
 
 Liens de partage publics FileBrowser Quantum : `…/drive/public/`.
 

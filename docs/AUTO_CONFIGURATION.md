@@ -34,15 +34,8 @@ Ces services nécessitent une configuration manuelle lors du premier accès via 
 - **Port:** 3001
 - **Auto-configuration:** ✗ Non supporté
 - **Raison:** Pas d'API de création d'utilisateur initial, pas de variables d'environnement
-- **Configuration:** Accédez à `http://votre-serveur:3001` et créez le compte admin via l'interface web
+- **Configuration:** Accédez à `https://uptime.votre-domaine.com` et créez le compte admin via l'interface web
 - **Note:** Feature requests ouverts (#1185, #4277) pour ajouter cette fonctionnalité
-
-### Tautulli (Statistiques Plex)
-- **Port:** 8181
-- **Auto-configuration:** ✗ Non supporté nativement
-- **Raison:** Pas de variables d'environnement pour la configuration initiale
-- **Configuration:** Accédez à `http://votre-serveur:8181` et suivez le wizard de configuration
-- **Alternative:** Possibilité de pré-configurer le fichier `config.ini` (non implémenté)
 
 ### Dashdot (Monitoring Système)
 - **Port:** 3002
@@ -57,7 +50,7 @@ Ces services nécessitent une configuration manuelle lors du premier accès via 
 ### Duplicati (Backups)
 - **Port:** 8200
 - **Auto-configuration:** ✗ Non supporté
-- **Configuration:** Accédez à `http://votre-serveur:8200` et configurez lors du premier accès
+- **Configuration:** Accédez à `https://duplicati.votre-domaine.com` et configurez lors du premier accès
 
 ---
 
@@ -66,7 +59,6 @@ Ces services nécessitent une configuration manuelle lors du premier accès via 
 Ces services ne nécessitent pas de configuration d'utilisateur :
 
 - **Watchtower** (Mises à jour automatiques) - Pas d'interface web
-- **Plex** - Utilise l'authentification Plex (compte plex.tv requis)
 
 ---
 
@@ -88,7 +80,7 @@ Confirmez le mot de passe: ************
 ```
 
 ```bash
-Installer Jellyfin (alternative open-source à Plex) ? (o/N): o
+Installer Jellyfin (serveur de streaming) ? (o/N): o
 
 Configuration Jellyfin:
 Nom d'utilisateur admin [admin]: admin
@@ -134,11 +126,6 @@ Le projet [Swizzin](https://github.com/swizzin/swizzin) a été analysé pour id
 - Pas de support de variables d'environnement pour l'utilisateur initial
 - Workaround possible : Manipulation de la base SQLite (non recommandé)
 
-**Tautulli :**
-- Issue GitHub #2309 : Demande de support des variables d'environnement
-- Configuration stockée dans `config.ini`
-- Pré-configuration possible mais non implémentée (complexe)
-
 ---
 
 ## Recommandations
@@ -152,8 +139,7 @@ Le projet [Swizzin](https://github.com/swizzin/swizzin) a été analysé pour id
 ### Pour le Développement Futur
 
 1. **Uptime Kuma** : Surveiller les issues #1185 et #4277 pour le support des variables d'environnement
-2. **Tautulli** : Envisager la pré-configuration du `config.ini` si le besoin se fait sentir
-3. **Autres services** : Évaluer au cas par cas en fonction des demandes utilisateur
+2. **Autres services** : Évaluer au cas par cas en fonction des demandes utilisateur
 
 ---
 
@@ -164,12 +150,10 @@ Le projet [Swizzin](https://github.com/swizzin/swizzin) a été analysé pour id
 | **Portainer** | ✓ | 9000 | Automatique via API |
 | **Jellyfin** | ✓ | 8096 | Automatique via API |
 | **Uptime Kuma** | ✗ | 3001 | Manuelle (web UI) |
-| **Tautulli** | ✗ | 8181 | Manuelle (web UI) |
 | **Dashdot** | N/A | 3002 | Pas d'auth requise |
 | **Scrutiny** | N/A | 8080 | Pas d'auth par défaut |
 | **Duplicati** | ✗ | 8200 | Manuelle (web UI) |
 | **Watchtower** | N/A | - | Pas d'interface |
-| **Plex** | - | 32400 | Compte plex.tv |
 
 ---
 

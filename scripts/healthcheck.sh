@@ -101,16 +101,16 @@ else
 fi
 
 #######################
-# 4) Mode Traefik (si activé)
+# 4) Traefik
 #######################
 section "Traefik / réseau"
 USE_TRAEFIK=false
 [ -f "$ENV_FILE" ] && grep -q '^USE_TRAEFIK=true' "$ENV_FILE" && USE_TRAEFIK=true
 if [ "$USE_TRAEFIK" = true ]; then
     if docker network inspect traefik_proxy >/dev/null 2>&1; then ok "Réseau 'traefik_proxy' présent"
-    else ko "Réseau 'traefik_proxy' MANQUANT (mode Traefik activé)"; fi
+    else ko "Réseau 'traefik_proxy' MANQUANT"; fi
     if docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^traefik$'; then ok "Conteneur Traefik en cours"
-    else ko "Conteneur Traefik absent (mode Traefik activé)"; fi
+    else ko "Conteneur Traefik absent"; fi
     if [ -f "$INSTALL_DIR/traefik/letsencrypt/acme.json" ]; then
         perms=$(stat -c '%a' "$INSTALL_DIR/traefik/letsencrypt/acme.json" 2>/dev/null)
         [ "$perms" = "600" ] && ok "acme.json présent (permissions 600)" || wn "acme.json : permissions $perms (600 attendu)"
@@ -118,7 +118,7 @@ if [ "$USE_TRAEFIK" = true ]; then
         wn "acme.json introuvable (certificats pas encore générés ?)"
     fi
 else
-    ok "Mode port direct (Traefik non requis)"
+    ko "Installation en mode « port direct », plus pris en charge : setup_traefik.sh puis generate_traefik_labels.sh"
 fi
 
 #######################

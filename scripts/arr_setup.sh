@@ -1,7 +1,6 @@
 #!/bin/bash
 #######################
-# arr_setup.sh — Applis d'un utilisateur configurées automatiquement (mode
-# Traefik) :
+# arr_setup.sh — Applis d'un utilisateur configurées automatiquement :
 #   - lib_arr.sh : connexion unique Sonarr/Radarr/Prowlarr (Readarr existant),
 #     dossiers racine, qBittorrent comme client de téléchargement,
 #     Prowlarr → *arr (+ son FlareSolverr) ;
@@ -35,10 +34,7 @@ done
 [ $# -eq 1 ] || { echo "Usage: $0 <user> | --all"; exit 1; }
 [[ $EUID -eq 0 ]] || fail "Ce script doit être exécuté en tant que root"
 [ -f "$DOCKER_COMPOSE_FILE" ] || fail "docker-compose.yml introuvable ($DOCKER_COMPOSE_FILE)"
-traefik_detect "$ENV_FILE"
-# Hors Traefik (ports directs), les *arr gardent leur propre connexion et se
-# configurent à la main (adresses et URL de base différentes)
-[ "$USE_TRAEFIK" = true ] || exit 0
+traefik_require "$ENV_FILE"
 
 if [ "$1" = --all ]; then
     USERS=$(sed -n 's/^  \(sonarr\|radarr\|readarr\|prowlarr\|calibre\|seerr\)-\([a-z_][a-z0-9_-]*\):$/\2/p' "$DOCKER_COMPOSE_FILE" | sort -u)

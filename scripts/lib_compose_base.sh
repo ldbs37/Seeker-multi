@@ -5,30 +5,32 @@
 # Utilisée par install.sh, add_service.sh et generate_traefik_labels.sh
 # (migration vers Traefik). À sourcer.
 #
-# Variables : INSTALL_DIR TZ DOMAIN USE_TRAEFIK ADMIN_UID ADMIN_GID
+# Variables : INSTALL_DIR TZ DOMAIN ADMIN_UID ADMIN_GID
 #             INSTALL_<SERVICE>=true|false pour les services optionnels.
 #
 # Sécurité : les interfaces d'administration et FlareSolverr sont publiées sur
 # ${ADMIN_BIND:-127.0.0.1} (variable du .env). Par défaut elles ne sont donc
-# joignables que localement : via Traefik + SSO Authelia en mode Traefik, ou
-# par tunnel SSH en mode port direct (ssh -L 8200:localhost:8200 …). Mettre
+# joignables que localement (et via Traefik + SSO Authelia). Mettre
 # ADMIN_BIND=0.0.0.0 dans .env pour les exposer (déconseillé : pas d'auth).
 #######################
 
 # Services système retirés par une version précédente (remplacés) : jamais
 # conservés comme blocs « personnalisés » lors d'une reconstruction
-# (home : redirection nginx, remplacée par le Homarr partagé)
+# (home : redirection nginx, remplacée par le Homarr partagé ; flaresolverr :
+# remplacé par un FlareSolverr par utilisateur ayant Prowlarr)
 # shellcheck disable=SC2034  # lue par les scripts qui sourcent cette lib
-SYSTEM_SERVICES_OBSOLETE="home"
-SYSTEM_SERVICES="authelia homarr plex flaresolverr scrutiny uptime-kuma watchtower duplicati jellyfin dashdot tautulli portainer"
+SYSTEM_SERVICES_OBSOLETE="home flaresolverr"
+# (Plex et Tautulli ne sont plus proposés : un bloc existant est conservé tel
+# quel, comme bloc personnalisé)
+SYSTEM_SERVICES="authelia homarr scrutiny uptime-kuma watchtower duplicati jellyfin dashdot portainer"
 
 # Variable INSTALL_* correspondant à un service système optionnel
 system_service_flag() {
     case "$1" in
-        plex) echo INSTALL_PLEX ;;           jellyfin) echo INSTALL_JELLYFIN ;;
+        jellyfin) echo INSTALL_JELLYFIN ;;
         scrutiny) echo INSTALL_SCRUTINY ;;   uptime-kuma) echo INSTALL_UPTIME_KUMA ;;
         watchtower) echo INSTALL_WATCHTOWER ;; duplicati) echo INSTALL_DUPLICATI ;;
-        dashdot) echo INSTALL_DASHDOT ;;     tautulli) echo INSTALL_TAUTULLI ;;
+        dashdot) echo INSTALL_DASHDOT ;;
         portainer) echo INSTALL_PORTAINER ;;
         *) return 1 ;;
     esac
@@ -50,7 +52,6 @@ detect_system_services() {
 # Réseau + labels Traefik d'un service système. $1=routeur $2=sous-domaine
 # $3=port interne $4=protéger par Authelia (true/false)
 _sys_labels() {
-    [ "$USE_TRAEFIK" = "true" ] || return 0
     local name=$1 sub=$2 port=$3 protect=$4
     echo "    networks:"
     echo "      - traefik_proxy"
@@ -78,33 +79,30 @@ _block_authelia() {
     ports:
       - "${ADMIN_BIND:-127.0.0.1}:9091:9091"
 EOF
-    if [ "$USE_TRAEFIK" = "true" ]; then
-        # Portail SSO + middleware forward-auth "authelia@docker" utilisé par
-        # tous les services protégés (endpoint moderne /api/authz/forward-auth)
-        echo "    networks:"
-        echo "      - traefik_proxy"
-        echo "    labels:"
-        echo "      - \"traefik.enable=true\""
-        echo "      - \"traefik.docker.network=traefik_proxy\""
-        echo "      - \"traefik.http.routers.authelia.rule=Host(\`auth.${DOMAIN}\`)\""
-        echo "      - \"traefik.http.routers.authelia.entrypoints=websecure\""
-        echo "      - \"traefik.http.routers.authelia.tls.certresolver=letsencrypt\""
-        echo "      - \"traefik.http.services.authelia.loadbalancer.server.port=9091\""
-        echo "      - \"traefik.http.middlewares.authelia.forwardauth.address=http://authelia:9091/api/authz/forward-auth\""
-        echo "      - \"traefik.http.middlewares.authelia.forwardauth.trustForwardHeader=true\""
-        echo "      - \"traefik.http.middlewares.authelia.forwardauth.authResponseHeaders=Remote-User,Remote-Groups,Remote-Name,Remote-Email\""
-    fi
+    # Portail SSO + middleware forward-auth "authelia@docker" utilisé par
+    # tous les services protégés (endpoint moderne /api/authz/forward-auth)
+    echo "    networks:"
+    echo "      - traefik_proxy"
+    echo "    labels:"
+    echo "      - \"traefik.enable=true\""
+    echo "      - \"traefik.docker.network=traefik_proxy\""
+    echo "      - \"traefik.http.routers.authelia.rule=Host(\`auth.${DOMAIN}\`)\""
+    echo "      - \"traefik.http.routers.authelia.entrypoints=websecure\""
+    echo "      - \"traefik.http.routers.authelia.tls.certresolver=letsencrypt\""
+    echo "      - \"traefik.http.services.authelia.loadbalancer.server.port=9091\""
+    echo "      - \"traefik.http.middlewares.authelia.forwardauth.address=http://authelia:9091/api/authz/forward-auth\""
+    echo "      - \"traefik.http.middlewares.authelia.forwardauth.trustForwardHeader=true\""
+    echo "      - \"traefik.http.middlewares.authelia.forwardauth.authResponseHeaders=Remote-User,Remote-Groups,Remote-Name,Remote-Email\""
     echo "    restart: unless-stopped"
 }
 
-# Homarr 1.x partagé (mode Traefik) sur https://<domaine>, connexion unique
+# Homarr 1.x partagé sur https://<domaine>, connexion unique
 # via Authelia (OIDC, voir lib_homarr.sh). Authelia y redirige après une
 # connexion directe (default_redirection_url) ; https://<user>.<domaine>/
 # renvoie au tableau de bord de l'utilisateur (routeur de priorité minimale :
 # les autres routeurs du même hôte — /qbittorrent, /drive… — et les
 # sous-domaines nommés restent prioritaires).
 _block_homarr() {
-    [ "$USE_TRAEFIK" = "true" ] || return 0
     local re
     # Regex Go : "\." doublé pour YAML, "$$" pour docker-compose
     re='^[a-z][a-z0-9]{0,31}\\.'"$(printf '%s' "$DOMAIN" | sed 's/\./\\\\./g')"'$$'
@@ -232,41 +230,6 @@ sys.exit(1)
 PY
 }
 
-_block_plex() {
-    # network_mode: host (découverte DLNA/GDM) : accès http://IP:32400/web
-    cat << 'EOF'
-
-  plex:
-    image: linuxserver/plex:1.43.4
-    container_name: plex
-    network_mode: host
-    environment:
-      - PUID=${ADMIN_UID}
-      - PGID=${ADMIN_GID}
-      - TZ=${TZ}
-      - VERSION=docker
-    volumes:
-      - ./plex:/config
-      - ./data:/data
-    restart: unless-stopped
-EOF
-}
-
-_block_flaresolverr() {
-    cat << 'EOF'
-
-  flaresolverr:
-    image: ghcr.io/flaresolverr/flaresolverr:v3.5.2
-    container_name: flaresolverr
-    environment:
-      - LOG_LEVEL=info
-      - TZ=${TZ}
-    ports:
-      - "${ADMIN_BIND:-127.0.0.1}:8191:8191"
-EOF
-    echo "    restart: unless-stopped"
-}
-
 _block_scrutiny() {
     # privileged + /run/udev : accès à tous les disques (pas de liste de
     # périphériques figée, qui échouerait sur NVMe ou mono-disque)
@@ -366,20 +329,18 @@ _block_jellyfin() {
       - TZ=${TZ}
 EOF
     _sys_labels jellyfin jellyfin 8096 false
-    if [ "$USE_TRAEFIK" = "true" ]; then
-        # Maillon de la chaîne de déconnexion (voir _block_homarr) : session
-        # Jellyfin (stockage du navigateur sur jellyfin.<domaine>) effacée par
-        # l'en-tête standard Clear-Site-Data, puis retour à l'accueil
-        echo "      - \"traefik.http.routers.jellyfin-logout-done.rule=Host(\`jellyfin.${DOMAIN}\`) && Path(\`/logout-done\`)\""
-        echo "      - \"traefik.http.routers.jellyfin-logout-done.entrypoints=websecure\""
-        echo "      - \"traefik.http.routers.jellyfin-logout-done.tls.certresolver=letsencrypt\""
-        echo "      - \"traefik.http.routers.jellyfin-logout-done.service=jellyfin\""
-        echo "      - \"traefik.http.routers.jellyfin-logout-done.middlewares=jellyfin-logout-clear,jellyfin-logout-redirect\""
-        echo "      - \"traefik.http.middlewares.jellyfin-logout-clear.headers.customresponseheaders.Clear-Site-Data=\\\"storage\\\"\""
-        echo "      - \"traefik.http.middlewares.jellyfin-logout-redirect.redirectregex.regex=^.*\$\$\""
-        echo "      - \"traefik.http.middlewares.jellyfin-logout-redirect.redirectregex.replacement=https://${DOMAIN}/\""
-        echo "      - \"traefik.http.routers.jellyfin.service=jellyfin\""
-    fi
+    # Maillon de la chaîne de déconnexion (voir _block_homarr) : session
+    # Jellyfin (stockage du navigateur sur jellyfin.<domaine>) effacée par
+    # l'en-tête standard Clear-Site-Data, puis retour à l'accueil
+    echo "      - \"traefik.http.routers.jellyfin-logout-done.rule=Host(\`jellyfin.${DOMAIN}\`) && Path(\`/logout-done\`)\""
+    echo "      - \"traefik.http.routers.jellyfin-logout-done.entrypoints=websecure\""
+    echo "      - \"traefik.http.routers.jellyfin-logout-done.tls.certresolver=letsencrypt\""
+    echo "      - \"traefik.http.routers.jellyfin-logout-done.service=jellyfin\""
+    echo "      - \"traefik.http.routers.jellyfin-logout-done.middlewares=jellyfin-logout-clear,jellyfin-logout-redirect\""
+    echo "      - \"traefik.http.middlewares.jellyfin-logout-clear.headers.customresponseheaders.Clear-Site-Data=\\\"storage\\\"\""
+    echo "      - \"traefik.http.middlewares.jellyfin-logout-redirect.redirectregex.regex=^.*\$\$\""
+    echo "      - \"traefik.http.middlewares.jellyfin-logout-redirect.redirectregex.replacement=https://${DOMAIN}/\""
+    echo "      - \"traefik.http.routers.jellyfin.service=jellyfin\""
     echo "    restart: unless-stopped"
 }
 
@@ -400,25 +361,6 @@ _block_dashdot() {
       - DASHDOT_ENABLE_CPU_TEMPS=true
 EOF
     _sys_labels dashdot dashdot 3001 true
-    echo "    restart: unless-stopped"
-}
-
-_block_tautulli() {
-    cat << 'EOF'
-
-  tautulli:
-    image: linuxserver/tautulli:2.18.1
-    container_name: tautulli
-    environment:
-      - PUID=${ADMIN_UID}
-      - PGID=${ADMIN_GID}
-      - TZ=${TZ}
-    volumes:
-      - ./tautulli:/config
-    ports:
-      - "${ADMIN_BIND:-127.0.0.1}:8181:8181"
-EOF
-    _sys_labels tautulli tautulli 8181 true
     echo "    restart: unless-stopped"
 }
 
@@ -443,13 +385,11 @@ EOF
 # Crée les dossiers de données des services système sélectionnés
 _system_dirs() {
     mkdir -p "$INSTALL_DIR/authelia" "$INSTALL_DIR/data/users"
-    [ "$USE_TRAEFIK" = "true" ] && mkdir -p "$INSTALL_DIR/homarr/appdata"
-    [ "${INSTALL_PLEX:-false}" = true ]        && mkdir -p "$INSTALL_DIR/plex"
+    mkdir -p "$INSTALL_DIR/homarr/appdata"
     [ "${INSTALL_SCRUTINY:-false}" = true ]    && mkdir -p "$INSTALL_DIR/scrutiny/config" "$INSTALL_DIR/scrutiny/influxdb"
     [ "${INSTALL_UPTIME_KUMA:-false}" = true ] && mkdir -p "$INSTALL_DIR/uptime-kuma"
     [ "${INSTALL_DUPLICATI:-false}" = true ]   && mkdir -p "$INSTALL_DIR/duplicati/config"
     [ "${INSTALL_DASHDOT:-false}" = true ]     && mkdir -p "$INSTALL_DIR/dashdot"
-    [ "${INSTALL_TAUTULLI:-false}" = true ]    && mkdir -p "$INSTALL_DIR/tautulli"
     [ "${INSTALL_PORTAINER:-false}" = true ]   && mkdir -p "$INSTALL_DIR/portainer"
     if [ "${INSTALL_JELLYFIN:-false}" = true ]; then
         mkdir -p "$INSTALL_DIR/jellyfin/config" "$INSTALL_DIR/jellyfin/cache"
@@ -460,31 +400,26 @@ _system_dirs() {
 
 # Émet (stdout) l'en-tête et les services système sélectionnés
 compose_base_content() {
-    if [ "$USE_TRAEFIK" = "true" ]; then
-        printf 'networks:\n'
-        # Réseau de la connexion unique qBittorrent (lib_traefik.sh), s'il existe
-        grep -q '^TRAEFIK_SSO_IP=' "$INSTALL_DIR/.env" 2>/dev/null \
-            && printf '  seedbox_sso:\n    external: true\n'
-        printf '  traefik_proxy:\n    external: true\n\n'
-    fi
+    printf 'networks:\n'
+    # Réseau de la connexion unique qBittorrent (lib_traefik.sh), s'il existe
+    grep -q '^TRAEFIK_SSO_IP=' "$INSTALL_DIR/.env" 2>/dev/null \
+        && printf '  seedbox_sso:\n    external: true\n'
+    printf '  traefik_proxy:\n    external: true\n\n'
     echo "services:"
     _block_authelia
     _block_homarr
-    [ "${INSTALL_PLEX:-false}" = true ]        && _block_plex
-    # Mode Traefik : un FlareSolverr par utilisateur ayant Prowlarr (lib_services.sh)
-    [ "$USE_TRAEFIK" = "true" ] || _block_flaresolverr
     [ "${INSTALL_SCRUTINY:-false}" = true ]    && _block_scrutiny
     [ "${INSTALL_UPTIME_KUMA:-false}" = true ] && _block_uptime_kuma
     [ "${INSTALL_WATCHTOWER:-false}" = true ]  && _block_watchtower
     [ "${INSTALL_DUPLICATI:-false}" = true ]   && _block_duplicati
     [ "${INSTALL_JELLYFIN:-false}" = true ]    && _block_jellyfin
     [ "${INSTALL_DASHDOT:-false}" = true ]     && _block_dashdot
-    [ "${INSTALL_TAUTULLI:-false}" = true ]    && _block_tautulli
     [ "${INSTALL_PORTAINER:-false}" = true ]   && _block_portainer
     return 0
 }
 
-# Écrit le .env (flag USE_TRAEFIK explicite, lu par les scripts)
+# Écrit le .env (USE_TRAEFIK=true : marque une installation Traefik, seul
+# mode pris en charge ; voir traefik_require)
 write_env_file() {
     local admin_bind="127.0.0.1"
     if [ -f "$INSTALL_DIR/.env" ] && grep -q '^ADMIN_BIND=' "$INSTALL_DIR/.env"; then
@@ -502,7 +437,7 @@ TZ=$TZ
 DOMAIN=$DOMAIN
 ADMIN_UID=$ADMIN_UID
 ADMIN_GID=$ADMIN_GID
-USE_TRAEFIK=$USE_TRAEFIK
+USE_TRAEFIK=true
 ADMIN_BIND=$admin_bind
 SEEDBOX_LANG=${lang:-fr}
 EOF

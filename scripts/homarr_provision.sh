@@ -24,6 +24,12 @@
 #        homarr_provision.sh <user>            # un utilisateur (+ tableau admin)
 #        homarr_provision.sh --all             # tous les utilisateurs
 #        homarr_provision.sh --remove <user>   # supprime son tableau, ses applis…
+#        homarr_provision.sh --save-template <user>
+#                 # son tableau devient le modèle des tableaux des utilisateurs
+#                 # (disposition, tailles, réglages, widgets ajoutés à la main)
+#        homarr_provision.sh --apply-template <user> | --all
+#                 # remet ces tableaux en forme selon le modèle (leurs applis
+#                 # et intégrations restent les leurs)
 #######################
 
 set -u
@@ -40,6 +46,8 @@ ENV_FILE="$INSTALL_DIR/.env"
 DOCKER_COMPOSE_FILE="$INSTALL_DIR/docker-compose.yml"
 USERS_DB="$INSTALL_DIR/authelia/users_database.yml"
 STATE_DIR="$INSTALL_DIR/homarr/provision"     # clés des widgets déjà ajoutés, par tableau
+TEMPLATE_FILE="$INSTALL_DIR/homarr/board_template.json"   # modèle (--save-template)
+TEMPLATE_FORCE=0
 ADMIN_BOARD="admin-serveur"                     # « - » : pas de conflit avec un nom d'utilisateur
 
 for lib in lib_ports lib_traefik lib_services lib_qbittorrent lib_homarr lib_password; do
@@ -49,8 +57,7 @@ done
 
 [[ $EUID -eq 0 ]] || fail "Ce script doit être exécuté en tant que root"
 [ $# -ge 1 ] || fail "Usage: $0 --set-key <clé> | <user> | --all | --remove <user>"
-traefik_detect "$ENV_FILE"
-[ "$USE_TRAEFIK" = true ] || { info "Mode port direct : Homarr individuel (configure_homarr.sh), rien à faire"; exit 0; }
+traefik_require "$ENV_FILE"
 
 if [ "$1" = --set-key ]; then
     key="${2:-}"
@@ -303,7 +310,7 @@ print(json.dumps({"key": os.environ["S_K"], "kind": os.environ["S_T"], "w": int(
 app_spec() { spec "app:$1" app 1 1 "{\"appId\":$(json_str "$1"),\"openInNewTab\":true,\"showTitle\":true,\"pingEnabled\":true}"; }
 ids_json() { python3 -c 'import json,sys; print(json.dumps([a for a in sys.argv[1:] if a]))' "$@"; }
 specs_new() { SPECS=$(mktemp); }
-specs_done() { rm -f "${SPECS:?}" "${SPECS:?}.board" "${SPECS:?}.list"; }
+specs_done() { rm -f "${SPECS:?}" "${SPECS:?}.board" "${SPECS:?}.list" "${SPECS:?}.apps" "${SPECS:?}.ints"; }
 
 # Met en page le tableau $1 (id $2) avec les éléments de $SPECS
 # (homarr_layout.py ; état : $STATE_DIR/<tableau>.keys)
@@ -325,7 +332,16 @@ print(json.dumps({"id": b["id"], "layouts": [
     fi
     printf '%s' "$board" > "$SPECS.board"
     python3 -c 'import json,sys; print(json.dumps([json.loads(l) for l in open(sys.argv[1]) if l.strip()]))' "$SPECS" > "$SPECS.list"
-    out=$(python3 "$SCRIPT_DIR/homarr_layout.py" "$SPECS.board" "$SPECS.list" "$state") \
+    # Modèle (--save-template) : applis et intégrations pour retrouver les
+    # équivalents de l'utilisateur
+    local tpl_env=()
+    if [ -f "$TEMPLATE_FILE" ] && [ "$name" != "$ADMIN_BOARD" ]; then
+        hapi GET /apps > "$SPECS.apps" || echo '[]' > "$SPECS.apps"
+        htrpc GET integration.all > "$SPECS.ints" || echo '[]' > "$SPECS.ints"
+        tpl_env=(HOMARR_TEMPLATE="$TEMPLATE_FILE" HOMARR_APPS="$SPECS.apps" HOMARR_INTEGRATIONS="$SPECS.ints"
+                 HOMARR_USER="$name" HOMARR_FORCE="$TEMPLATE_FORCE")
+    fi
+    out=$(env "${tpl_env[@]}" python3 "$SCRIPT_DIR/homarr_layout.py" "$SPECS.board" "$SPECS.list" "$state") \
         || { warn "Mise en page de $name impossible"; return 1; }
     save=$(J="$out" python3 -c 'import json,os; print(json.dumps(json.loads(os.environ["J"])["save"]))')
     if [ "$save" = null ]; then
@@ -334,6 +350,8 @@ print(json.dumps({"id": b["id"], "layouts": [
     htrpc POST board.saveBoard "$save" >/dev/null \
         || { warn "Enregistrement du tableau $name impossible (HTTP $(http_code))"; return 1; }
     added=$(J="$out" python3 -c 'import json,os; print("\n".join(json.loads(os.environ["J"])["added"]))')
+    # Modèle réappliqué : l'état repart des éléments voulus
+    [ "$TEMPLATE_FORCE" = 1 ] && [ -f "$TEMPLATE_FILE" ] && : > "$state"
     [ -n "$added" ] && printf '%s\n' "$added" >> "$state"
     : >> "$state"
     n=$(printf '%s' "$added" | grep -c . || true)
@@ -412,7 +430,6 @@ provision_user() {
     spec weather weather 3 2 "$WEATHER_OPTS"
     [ -n "$INT_SEERR" ] && spec seerr-stats mediaRequests-requestStats 5 2 '{}' "$(ids_json "$INT_SEERR")"
     for s in $USER_SERVICES; do
-        [ "$s" = homarr ] && continue
         has_service "$s-$user" || continue
         id=$(ensure_app "$(app_name "$s" "$user")" "$(svc_icon "$s")" "$(service_url "$s")" "$(ping_url "$s" "$user")") \
             && app_spec "$id"
@@ -422,6 +439,10 @@ provision_user() {
     fi
     if password_user_is_admin "$user" "$USERS_DB"; then
         id=$(ensure_app "Serveur (admin)" homarr "https://$DOMAIN/boards/$ADMIN_BOARD" "") && app_spec "$id"
+    fi
+    # API libre-service (setup_api.sh) : ajouter / retirer ses services
+    if grep -q '^SEEDBOX_API=true' "$ENV_FILE" 2>/dev/null; then
+        id=$(ensure_app "Mes services ($user)" docker "https://$user.$DOMAIN/seedbox-api/" "") && app_spec "$id"
     fi
     [ -n "$INT_QBIT" ] && spec downloads downloads 6 4 "$DOWNLOADS_OPTS" "$(ids_json "$INT_QBIT")" "Téléchargements"
     [ ${#INT_CAL[@]} -gt 0 ] && spec calendar calendar 4 4 '{"releaseType":["inCinemas","digitalRelease","physicalRelease"]}' \
@@ -496,14 +517,52 @@ remove_user_board() {
 htrpc POST serverSettings.saveSettings "{\"settingsKey\":\"culture\",\"value\":{\"defaultLocale\":\"$(seedbox_lang)\"}}" >/dev/null \
     || warn "Langue par défaut de Homarr non appliquée (HTTP $(http_code))"
 
+# Tableaux des utilisateurs seedbox (un par ligne)
+seedbox_users() {
+    local u uid
+    while IFS=: read -r u _ uid _; do
+        [ "$uid" -ge "$SEEDBOX_UID_MIN" ] && [ "$uid" -le "$SEEDBOX_UID_MAX" ] || continue
+        [ -d "$INSTALL_DIR/data/users/$u" ] && echo "$u"
+    done < /etc/passwd
+}
+
+# Enregistre le tableau de $1 comme modèle
+save_template() {
+    local user="$1" board apps ints tmp
+    board=$(htrpc GET board.getBoardByName "{\"name\":$(json_str "$user")}") \
+        || fail "Tableau de bord $user introuvable (HTTP $(http_code))"
+    apps=$(hapi GET /apps) || fail "Liste des applis impossible (HTTP $(http_code))"
+    ints=$(htrpc GET integration.all) || ints="[]"
+    tmp=$(mktemp)
+    printf '%s' "$board" > "$tmp.b"; printf '%s' "$apps" > "$tmp.a"; printf '%s' "$ints" > "$tmp.i"
+    mkdir -p "$(dirname "$TEMPLATE_FILE")"
+    if python3 "$SCRIPT_DIR/homarr_layout.py" save "$tmp.b" "$tmp.a" "$tmp.i" "$user" > "$TEMPLATE_FILE.new"; then
+        mv "$TEMPLATE_FILE.new" "$TEMPLATE_FILE"; chmod 600 "$TEMPLATE_FILE"
+        log "Modèle enregistré : tableau de $user ($(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["items"]))' "$TEMPLATE_FILE") éléments)"
+        info "Nouveaux tableaux : créés d'après ce modèle. Tableaux existants : sudo $0 --apply-template --all"
+    else
+        rm -f "$TEMPLATE_FILE.new"; fail "Modèle non enregistré"
+    fi
+    rm -f "$tmp" "$tmp.b" "$tmp.a" "$tmp.i"
+}
+
 case "$1" in
+    --save-template) save_template "${2:?utilisateur manquant}" ;;
+    --apply-template)
+        [ -f "$TEMPLATE_FILE" ] || fail "Aucun modèle : sudo $0 --save-template <utilisateur>"
+        owner=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["owner"])' "$TEMPLATE_FILE")
+        TEMPLATE_FORCE=1
+        if [ "${2:-}" = --all ]; then
+            for u in $(seedbox_users); do
+                [ "$u" = "$owner" ] || provision_user "$u"
+            done
+        else
+            provision_user "${2:?utilisateur ou --all manquant}"
+        fi ;;
     --all)
         ensure_search_engine
         provision_admin_board
-        while IFS=: read -r u _ uid _; do
-            [ "$uid" -ge "$SEEDBOX_UID_MIN" ] && [ "$uid" -le "$SEEDBOX_UID_MAX" ] || continue
-            [ -d "$INSTALL_DIR/data/users/$u" ] && provision_user "$u"
-        done < /etc/passwd ;;
+        for u in $(seedbox_users); do provision_user "$u"; done ;;
     --remove) remove_user_board "${2:?utilisateur manquant}" ;;
     *)
         ensure_search_engine

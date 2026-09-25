@@ -186,8 +186,9 @@ Vous devriez voir :
 ```
 NAME              STATUS
 authelia          Up
-plex              Up
-flaresolverr      Up
+traefik           Up
+homarr            Up
+jellyfin          Up (si installé)
 scrutiny          Up (si installé)
 uptime-kuma       Up (si installé)
 duplicati         Up (si installé)
@@ -197,10 +198,7 @@ duplicati         Up (si installé)
 
 ```bash
 # Authelia
-curl http://localhost:9091
-
-# Plex
-curl http://localhost:32400/web
+curl -I https://auth.votre-domaine.com
 ```
 
 ### Vérifier les logs
@@ -220,41 +218,30 @@ docker-compose logs -f
 
 ### 1. Configurer Authelia
 
-En mode Traefik : `https://auth.votre-domaine.com`. En mode port direct, Authelia n'écoute qu'en local : `ssh -L 9091:127.0.0.1:9091 admin@votre-serveur` puis `http://localhost:9091`.
+`https://auth.votre-domaine.com`
 
 **Première connexion:**
 1. Entrez votre nom d'utilisateur et mot de passe
 2. Configurez l'authentification à deux facteurs (recommandé)
 
-### 2. Configurer Plex
 
-Accédez à `http://votre-serveur:32400/web`
-
-**Configuration initiale:**
-1. Connectez-vous avec votre compte Plex
-2. Donnez un nom à votre serveur
-3. Ajoutez les bibliothèques:
-   - Films: `/data/users/*/movies`
-   - Séries: `/data/users/*/tv`
-   - Livres: `/data/users/*/books`
-
-### 3. Configurer les services optionnels
+### 2. Configurer les services optionnels
 
 #### Scrutiny (si installé)
 ```bash
-# Accès: http://votre-serveur:8080
+# Accès: https://scrutiny.votre-domaine.com (administrateurs)
 # Aucune configuration requise, analyse automatique
 ```
 
 #### Uptime Kuma (si installé)
 ```bash
-# Accès: http://votre-serveur:3001
+# Accès: https://uptime.votre-domaine.com (administrateurs)
 # Créez un compte admin lors de la première visite
 ```
 
 #### Duplicati (si installé)
 ```bash
-# Accès: http://votre-serveur:8200
+# Accès: https://duplicati.votre-domaine.com (administrateurs)
 # Configurez vos destinations de backup
 ```
 
@@ -276,13 +263,9 @@ Cela créera automatiquement:
 
 ### Ports attribués automatiquement
 
-Mode port direct uniquement (en mode Traefik, tout passe par
-`https://alice.votre-domaine.com/...`). Le premier utilisateur (UID 2001)
-obtient le bloc 20000-20019 :
-- qBittorrent: `20000` · Homarr: `20001` · Fichiers (FileBrowser Quantum): `20002`
-- Sonarr: `20003` · Radarr: `20004` · Prowlarr: `20007` · Seerr: `20008` · Calibre: `20009`
-- (Readarr `20005` et Bazarr `20006` : installations existantes, plus proposés)
-- Port torrent entrant (TCP/UDP) : `20010`
+Tout passe par `https://alice.votre-domaine.com/...`. Seul port ouvert par
+utilisateur : son port torrent entrant (TCP/UDP), `20010` pour le premier
+(UID 2001), `20030` pour le deuxième, etc.
 
 `sudo ./scripts/list_user_services.sh alice` affiche les adresses exactes.
 

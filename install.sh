@@ -20,7 +20,7 @@ INSTALL_DIR="/opt/seedbox"
 TZ="Europe/Paris"
 DEFAULT_QUOTA="500" # En GB
 
-# UID/GID des services système (Plex, Jellyfin, Duplicati…). Les comptes
+# UID/GID des services système (Jellyfin, Duplicati…). Les comptes
 # utilisateurs de la seedbox ont leur propre plage (voir scripts/lib_ports.sh).
 ADMIN_UID="1000"
 ADMIN_GID="1000"
@@ -59,18 +59,13 @@ source "$SOURCE_DIR/scripts/lib_homarr.sh"
 declare -a INITIAL_USERS INITIAL_PASSWORDS INITIAL_EMAILS INITIAL_QUOTAS
 
 # Services optionnels
-INSTALL_PLEX=false
 INSTALL_JELLYFIN=false
 INSTALL_SCRUTINY=false
 INSTALL_UPTIME_KUMA=false
 INSTALL_DASHDOT=false
-INSTALL_TAUTULLI=false
 INSTALL_PORTAINER=false
 INSTALL_WATCHTOWER=false
 INSTALL_DUPLICATI=false
-
-# Traefik (reverse proxy avec SSL automatique)
-USE_TRAEFIK=false
 
 # Identifiants Portainer
 PORTAINER_USER=""
@@ -322,7 +317,6 @@ prepare_directories() {
     mkdir -p "$INSTALL_DIR"
     mkdir -p "$INSTALL_DIR/data/users"
     mkdir -p "$INSTALL_DIR/authelia"
-    mkdir -p "$INSTALL_DIR/plex"
     mkdir -p "$INSTALL_DIR/scripts"
 
     # Copier les scripts de gestion
@@ -472,25 +466,13 @@ EOF
 #######################
 
 setup_traefik_if_enabled() {
-    if [ "$USE_TRAEFIK" = "true" ]; then
-        log "Configuration de Traefik..."
-
-        # Le .env complet (dont USE_TRAEFIK) est déjà écrit par
-        # generate_docker_compose : on ne l'écrase pas ici.
-
-        # Appeler le script setup_traefik.sh (ajoute le service Traefik au
-        # docker-compose.yml généré, crée le réseau et la config statique)
-        if [ -f "$INSTALL_DIR/scripts/setup_traefik.sh" ]; then
-            log "Installation de Traefik..."
-            "$INSTALL_DIR/scripts/setup_traefik.sh" "$DOMAIN" "$EMAIL"
-        else
-            warn "Script setup_traefik.sh non trouvé, Traefik ne sera pas installé automatiquement"
-            info "Vous pouvez l'installer manuellement après l'installation avec:"
-            info "  sudo $INSTALL_DIR/scripts/setup_traefik.sh $DOMAIN $EMAIL"
-        fi
-    else
-        log "Mode port direct - Traefik non installé"
-    fi
+    log "Configuration de Traefik..."
+    # Le .env complet (dont USE_TRAEFIK) est déjà écrit par
+    # generate_docker_compose : on ne l'écrase pas ici.
+    # setup_traefik.sh ajoute le service Traefik au docker-compose.yml généré,
+    # crée le réseau et la config statique
+    [ -f "$INSTALL_DIR/scripts/setup_traefik.sh" ] || error "Script setup_traefik.sh introuvable"
+    "$INSTALL_DIR/scripts/setup_traefik.sh" "$DOMAIN" "$EMAIL"
 }
 
 #######################
@@ -547,173 +529,144 @@ configure_installation() {
         fi
     done
 
-    # Configuration Traefik (reverse proxy + SSL)
-    echo -e "\n${BLUE}=== Configuration d'accès ===${NC}"
-    echo "Mode d'accès aux services:"
-    echo "  - Port direct : Services accessibles via http://IP:PORT (simple, pas de SSL)"
-    echo "  - Traefik + SSL : Services accessibles via https://user.${DOMAIN}/service (sécurisé, nécessite DNS)"
+    # Accès : Traefik + SSL (Let's Encrypt) + Authelia, sur https://<user>.<domaine>
+    echo -e "\n${BLUE}=== Accès HTTPS (Traefik + Authelia) ===${NC}"
+    echo "Services accessibles sur https://<utilisateur>.${DOMAIN}/<service>,"
+    echo "derrière une connexion unique (Authelia). Requis : DNS *.${DOMAIN} vers"
+    echo "ce serveur et ports 80/443 ouverts."
+
     echo ""
-    read -r -p "Utiliser Traefik avec SSL automatique ? (o/N): " input
-    if [[ $input =~ ^[oO]$ ]]; then
-        USE_TRAEFIK=true
-        info "Mode Traefik activé"
+    echo -e "${BLUE}=== Configuration DNS ===${NC}"
+    echo "Traefik nécessite un DNS wildcard pointant vers ce serveur."
+    echo ""
+    read -r -p "Avez-vous déjà un nom de domaine (ex: monseedbox.com) ? (o/N): " has_domain
 
+    if [[ $has_domain =~ ^[oO]$ ]]; then
+        # L'utilisateur a un domaine
+        info "Configuration DNS avec votre domaine existant"
         echo ""
-        echo -e "${BLUE}=== Configuration DNS ===${NC}"
-        echo "Traefik nécessite un DNS wildcard pointant vers ce serveur."
+        echo "Options de configuration DNS:"
+        echo "  1. Cloudflare (automatique via API)"
+        echo "  2. Autre provider (configuration manuelle)"
+        echo "  3. Je l'ai déjà configuré"
         echo ""
-        read -r -p "Avez-vous déjà un nom de domaine (ex: monseedbox.com) ? (o/N): " has_domain
+        read -r -p "Votre choix [1/2/3]: " dns_choice
 
-        if [[ $has_domain =~ ^[oO]$ ]]; then
-            # L'utilisateur a un domaine
-            info "Configuration DNS avec votre domaine existant"
-            echo ""
-            echo "Options de configuration DNS:"
-            echo "  1. Cloudflare (automatique via API)"
-            echo "  2. Autre provider (configuration manuelle)"
-            echo "  3. Je l'ai déjà configuré"
-            echo ""
-            read -r -p "Votre choix [1/2/3]: " dns_choice
-
-            case $dns_choice in
-                1)
-                    info "Configuration Cloudflare automatique"
-                    if [ -f "$INSTALL_DIR/scripts/setup_cloudflare.sh" ]; then
-                        if "$INSTALL_DIR/scripts/setup_cloudflare.sh" "$DOMAIN"; then
-                            info "✓ DNS Cloudflare configuré avec succès"
-                        else
-                            warn "La configuration Cloudflare a échoué"
-                            warn "Vous pouvez réessayer plus tard avec:"
-                            warn "  sudo $INSTALL_DIR/scripts/setup_cloudflare.sh"
-                            USE_TRAEFIK=false
-                        fi
+        case $dns_choice in
+            1)
+                info "Configuration Cloudflare automatique"
+                if [ -f "$INSTALL_DIR/scripts/setup_cloudflare.sh" ]; then
+                    if "$INSTALL_DIR/scripts/setup_cloudflare.sh" "$DOMAIN"; then
+                        info "✓ DNS Cloudflare configuré avec succès"
                     else
-                        warn "Script setup_cloudflare.sh non trouvé"
-                        USE_TRAEFIK=false
-                    fi
-                    ;;
-                2)
-                    info "Configuration manuelle requise"
-                    echo ""
-                    warn "Configurez ces enregistrements DNS:"
-                    warn "  - Type A : $DOMAIN → IP de ce serveur"
-                    warn "  - Type A : *.$DOMAIN → IP de ce serveur"
-                    echo ""
-                    info "Documentation complète: $INSTALL_DIR/docs/DNS_SETUP.md"
-                    echo ""
-                    read -r -p "DNS configuré et prêt ? (o/N): " dns_ready
-                    if [[ ! $dns_ready =~ ^[oO]$ ]]; then
-                        warn "Traefik désactivé. Configurez le DNS puis exécutez:"
-                        warn "  sudo $INSTALL_DIR/scripts/check_dns.sh $DOMAIN"
-                        warn "  sudo $INSTALL_DIR/scripts/setup_traefik.sh $DOMAIN $EMAIL"
-                        USE_TRAEFIK=false
-                    fi
-                    ;;
-                3)
-                    info "Vérification DNS..."
-                    if [ -f "$INSTALL_DIR/scripts/check_dns.sh" ]; then
-                        if "$INSTALL_DIR/scripts/check_dns.sh" "$DOMAIN"; then
-                            info "✓ DNS vérifié et opérationnel"
-                        else
-                            warn "La vérification DNS a échoué"
-                            warn "Vérifiez votre configuration DNS puis réessayez"
-                            USE_TRAEFIK=false
-                        fi
-                    else
-                        warn "Impossible de vérifier le DNS automatiquement"
-                        read -r -p "Continuer quand même ? (o/N): " force_continue
-                        if [[ ! $force_continue =~ ^[oO]$ ]]; then
-                            USE_TRAEFIK=false
-                        fi
-                    fi
-                    ;;
-                *)
-                    warn "Choix invalide, Traefik désactivé"
-                    USE_TRAEFIK=false
-                    ;;
-            esac
-        else
-            # L'utilisateur n'a pas de domaine - proposer DuckDNS
-            info "Configuration DNS avec DuckDNS (gratuit)"
-            echo ""
-            info "DuckDNS est un service DNS 100% gratuit avec:"
-            echo "  ✓ Wildcard DNS automatique"
-            echo "  ✓ Pas besoin d'acheter un domaine"
-            echo "  ✓ Mise à jour automatique de l'IP"
-            echo "  ✓ Compatible Let's Encrypt SSL"
-            echo ""
-            read -r -p "Configurer DuckDNS automatiquement ? (o/N): " setup_duckdns
-
-            if [[ $setup_duckdns =~ ^[oO]$ ]]; then
-                if [ -f "$INSTALL_DIR/scripts/setup_duckdns.sh" ]; then
-                    if "$INSTALL_DIR/scripts/setup_duckdns.sh"; then
-                        # Lire le domaine depuis .env
-                        if [ -f "$INSTALL_DIR/.env" ] && grep -q "^DOMAIN=" "$INSTALL_DIR/.env"; then
-                            DOMAIN=$(grep "^DOMAIN=" "$INSTALL_DIR/.env" | cut -d'=' -f2)
-                            info "✓ DuckDNS configuré: $DOMAIN"
-                        else
-                            warn "Impossible de lire le domaine DuckDNS depuis .env"
-                            USE_TRAEFIK=false
-                        fi
-                    else
-                        warn "La configuration DuckDNS a échoué"
+                        warn "La configuration Cloudflare a échoué"
                         warn "Vous pouvez réessayer plus tard avec:"
-                        warn "  sudo $INSTALL_DIR/scripts/setup_duckdns.sh"
-                        USE_TRAEFIK=false
+                        warn "  sudo $INSTALL_DIR/scripts/setup_cloudflare.sh"
+                        DNS_FAIL=true
                     fi
                 else
-                    warn "Script setup_duckdns.sh non trouvé"
-                    USE_TRAEFIK=false
+                    warn "Script setup_cloudflare.sh non trouvé"
+                    DNS_FAIL=true
+                fi
+                ;;
+            2)
+                info "Configuration manuelle requise"
+                echo ""
+                warn "Configurez ces enregistrements DNS:"
+                warn "  - Type A : $DOMAIN → IP de ce serveur"
+                warn "  - Type A : *.$DOMAIN → IP de ce serveur"
+                echo ""
+                info "Documentation complète: $INSTALL_DIR/docs/DNS_SETUP.md"
+                echo ""
+                read -r -p "DNS configuré et prêt ? (o/N): " dns_ready
+                if [[ ! $dns_ready =~ ^[oO]$ ]]; then
+                    warn "Configurez le DNS (vérification : sudo $INSTALL_DIR/scripts/check_dns.sh $DOMAIN)"
+                    DNS_FAIL=true
+                fi
+                ;;
+            3)
+                info "Vérification DNS..."
+                if [ -f "$INSTALL_DIR/scripts/check_dns.sh" ]; then
+                    if "$INSTALL_DIR/scripts/check_dns.sh" "$DOMAIN"; then
+                        info "✓ DNS vérifié et opérationnel"
+                    else
+                        warn "La vérification DNS a échoué"
+                        warn "Vérifiez votre configuration DNS puis réessayez"
+                        DNS_FAIL=true
+                    fi
+                else
+                    warn "Impossible de vérifier le DNS automatiquement"
+                    read -r -p "Continuer quand même ? (o/N): " force_continue
+                    if [[ ! $force_continue =~ ^[oO]$ ]]; then
+                        DNS_FAIL=true
+                    fi
+                fi
+                ;;
+            *)
+                warn "Choix invalide"
+                DNS_FAIL=true
+                ;;
+        esac
+    else
+        # L'utilisateur n'a pas de domaine - proposer DuckDNS
+        info "Configuration DNS avec DuckDNS (gratuit)"
+        echo ""
+        info "DuckDNS est un service DNS 100% gratuit avec:"
+        echo "  ✓ Wildcard DNS automatique"
+        echo "  ✓ Pas besoin d'acheter un domaine"
+        echo "  ✓ Mise à jour automatique de l'IP"
+        echo "  ✓ Compatible Let's Encrypt SSL"
+        echo ""
+        read -r -p "Configurer DuckDNS automatiquement ? (o/N): " setup_duckdns
+
+        if [[ $setup_duckdns =~ ^[oO]$ ]]; then
+            if [ -f "$INSTALL_DIR/scripts/setup_duckdns.sh" ]; then
+                if "$INSTALL_DIR/scripts/setup_duckdns.sh"; then
+                    # Lire le domaine depuis .env
+                    if [ -f "$INSTALL_DIR/.env" ] && grep -q "^DOMAIN=" "$INSTALL_DIR/.env"; then
+                        DOMAIN=$(grep "^DOMAIN=" "$INSTALL_DIR/.env" | cut -d'=' -f2)
+                        info "✓ DuckDNS configuré: $DOMAIN"
+                    else
+                        warn "Impossible de lire le domaine DuckDNS depuis .env"
+                        DNS_FAIL=true
+                    fi
+                else
+                    warn "La configuration DuckDNS a échoué"
+                    warn "Vous pouvez réessayer plus tard avec:"
+                    warn "  sudo $INSTALL_DIR/scripts/setup_duckdns.sh"
+                    DNS_FAIL=true
                 fi
             else
-                info "Installation en mode port direct"
-                USE_TRAEFIK=false
+                warn "Script setup_duckdns.sh non trouvé"
+                DNS_FAIL=true
             fi
+        else
+            warn "Un domaine est nécessaire (le vôtre, ou DuckDNS gratuit)"
+            DNS_FAIL=true
         fi
-
-        # Vérification finale des ports
-        if [ "$USE_TRAEFIK" = "true" ]; then
-            echo ""
-            warn "⚠️  Vérifiez que les ports 80 et 443 sont ouverts dans votre firewall"
-            read -r -p "Ports 80/443 ouverts ? (o/N): " ports_open
-            if [[ ! $ports_open =~ ^[oO]$ ]]; then
-                warn "Ouvrez les ports puis réinstallez Traefik avec:"
-                warn "  sudo $INSTALL_DIR/scripts/setup_traefik.sh $DOMAIN $EMAIL"
-                USE_TRAEFIK=false
-            fi
-        fi
-    else
-        info "Mode port direct sélectionné"
     fi
+
+    # Vérification finale des ports
+    if [ "${DNS_FAIL:-false}" != true ]; then
+        echo ""
+        warn "⚠️  Vérifiez que les ports 80 et 443 sont ouverts dans votre firewall"
+        read -r -p "Ports 80/443 ouverts ? (o/N): " ports_open
+        if [[ ! $ports_open =~ ^[oO]$ ]]; then
+            warn "Ouvrez les ports 80 et 443"
+            DNS_FAIL=true
+        fi
+    fi
+    [ "${DNS_FAIL:-false}" = true ] && error "Installation interrompue : DNS ou ports non prêts. Corrigez puis relancez install.sh (aucun service n'a encore été déployé)."
 
     # Le premier utilisateur sera créé comme administrateur plus tard
 
     # Services optionnels
-    echo -e "\n${BLUE}=== Services de streaming ===${NC}"
-    read -r -p "Installer Plex (serveur de streaming) ? (o/N): " input
-    [[ $input =~ ^[oO]$ ]] && INSTALL_PLEX=true
-
-    read -r -p "Installer Jellyfin (alternative open-source à Plex) ? (o/N): " input
+    echo -e "\n${BLUE}=== Streaming ===${NC}"
+    read -r -p "Installer Jellyfin (serveur de streaming) ? (o/N): " input
     if [[ $input =~ ^[oO]$ ]]; then
         INSTALL_JELLYFIN=true
         info "Jellyfin : administrateur = premier utilisateur (même mot de passe) ;"
         info "chaque utilisateur a son compte et ses bibliothèques privées."
-    fi
-
-    # Vérification conflit Plex/Jellyfin
-    if [ "$INSTALL_PLEX" = true ] && [ "$INSTALL_JELLYFIN" = true ]; then
-        echo ""
-        warn "⚠️  ATTENTION: Conflit potentiel détecté !"
-        warn "    Plex et Jellyfin utilisent tous deux le port UDP 1900 (UPnP/DLNA)"
-        warn "    Il est fortement recommandé de n'installer qu'un seul service de streaming"
-        echo ""
-        read -r -p "Voulez-vous annuler l'installation de Jellyfin ? (O/n): " confirm
-        if [[ ! $confirm =~ ^[nN]$ ]]; then
-            INSTALL_JELLYFIN=false
-            info "Installation de Jellyfin annulée"
-        else
-            warn "Les deux services seront installés - des conflits peuvent survenir"
-        fi
     fi
 
     echo -e "\n${BLUE}=== Dashboards & Monitoring ===${NC}"
@@ -725,9 +678,6 @@ configure_installation() {
 
     read -r -p "Installer Uptime Kuma (monitoring uptime) ? (o/N): " input
     [[ $input =~ ^[oO]$ ]] && INSTALL_UPTIME_KUMA=true
-
-    read -r -p "Installer Tautulli (statistiques Plex) ? (o/N): " input
-    [[ $input =~ ^[oO]$ ]] && INSTALL_TAUTULLI=true
 
     echo -e "\n${BLUE}=== Gestion & Organisation ===${NC}"
     read -r -p "Installer Portainer (gestion Docker web) ? (o/N): " input
@@ -836,12 +786,10 @@ configure_installation() {
     echo "Premier utilisateur (Admin): ${INITIAL_USERS[0]}"
     echo "Utilisateurs totaux: ${#INITIAL_USERS[@]} (${INITIAL_USERS[*]})"
     echo "Services optionnels:"
-    [ "$INSTALL_PLEX" = true ] && echo "  ✓ Plex"
     [ "$INSTALL_JELLYFIN" = true ] && echo "  ✓ Jellyfin"
     [ "$INSTALL_DASHDOT" = true ] && echo "  ✓ Dashdot"
     [ "$INSTALL_SCRUTINY" = true ] && echo "  ✓ Scrutiny"
     [ "$INSTALL_UPTIME_KUMA" = true ] && echo "  ✓ Uptime Kuma"
-    [ "$INSTALL_TAUTULLI" = true ] && echo "  ✓ Tautulli"
     [ "$INSTALL_PORTAINER" = true ] && echo "  ✓ Portainer"
     [ "$INSTALL_WATCHTOWER" = true ] && echo "  ✓ Watchtower"
     [ "$INSTALL_DUPLICATI" = true ] && echo "  ✓ Duplicati"
@@ -886,9 +834,7 @@ deploy_services() {
                 jellyfin_user_sync "${INITIAL_USERS[$j]}" "${INITIAL_PASSWORDS[$j]}" \
                     || warn "Compte Jellyfin de ${INITIAL_USERS[$j]} incomplet"
             done
-            if [ "$USE_TRAEFIK" = "true" ]; then
-                jellyfin_sso_ensure || warn "Connexion Authelia de Jellyfin non configurée (relancez generate_traefik_labels.sh)"
-            fi
+            jellyfin_sso_ensure || warn "Connexion Authelia de Jellyfin non configurée (relancez generate_traefik_labels.sh)"
             log "✓ Jellyfin configuré (${INITIAL_USERS[0]} administrateur)"
         else
             warn "Jellyfin n'est pas prêt : relancez generate_traefik_labels.sh (ou terminez l'assistant sur http://<serveur>:8096)"
@@ -897,25 +843,15 @@ deploy_services() {
 
     # Applis des utilisateurs, après Jellyfin (Seerr : son compte et ses
     # bibliothèques) : Sonarr/Radarr/Prowlarr, Calibre-web, Seerr
-    if [ "$USE_TRAEFIK" = "true" ]; then
-        "$INSTALL_DIR/scripts/arr_setup.sh" --all || true
-    fi
+    "$INSTALL_DIR/scripts/arr_setup.sh" --all || true
 
     # Homarr partagé : configuration initiale sans assistant (groupe admins,
     # clé d'API) puis tableaux de bord des utilisateurs
-    if [ "$USE_TRAEFIK" = "true" ]; then
-        log "Configuration automatique de Homarr..."
-        local hrc=0
-        homarr_bootstrap || hrc=$?
-        [ "$hrc" -ge 2 ] && warn "Configuration initiale de Homarr incomplète (relancez generate_traefik_labels.sh)"
-        "$INSTALL_DIR/scripts/homarr_provision.sh" --all || true
-    fi
-
-    # Plex tourne en réseau hôte : le pare-feu s'applique à lui (contrairement
-    # aux ports publiés par Docker)
-    if [ "$INSTALL_PLEX" = true ] && command -v ufw &>/dev/null; then
-        ufw allow 32400/tcp comment 'Plex' >/dev/null 2>&1 || true
-    fi
+    log "Configuration automatique de Homarr..."
+    local hrc=0
+    homarr_bootstrap || hrc=$?
+    [ "$hrc" -ge 2 ] && warn "Configuration initiale de Homarr incomplète (relancez generate_traefik_labels.sh)"
+    "$INSTALL_DIR/scripts/homarr_provision.sh" --all || true
 
     log "✓ Services démarrés"
 }
@@ -969,14 +905,12 @@ main() {
     setup_traefik_if_enabled
     # Homarr partagé + connexion unique : secrets (.env) et client OIDC dans
     # la configuration Authelia (avant son premier démarrage)
-    if [ "$USE_TRAEFIK" = "true" ]; then
-        local hrc=0
-        homarr_prepare || hrc=$?
-        [ "$hrc" -ge 2 ] && warn "Connexion unique Homarr non configurée (relancez generate_traefik_labels.sh)"
-        # Client OIDC Jellyfin (bouton « Se connecter avec Authelia »)
-        if [ "$INSTALL_JELLYFIN" = true ]; then
-            authelia_ensure_oidc_jellyfin "$INSTALL_DIR/authelia/configuration.yml" || true
-        fi
+    local hrc=0
+    homarr_prepare || hrc=$?
+    [ "$hrc" -ge 2 ] && warn "Connexion unique Homarr non configurée (relancez generate_traefik_labels.sh)"
+    # Client OIDC Jellyfin (bouton « Se connecter avec Authelia »)
+    if [ "$INSTALL_JELLYFIN" = true ]; then
+        authelia_ensure_oidc_jellyfin "$INSTALL_DIR/authelia/configuration.yml" || true
     fi
     show_progress 8 10 "Installation"
 
@@ -1002,41 +936,26 @@ main() {
     echo -e "${GREEN}╚════════════════════════════════════════════╝${NC}\n"
 
     # Services système (administrateurs)
-    local adm=() s sub port
-    for s in dashdot scrutiny uptime-kuma tautulli portainer duplicati; do
+    local adm=() s sub
+    for s in dashdot scrutiny uptime-kuma portainer duplicati; do
         grep -q "^  ${s}:" "$INSTALL_DIR/docker-compose.yml" && adm+=("$s")
     done
-    if [ "$USE_TRAEFIK" = "true" ]; then
-        info "🔐 Portail de connexion (SSO) : https://auth.$DOMAIN"
-        [ "$INSTALL_JELLYFIN" = true ] && echo "  - Jellyfin : https://jellyfin.$DOMAIN"
-        [ "$INSTALL_PLEX" = true ]     && echo "  - Plex     : http://<ip-du-serveur>:32400/web"
-        if [ ${#adm[@]} -gt 0 ]; then
-            info "🛠️  Administration (groupe admins, via SSO) :"
-            echo "  - Traefik : https://traefik.$DOMAIN"
-            for s in "${adm[@]}"; do
-                sub=$s; [ "$s" = uptime-kuma ] && sub=uptime
-                echo "  - $s : https://${sub}.$DOMAIN"
-            done
-        fi
-        info "🏠 Tableau de bord (Homarr, connexion unique) : https://$DOMAIN"
-        echo "     (préconfiguré : chaque utilisateur arrive sur son tableau de bord privé)"
-        info "👥 Chaque utilisateur : https://<utilisateur>.$DOMAIN renvoie au tableau de bord"
-        echo "     qBittorrent …/qbittorrent · Fichiers …/drive · Sonarr …/sonarr · Radarr …/radarr"
-        echo "     (connexion unique : qBittorrent et Filebrowser s'ouvrent sans redemander de mot de passe)"
-        info "⏳ Certificats Let's Encrypt obtenus au premier accès (DNS *.${DOMAIN} requis)"
-    else
-        [ "$INSTALL_JELLYFIN" = true ] && echo "  - Jellyfin : http://<ip-du-serveur>:8096"
-        [ "$INSTALL_PLEX" = true ]     && echo "  - Plex     : http://<ip-du-serveur>:32400/web"
-        info "👥 Adresses des services de chaque utilisateur : sudo $INSTALL_DIR/scripts/list_user_services.sh <utilisateur>"
-        if [ ${#adm[@]} -gt 0 ]; then
-            info "🛠️  Administration : ports LOCAUX uniquement (sécurité, pas d'authentification)."
-            echo "     Accès par tunnel SSH, par ex. :"
-            for s in "${adm[@]}"; do
-                port=$(grep -A12 "^  ${s}:" "$INSTALL_DIR/docker-compose.yml" | grep -oE ':[0-9]+:[0-9]+"' | head -1 | cut -d: -f2)
-                echo "  - $s : ssh -L ${port}:localhost:${port} <compte>@<serveur>  puis  http://localhost:${port}"
-            done
-        fi
+    info "🔐 Portail de connexion (SSO) : https://auth.$DOMAIN"
+    [ "$INSTALL_JELLYFIN" = true ] && echo "  - Jellyfin : https://jellyfin.$DOMAIN"
+    if [ ${#adm[@]} -gt 0 ]; then
+        info "🛠️  Administration (groupe admins, via SSO) :"
+        echo "  - Traefik : https://traefik.$DOMAIN"
+        for s in "${adm[@]}"; do
+            sub=$s; [ "$s" = uptime-kuma ] && sub=uptime
+            echo "  - $s : https://${sub}.$DOMAIN"
+        done
     fi
+    info "🏠 Tableau de bord (Homarr, connexion unique) : https://$DOMAIN"
+    echo "     (préconfiguré : chaque utilisateur arrive sur son tableau de bord privé)"
+    info "👥 Chaque utilisateur : https://<utilisateur>.$DOMAIN renvoie au tableau de bord"
+    echo "     qBittorrent …/qbittorrent · Fichiers …/drive · Sonarr …/sonarr · Radarr …/radarr"
+    echo "     (connexion unique : qBittorrent et Filebrowser s'ouvrent sans redemander de mot de passe)"
+    info "⏳ Certificats Let's Encrypt obtenus au premier accès (DNS *.${DOMAIN} requis)"
     [ "$INSTALL_PORTAINER" = true ] && [ -n "$PORTAINER_USER" ] && echo "  (Portainer : utilisateur $PORTAINER_USER)"
     echo ""
 

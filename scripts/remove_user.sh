@@ -83,7 +83,7 @@ fi
 
 # 1) Arrêt et suppression des conteneurs de l'utilisateur
 log "Arrêt des services..."
-for s in $USER_SERVICES flaresolverr; do
+for s in $USER_SERVICES $USER_SERVICES_LEGACY flaresolverr; do
     if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx "${s}-${USERNAME}"; then
         log "Arrêt de ${s}-${USERNAME}..."
         docker rm -f "${s}-${USERNAME}" >/dev/null 2>&1 || true
@@ -95,7 +95,7 @@ done
 log "Mise à jour de docker-compose.yml..."
 cp "$DOCKER_COMPOSE_FILE" "${DOCKER_COMPOSE_FILE}.bak"
 TMP="${DOCKER_COMPOSE_FILE%.yml}.new.yml"
-awk -v user="$USERNAME" -v svcs="$USER_SERVICES flaresolverr" '
+awk -v user="$USERNAME" -v svcs="$USER_SERVICES $USER_SERVICES_LEGACY flaresolverr" '
     BEGIN { n = split(svcs, a, " "); for (i = 1; i <= n; i++) want[a[i] "-" user ":"] = 1; skip = 0 }
     /^  [^ #]/ { skip = ($1 in want) }      # nouvelle clé de service
     /^[^ ]/    { skip = 0 }                 # clé de premier niveau
