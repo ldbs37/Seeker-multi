@@ -16,7 +16,7 @@
 #   seedbox (France pour fr), s'ils ne sont pas déjà choisis.
 # - Sonarr / Radarr de l'utilisateur (clé d'API, profil HD-1080p ou premier
 #   profil, /data/tv et /data/movies), ajoutés s'ils manquent.
-# Vérifié sur Seerr 3.0.1 et Jellyfin 12.1. Idempotent ; ne touche pas à un
+# Vérifié sur Seerr 3.0.1 et 3.4.1, Jellyfin 12.1. Idempotent ; ne touche pas à un
 # Seerr déjà configuré à la main (hors ajout de Sonarr / Radarr manquants).
 #
 # Variables : INSTALL_DIR, DOMAIN ; fonctions de lib_jellyfin.sh (jf_api),
@@ -105,7 +105,7 @@ print(json.dumps([{"id": f["ItemId"], "name": f["Name"], "enabled": True, "type"
     if [ "$state" = init ] && CID="$cid" SONARR="$sonarr" RADARR="$radarr" python3 -c '
 import json, os, sys
 s = json.load(open(sys.argv[1]))
-if s.get("clientId") != os.environ["CID"]:
+if s.get("clientId") != os.environ["CID"] or s.get("sessionSecret") != os.environ["CID"]:
     sys.exit(1)
 if s["jellyfin"].get("ip") == "jellyfin" and (s["main"].get("localLogin") or s["main"].get("newPlexLogin")
         or not s["main"].get("streamingRegion") or not s["main"].get("discoverRegion")):
@@ -124,8 +124,10 @@ for k in ("sonarr", "radarr"):
 import json, os, sqlite3, sys
 e = os.environ; path, db = sys.argv[1], sys.argv[2]
 s = json.load(open(path))
-# Secret de signature des sessions fixé par la seedbox (connexion automatique)
+# Secret de signature des sessions fixé par la seedbox (connexion
+# automatique) : clientId jusqu'à Seerr 3.3, sessionSecret depuis 3.4
 s["clientId"] = e["CID"]
+s["sessionSecret"] = e["CID"]
 if e["ST"] == "new":
     info = json.loads(e["INFO"].lstrip("﻿"))
     s["main"].update(mediaServerType=2, mediaServerLogin=True,
