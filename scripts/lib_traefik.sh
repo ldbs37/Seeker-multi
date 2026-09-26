@@ -299,6 +299,15 @@ traefik_user_labels() {
             echo "      - \"traefik.http.routers.${r}-logout.middlewares=${r}-logout\""
             echo "      - \"traefik.http.routers.${r}.service=${r}\""
             ;;
+        sonarr|radarr|readarr|prowlarr)
+            # Page de connexion de l'appli (servie même en connexion
+            # « External », mot de passe inconnu) : on y arrive depuis une page
+            # restée ouverte après expiration de la session → retour à
+            # l'appli (Authelia redemande la connexion si besoin)
+            echo "      - \"traefik.http.middlewares.${r}-nologin.redirectregex.regex=^(https?://[^/]+${path})/login([?].*)?\$\$\""
+            echo "      - \"traefik.http.middlewares.${r}-nologin.redirectregex.replacement=\$\${1}/\""
+            mw="${r}-nologin,${mw}"
+            ;;
         calibre)
             echo "      - \"traefik.http.middlewares.${r}-hdr.headers.customrequestheaders.X-Script-Name=/calibre\""
             # Connexion unique : utilisateur du routeur (contrôlé par Authelia)
