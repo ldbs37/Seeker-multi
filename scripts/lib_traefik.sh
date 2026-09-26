@@ -233,6 +233,19 @@ user_nets_prune() {
 # indentées pour un bloc de service docker-compose.
 # $1=service $2=utilisateur [$3=port interne, défaut selon le service]
 # NB : backticks littéraux (non échappés) et `$$` pour docker-compose.
+# Page de connexion propre à l'appli (*arr, Calibre-web), servie même quand
+# Authelia gère la connexion (mot de passe inconnu) : on y arrive depuis une
+# page restée ouverte après expiration de la session, ou par « Déconnexion ».
+# /login → l'appli (Authelia redemande la connexion si besoin) ; /logout →
+# déconnexion d'Authelia, comme les autres applis. $1=routeur $2=chemin
+_traefik_no_local_login() {
+    local r="$1" path="$2"
+    echo "      - \"traefik.http.middlewares.${r}-nologin.redirectregex.regex=^(https?://[^/]+${path})/login([?].*)?\$\$\""
+    echo "      - \"traefik.http.middlewares.${r}-nologin.redirectregex.replacement=\$\${1}/\""
+    echo "      - \"traefik.http.middlewares.${r}-nologout.redirectregex.regex=^https?://[^/]+${path}/logout([?].*)?\$\$\""
+    echo "      - \"traefik.http.middlewares.${r}-nologout.redirectregex.replacement=https://auth.${DOMAIN}/logout?rd=https://${DOMAIN}/logout-done\""
+}
+
 traefik_user_labels() {
     local svc="$1" user="$2" port="${3:-}" path r host rule mw
     path=$(traefik_service_path "$svc") || return 1
@@ -300,15 +313,12 @@ traefik_user_labels() {
             echo "      - \"traefik.http.routers.${r}.service=${r}\""
             ;;
         sonarr|radarr|readarr|prowlarr)
-            # Page de connexion de l'appli (servie même en connexion
-            # « External », mot de passe inconnu) : on y arrive depuis une page
-            # restée ouverte après expiration de la session → retour à
-            # l'appli (Authelia redemande la connexion si besoin)
-            echo "      - \"traefik.http.middlewares.${r}-nologin.redirectregex.regex=^(https?://[^/]+${path})/login([?].*)?\$\$\""
-            echo "      - \"traefik.http.middlewares.${r}-nologin.redirectregex.replacement=\$\${1}/\""
-            mw="${r}-nologin,${mw}"
+            _traefik_no_local_login "$r" "$path"
+            mw="${r}-nologin,${r}-nologout,${mw}"
             ;;
         calibre)
+            _traefik_no_local_login "$r" "$path"
+            mw="${r}-nologin,${r}-nologout,${mw}"
             echo "      - \"traefik.http.middlewares.${r}-hdr.headers.customrequestheaders.X-Script-Name=/calibre\""
             # Connexion unique : utilisateur du routeur (contrôlé par Authelia)
             # dans l'en-tête secret (lib_calibre.sh) ; valeur du client remplacée
