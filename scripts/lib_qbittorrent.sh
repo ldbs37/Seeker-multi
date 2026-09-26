@@ -161,6 +161,24 @@ qbit_lang_configure() {
 
 # qBittorrent : VueTorrent comme interface web (conteneur arrêté).
 # $1 = qBittorrent.conf
+# Objectif de partage : 14 jours ou ratio 3 (le premier atteint), puis
+# torrent arrêté ; Radarr / Sonarr suppriment alors les leurs (option
+# « supprimer les téléchargements terminés », lib_arr.sh) : les anciennes
+# versions remplacées par une mise à niveau ne s'accumulent plus. Appliqué
+# seulement si aucun objectif n'est défini (choix de l'utilisateur
+# conservé). qBittorrent doit être arrêté (il réécrit son fichier en
+# s'arrêtant). Vérifié sur qBittorrent 5.2.3. $1=fichier qBittorrent.conf
+QBIT_SEED_RATIO=3
+QBIT_SEED_MINUTES=20160
+qbit_share_limits_configure() {
+    local conf="$1"
+    [ -f "$conf" ] || return 1
+    grep -qE '^Session\\(GlobalMaxRatio|GlobalMaxSeedingMinutes)=' "$conf" && return 0
+    ini_set "$conf" BitTorrent 'Session\GlobalMaxRatio' "$QBIT_SEED_RATIO"
+    ini_set "$conf" BitTorrent 'Session\GlobalMaxSeedingMinutes' "$QBIT_SEED_MINUTES"
+    ini_set "$conf" BitTorrent 'Session\ShareLimitAction' 'Stop'
+}
+
 qbit_vuetorrent_configure() {
     [ -d "$INSTALL_DIR/vuetorrent/public" ] || return 1
     ini_set "$1" Preferences 'WebUI\AlternativeUIEnabled' 'true'

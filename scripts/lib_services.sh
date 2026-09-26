@@ -78,6 +78,7 @@ service_prepare() {
                 qbit_sso_configure "$conf"
             fi
             qbit_lang_configure "$conf"
+            qbit_share_limits_configure "$conf"
             # Interface web VueTorrent (sinon interface d'origine)
             if vuetorrent_ensure; then qbit_vuetorrent_configure "$conf"
             else warn "VueTorrent non téléchargé : interface d'origine de qBittorrent"; fi

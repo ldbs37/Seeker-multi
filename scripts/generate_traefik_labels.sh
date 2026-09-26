@@ -146,7 +146,7 @@ for e in "${USER_ENTRIES[@]}"; do
     case "$svc" in
         qbittorrent)
             conf="$cfg/qBittorrent/qBittorrent.conf"
-            [ -f "$conf" ] && { qbit_vuetorrent_configure "$conf"; qbit_lang_configure "$conf"; }
+            [ -f "$conf" ] && { qbit_vuetorrent_configure "$conf"; qbit_lang_configure "$conf"; qbit_share_limits_configure "$conf"; }
             if [ -f "$conf" ] && [ "$SSO_OK" = true ]; then
                 # Connexion unique : Traefik seul dispensé de mot de passe
                 qbit_sso_configure "$conf"

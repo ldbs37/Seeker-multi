@@ -122,6 +122,13 @@ médias existants et utilisé par Seerr) :
 
 - mises à niveau automatiques jusqu'à la 4K ; toujours en français.
 
+Objectif de partage (qBittorrent) : 14 jours ou ratio 3, le premier atteint ;
+le torrent est alors arrêté, et Radarr / Sonarr suppriment les leurs
+(fichier de `downloads/` compris ; la bibliothèque, liée, n'est pas
+touchée). Les anciennes versions remplacées par une mise à niveau ne
+s'accumulent donc plus. Un torrent ajouté à la main est seulement arrêté.
+Objectif modifiable dans qBittorrent (Options → BitTorrent) : conservé.
+
 Un torrent ajouté à la main dans qBittorrent reste dans `downloads/` (hors
 bibliothèques). Pour qu'il arrive rangé dans Jellyfin : ajouter le film ou la
 série dans Radarr / Sonarr (ou le demander dans Seerr), puis donner au
