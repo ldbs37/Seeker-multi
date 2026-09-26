@@ -842,6 +842,8 @@ deploy_services() {
     [ "$INSTALL_SCRUTINY" = true ] && { autoconfig_scrutiny "$INSTALL_DIR" || true; }
     # Duplicati : sauvegarde de la configuration, chaque nuit
     [ "$INSTALL_DUPLICATI" = true ] && { autoconfig_duplicati "$INSTALL_DIR" || true; }
+    # Applications prioritaires sur les téléchargements (disque, réseau)
+    "$INSTALL_DIR/scripts/priority.sh" || warn "Priorité des applications non appliquée"
     # Uptime Kuma : ouvert directement après Authelia
     [ "$INSTALL_UPTIME_KUMA" = true ] && { autoconfig_uptime_kuma "$INSTALL_DIR" "${INITIAL_USERS[0]}" || true; }
     # Jellyfin : administrateur = premier utilisateur (même mot de passe),

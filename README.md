@@ -34,6 +34,7 @@ Une solution **simple et efficace** de seedbox multi-utilisateurs avec authentif
 - 📝 Seerr → Jellyfin (seulement vos bibliothèques) et Sonarr / Radarr ; demandes validées automatiquement
 - 📖 Calibre-web → bibliothèque `books/`
 - 🛡️ Chaque utilisateur a son réseau Docker privé : les autres ne peuvent pas joindre ses services
+- ⚡ Les applications passent avant les téléchargements (disque et réseau) : pages et streaming fluides même pendant un gros téléchargement
 
 ### 🛡️ Services Système (accès administrateur)
 - 🔐 **Authelia** - Authentification centralisée

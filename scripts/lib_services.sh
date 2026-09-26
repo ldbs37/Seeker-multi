@@ -143,6 +143,13 @@ service_block() {
             echo "      - ${cfg}:/config"
             echo "      - ${USER_DIR}/books:/books" ;;
     esac
+    # Priorité disque la plus basse (poids 10 contre 100 par défaut, effectif
+    # avec l'ordonnanceur BFQ : lib_priority.sh) : les applications passent
+    # avant les téléchargements
+    if [ "$svc" = qbittorrent ]; then
+        echo "    blkio_config:"
+        echo "      weight: 10"
+    fi
     # Seul port publié : le port torrent entrant (TCP+UDP) ; les interfaces
     # passent par Traefik
     if [ "$svc" = qbittorrent ]; then
