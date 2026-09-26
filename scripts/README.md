@@ -79,6 +79,17 @@ Quotas **projet** : la limite porte sur le dossier `data/users/<user>`.
 ### `configure_jellyfin_user.sh <user> [mdp]`
 Crée/met à jour son compte Jellyfin (accès limité à ses bibliothèques).
 
+### `priority.sh [--apply|--off]`
+Les applications passent avant les téléchargements, sans rien brider quand
+le serveur est calme (lancé par l'installation et `generate_traefik_labels.sh` ;
+minuteur `seedbox-priority` chaque minute) :
+- disque : ordonnanceur BFQ sur les disques des données (règle udev
+  `60-seedbox-bfq.rules`), conteneurs qBittorrent au poids 10 (100 par défaut) ;
+- réseau sortant : file `prio` sur l'interface de sortie ; trafic des
+  conteneurs qBittorrent (adresses relues chaque minute) dans le niveau le
+  plus bas, le reste (Traefik, Jellyfin…) au-dessus.
+`--off` retire tout.
+
 ### `portainer_sso.sh`
 Installation existante : connexion à Portainer via Authelia (client OIDC
 réservé au groupe `admins`, bouton « Login with OAuth », session de 7 jours).

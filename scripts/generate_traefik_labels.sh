@@ -202,6 +202,8 @@ if grep -q "^  portainer:" "$DOCKER_COMPOSE_FILE" \
     && ! grep -q "client_id: 'portainer'" "$INSTALL_DIR/authelia/configuration.yml" 2>/dev/null; then
     info "Portainer via Authelia (une fois, mot de passe Portainer demandé) : sudo $SCRIPT_DIR/portainer_sso.sh"
 fi
+# Applications prioritaires sur les téléchargements (disque, réseau)
+"$SCRIPT_DIR/priority.sh" || warn "Priorité des applications non appliquée (sudo $SCRIPT_DIR/priority.sh)"
 [ ${#DROPPED[@]} -gt 0 ] && info "Services remplacés, retirés (données conservées) : ${DROPPED[*]}"
 
 log "${GREEN}✓${NC} Migration terminée"
