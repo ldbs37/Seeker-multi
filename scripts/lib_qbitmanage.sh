@@ -8,7 +8,7 @@
 # - Torrents « sans lien » (étiquette noHL : fichier plus présent dans la
 #   bibliothèque, remplacé par une mise à niveau ou supprimé dans Radarr /
 #   Sonarr), catégories radarr et tv-sonarr seulement : supprimés avec leurs
-#   fichiers après QBM_NOHL_DELAY de partage.
+#   fichiers après QBM_NOHL_DELAY de partage (7 jours).
 # - Autres torrents : partage jusqu'à 14 jours ou ratio 3, puis arrêt
 #   (Radarr / Sonarr suppriment ensuite les leurs ; les torrents ajoutés à la
 #   main sont seulement arrêtés).
@@ -21,12 +21,12 @@
 # conservée : modifiée à la main). Vérifié sur qbit_manage 4.13.0 et
 # qBittorrent 5.2.3.
 #
-# Réglage : QBM_NOHL_DELAY=<n>[mhdw] dans $INSTALL_DIR/.env (défaut 1d).
+# Réglage : QBM_NOHL_DELAY=<n>[mhdw] dans $INSTALL_DIR/.env (défaut 7d).
 # Variables : INSTALL_DIR, TZ ; fonctions de lib_traefik.sh (user_net).
 #######################
 
 QBIT_MANAGE_IMAGE="ghcr.io/stuffanthings/qbit_manage:v4.13.0"
-QBM_NOHL_DELAY="${QBM_NOHL_DELAY:-1d}"
+QBM_NOHL_DELAY="${QBM_NOHL_DELAY:-7d}"
 QBM_MARK="# seedbox : généré par lib_qbitmanage.sh"
 
 # Bloc docker-compose de qbitmanage-<user> (stdout). Variables : USERNAME,
@@ -138,7 +138,7 @@ qbm_configure() {
     if [ -f "$conf" ] && ! grep -qF "$QBM_MARK" "$conf"; then
         return 0   # modifiée à la main : conservée
     fi
-    # Délai choisi dans .env (QBM_NOHL_DELAY=3d), sinon 24 h
+    # Délai choisi dans .env (QBM_NOHL_DELAY=3d), sinon 7 jours
     delay=$(sed -n 's/^QBM_NOHL_DELAY=\([0-9]\+[mhdw]\)$/\1/p' "$INSTALL_DIR/.env" 2>/dev/null | tail -1)
     [ -n "$delay" ] && QBM_NOHL_DELAY="$delay"
     key=$(qbit_ensure_api_key "$user") && [ -n "$key" ] || { echo "Clé d'API qBittorrent de $user indisponible" >&2; return 1; }

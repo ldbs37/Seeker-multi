@@ -133,8 +133,8 @@ s'accumulent donc plus. Un torrent ajouté à la main est seulement arrêté.
 fichiers compris**, suffit, le reste suit.
 - Torrent `radarr` / `tv-sonarr` dont le fichier n'est plus dans la
   bibliothèque (ancienne version remplacée, média supprimé) : étiquette
-  `noHL`, puis supprimé avec son fichier après 24 h de partage
-  (autre délai : ligne `QBM_NOHL_DELAY=3d` dans `/opt/seedbox/.env`, puis
+  `noHL`, puis supprimé avec son fichier après 7 jours de partage
+  (autre délai : ligne `QBM_NOHL_DELAY=14d` dans `/opt/seedbox/.env`, puis
   `sudo bash scripts/arr_setup.sh --all`).
 - Torrent retiré du tracker : supprimé.
 - Les autres : objectif ci-dessus (14 jours ou ratio 3), puis arrêt.
@@ -145,7 +145,7 @@ fichiers compris**, suffit, le reste suit.
   par `arr_setup.sh` ; pour la modifier à la main, retirer sa première
   ligne (elle est alors conservée), puis `docker restart qbitmanage-<user>`.
 - Attention : un téléchargement terminé mais pas importé (import bloqué
-  dans Radarr / Sonarr → Activité) est supprimé après 24 h ; à régler avant
+  dans Radarr / Sonarr → Activité) est supprimé après 7 jours ; à régler avant
   (ou le récupérer dans la corbeille).
 
 Un torrent ajouté à la main dans qBittorrent reste dans `downloads/` (hors
