@@ -60,8 +60,9 @@ for n in "${NAMES[@]}"; do
     # Service système obsolète (remplacé) : retiré, pas conservé
     [[ " $SYSTEM_SERVICES_OBSOLETE " == *" $n "* ]] && { DROPPED+=("$n"); continue; }
     svc=${n%-*}; usr=${n##*-}
-    # FlareSolverr d'un utilisateur : régénéré avec son Prowlarr
-    [ "$svc" = flaresolverr ] && id "$usr" &>/dev/null && continue
+    # FlareSolverr / qbit_manage d'un utilisateur : régénérés avec son
+    # Prowlarr / qBittorrent
+    [[ "$svc" = flaresolverr || "$svc" = qbitmanage ]] && id "$usr" &>/dev/null && continue
     if [[ "$n" == *-* ]] && [[ " $USER_SERVICES $USER_SERVICES_LEGACY " == *" $svc "* ]] && id "$usr" &>/dev/null; then
         # Mode Traefik : Homarr partagé ; les Homarr individuels sont retirés
         # (leurs fichiers restent dans data/users/<user>/config/homarr)

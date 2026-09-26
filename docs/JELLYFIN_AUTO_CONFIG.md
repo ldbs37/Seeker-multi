@@ -127,7 +127,26 @@ le torrent est alors arrêté, et Radarr / Sonarr suppriment les leurs
 (fichier de `downloads/` compris ; la bibliothèque, liée, n'est pas
 touchée). Les anciennes versions remplacées par une mise à niveau ne
 s'accumulent donc plus. Un torrent ajouté à la main est seulement arrêté.
-Objectif modifiable dans qBittorrent (Options → BitTorrent) : conservé.
+
+**qbit_manage** (un par utilisateur, `qbitmanage-<user>`, passe toutes les
+30 min) complète : supprimer un film ou une série **dans Radarr / Sonarr,
+fichiers compris**, suffit, le reste suit.
+- Torrent `radarr` / `tv-sonarr` dont le fichier n'est plus dans la
+  bibliothèque (ancienne version remplacée, média supprimé) : étiquette
+  `noHL`, puis supprimé avec son fichier après 24 h de partage
+  (autre délai : ligne `QBM_NOHL_DELAY=3d` dans `/opt/seedbox/.env`, puis
+  `sudo bash scripts/arr_setup.sh --all`).
+- Torrent retiré du tracker : supprimé.
+- Les autres : objectif ci-dessus (14 jours ou ratio 3), puis arrêt.
+- Fichiers supprimés : `downloads/.RecycleBin` pendant 7 jours
+  (récupérables). Les fichiers de `downloads/` sans torrent ne sont jamais
+  touchés.
+- Configuration : `/opt/seedbox/qbit_manage/<user>/config.yml`, régénérée
+  par `arr_setup.sh` ; pour la modifier à la main, retirer sa première
+  ligne (elle est alors conservée), puis `docker restart qbitmanage-<user>`.
+- Attention : un téléchargement terminé mais pas importé (import bloqué
+  dans Radarr / Sonarr → Activité) est supprimé après 24 h ; à régler avant
+  (ou le récupérer dans la corbeille).
 
 Un torrent ajouté à la main dans qBittorrent reste dans `downloads/` (hors
 bibliothèques). Pour qu'il arrive rangé dans Jellyfin : ajouter le film ou la

@@ -9,7 +9,7 @@
 # Pré-requis (variables) : USERNAME USER_ID USER_DIR INSTALL_DIR TZ
 #                          DOMAIN.
 # Dépendances : lib_ports.sh, lib_traefik.sh (sourcées par l'appelant) ;
-# lib_lang.sh, lib_filebrowser.sh (sourcées ici).
+# lib_lang.sh, lib_filebrowser.sh, lib_qbitmanage.sh (sourcées ici).
 #
 # Organisation des données d'un utilisateur ($USER_DIR, monté sur /data) :
 #   downloads/ tv/ movies/ books/ config/
@@ -21,6 +21,8 @@
 source "$(dirname "${BASH_SOURCE[0]}")/lib_lang.sh"
 # shellcheck source=lib_filebrowser.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib_filebrowser.sh"
+# shellcheck source=lib_qbitmanage.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib_qbitmanage.sh"
 
 # shellcheck disable=SC2034  # lue par les bibliothèques sourcées
 USER_SERVICES="qbittorrent filebrowser sonarr radarr readarr bazarr prowlarr seerr calibre"
@@ -175,6 +177,8 @@ service_block() {
     # partagé, navigateur piloté par tous, pourrait joindre les services des
     # autres utilisateurs)
     [ "$svc" = prowlarr ] && user_flaresolverr_block
+    # qbit_manage de l'utilisateur : ménage de son qBittorrent (lib_qbitmanage.sh)
+    [ "$svc" = qbittorrent ] && user_qbitmanage_block
     return 0
 }
 

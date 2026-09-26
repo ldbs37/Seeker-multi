@@ -64,8 +64,10 @@ if FLAG=$(system_service_flag "$NAME"); then
     compose_sync_user_nets "$TMP" || true
 else
     # Service d'un utilisateur ou bloc personnalisé : retrait du bloc exact
-    # (Prowlarr : avec le FlareSolverr de l'utilisateur)
+    # (Prowlarr : avec le FlareSolverr de l'utilisateur ; qBittorrent : avec
+    # son qbit_manage)
     EXTRA=""; [[ "$NAME" == prowlarr-* ]] && EXTRA="flaresolverr-${NAME#prowlarr-}:"
+    [[ "$NAME" == qbittorrent-* ]] && EXTRA="qbitmanage-${NAME#qbittorrent-}:"
     awk -v name="${NAME}:" -v extra="$EXTRA" '
         /^  [^ #]/ { skip = ($1 == name || (extra != "" && $1 == extra)) }
         /^[^ ]/    { skip = 0 }
@@ -80,6 +82,7 @@ fi
 mv "$TMP" "$DOCKER_COMPOSE_FILE"
 docker rm -f "$NAME" >/dev/null 2>&1 || true
 [[ "$NAME" == prowlarr-* ]] && { docker rm -f "flaresolverr-${NAME#prowlarr-}" >/dev/null 2>&1 || true; }
+[[ "$NAME" == qbittorrent-* ]] && { docker rm -f "qbitmanage-${NAME#qbittorrent-}" >/dev/null 2>&1 || true; }
 
 # Tableau de bord Homarr de l'utilisateur à jour
 usr=${NAME##*-}

@@ -33,6 +33,7 @@ Une solution **simple et efficace** de seedbox multi-utilisateurs avec authentif
 - 🇫🇷 Sonarr / Radarr / Prowlarr en français (dates au format français, titres des films en français) ; téléchargements en français par défaut ; fichiers nommés pour Jellyfin (identifiant TMDB/TVDB dans le dossier : reconnaissance sans erreur) ; profil optimisé (720p à 4K, 4 Go max par film, 2 Go/h par épisode, x265, AV1, 10 bits, HDR, Atmos, VFF préférés)
 - 📝 Seerr → Jellyfin (seulement vos bibliothèques) et Sonarr / Radarr ; demandes validées automatiquement
 - 📖 Calibre-web → bibliothèque `books/`
+- 🧹 qbit_manage : supprimer un film ou une série dans Radarr / Sonarr suffit ; anciennes versions (mises à niveau) retirées de qBittorrent après 24 h, corbeille de 7 jours ; partage 14 jours ou ratio 3
 - 🛡️ Chaque utilisateur a son réseau Docker privé : les autres ne peuvent pas joindre ses services
 - ⚡ Les applications passent avant les téléchargements (disque et réseau) : pages et streaming fluides même pendant un gros téléchargement
 
