@@ -9,9 +9,10 @@
 #   bibliothèque, remplacé par une mise à niveau ou supprimé dans Radarr /
 #   Sonarr), catégories radarr et tv-sonarr seulement : supprimés avec leurs
 #   fichiers après QBM_NOHL_DELAY de partage (7 jours).
-# - Autres torrents : partage jusqu'à 14 jours ou ratio 3, puis arrêt
-#   (Radarr / Sonarr suppriment ensuite les leurs ; les torrents ajoutés à la
-#   main sont seulement arrêtés).
+# - Torrents radarr / tv-sonarr dont le film ou la série est encore dans la
+#   bibliothèque : partagés sans limite.
+# - Autres torrents (ajoutés à la main) : partage jusqu'à 14 jours ou ratio
+#   3, puis arrêt (jamais supprimés).
 # - Torrents retirés du tracker : supprimés.
 # - Fichiers de downloads/ sans torrent : NON touchés (un utilisateur peut y
 #   déposer les siens, avec FileBrowser par exemple).
@@ -112,7 +113,17 @@ share_limits:
     max_seeding_time: $QBM_NOHL_DELAY
     cleanup: true
     share_limit_action: Stop
-  # Tous les autres : 14 jours ou ratio 3, puis arrêt
+  # Film / série encore dans la bibliothèque (géré par Radarr / Sonarr) :
+  # partage sans limite
+  suivi:
+    priority: 2
+    categories:
+      - radarr
+      - tv-sonarr
+    max_ratio: -1
+    max_seeding_time: -1
+    cleanup: false
+  # Autres torrents (ajoutés à la main) : 14 jours ou ratio 3, puis arrêt
   partage:
     priority: 99
     max_ratio: 3

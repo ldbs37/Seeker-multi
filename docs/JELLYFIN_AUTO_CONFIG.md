@@ -122,11 +122,10 @@ médias existants et utilisé par Seerr) :
 
 - mises à niveau automatiques jusqu'à la 4K ; toujours en français.
 
-Objectif de partage (qBittorrent) : 14 jours ou ratio 3, le premier atteint ;
-le torrent est alors arrêté, et Radarr / Sonarr suppriment les leurs
-(fichier de `downloads/` compris ; la bibliothèque, liée, n'est pas
-touchée). Les anciennes versions remplacées par une mise à niveau ne
-s'accumulent donc plus. Un torrent ajouté à la main est seulement arrêté.
+Partage (qBittorrent) : un film ou une série géré par Radarr / Sonarr et
+encore dans la bibliothèque est partagé sans limite ; un torrent ajouté à la
+main s'arrête après 14 jours ou un ratio de 3 (jamais supprimé). Sans
+qbit_manage, qBittorrent applique 14 jours ou ratio 3 à tous.
 
 **qbit_manage** (un par utilisateur, `qbitmanage-<user>`, passe toutes les
 30 min) complète : supprimer un film ou une série **dans Radarr / Sonarr,
@@ -137,7 +136,8 @@ fichiers compris**, suffit, le reste suit.
   (autre délai : ligne `QBM_NOHL_DELAY=14d` dans `/opt/seedbox/.env`, puis
   `sudo bash scripts/arr_setup.sh --all`).
 - Torrent retiré du tracker : supprimé.
-- Les autres : objectif ci-dessus (14 jours ou ratio 3), puis arrêt.
+- Film ou série encore dans la bibliothèque : partagé sans limite.
+- Torrent ajouté à la main : 14 jours ou ratio 3, puis arrêt.
 - Fichiers supprimés : `downloads/.RecycleBin` pendant 7 jours
   (récupérables). Les fichiers de `downloads/` sans torrent ne sont jamais
   touchés.
