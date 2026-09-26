@@ -60,9 +60,8 @@ for n in "${NAMES[@]}"; do
     # Service système obsolète (remplacé) : retiré, pas conservé
     [[ " $SYSTEM_SERVICES_OBSOLETE " == *" $n "* ]] && { DROPPED+=("$n"); continue; }
     svc=${n%-*}; usr=${n##*-}
-    # FlareSolverr / qbit_manage d'un utilisateur : régénérés avec son
-    # Prowlarr / qBittorrent
-    [[ "$svc" = flaresolverr || "$svc" = qbitmanage ]] && id "$usr" &>/dev/null && continue
+    # FlareSolverr d'un utilisateur : régénéré avec son Prowlarr
+    [ "$svc" = flaresolverr ] && id "$usr" &>/dev/null && continue
     if [[ "$n" == *-* ]] && [[ " $USER_SERVICES $USER_SERVICES_LEGACY " == *" $svc "* ]] && id "$usr" &>/dev/null; then
         # Mode Traefik : Homarr partagé ; les Homarr individuels sont retirés
         # (leurs fichiers restent dans data/users/<user>/config/homarr)
@@ -147,7 +146,7 @@ for e in "${USER_ENTRIES[@]}"; do
     case "$svc" in
         qbittorrent)
             conf="$cfg/qBittorrent/qBittorrent.conf"
-            [ -f "$conf" ] && { qbit_vuetorrent_configure "$conf"; qbit_lang_configure "$conf"; qbit_share_limits_configure "$conf"; }
+            [ -f "$conf" ] && { qbit_vuetorrent_configure "$conf"; qbit_lang_configure "$conf"; }
             if [ -f "$conf" ] && [ "$SSO_OK" = true ]; then
                 # Connexion unique : Traefik seul dispensé de mot de passe
                 qbit_sso_configure "$conf"

@@ -5,9 +5,9 @@
 #     dossiers racine, qBittorrent comme client de téléchargement,
 #     Prowlarr → *arr (+ son FlareSolverr) ;
 #   - lib_calibre.sh : Calibre-web (connexion unique, bibliothèque /books) ;
-#   - lib_qbitmanage.sh : qbit_manage (clé d'API de son qBittorrent) ;
 #   - lib_seerr.sh : Seerr (Jellyfin au nom de l'utilisateur, ses
-#     bibliothèques, Sonarr/Radarr).
+#     bibliothèques, Sonarr/Radarr) ;
+#   - torrent_cleanup.sh : minuteur de ménage des torrents Radarr / Sonarr.
 # Idempotent : relançable sans risque (ne remplace rien de ce qui existe).
 #
 # Usage: arr_setup.sh <user>   # un utilisateur
@@ -47,7 +47,7 @@ if [ "$1" = --seerr-sessions ]; then
 fi
 
 if [ "$1" = --all ]; then
-    USERS=$(sed -n 's/^  \(sonarr\|radarr\|readarr\|prowlarr\|calibre\|seerr\|qbitmanage\)-\([a-z_][a-z0-9_-]*\):$/\2/p' "$DOCKER_COMPOSE_FILE" | sort -u)
+    USERS=$(sed -n 's/^  \(sonarr\|radarr\|readarr\|prowlarr\|calibre\|seerr\)-\([a-z_][a-z0-9_-]*\):$/\2/p' "$DOCKER_COMPOSE_FILE" | sort -u)
 else
     USERS="$1"
 fi
@@ -68,13 +68,6 @@ for u in $USERS; do
             warn "$u : configuration de Calibre-web incomplète (relancez : $0 $u)"; RC=1
         fi
     fi
-    if grep -q "^  qbitmanage-$u:" "$DOCKER_COMPOSE_FILE"; then
-        if qbm_configure "$u"; then
-            log "✓ $u : qbit_manage (anciennes versions et médias supprimés retirés de qBittorrent)"
-        else
-            warn "$u : configuration de qbit_manage incomplète (relancez : $0 $u)"; RC=1
-        fi
-    fi
     if grep -q "^  seerr-$u:" "$DOCKER_COMPOSE_FILE"; then
         if seerr_configure "$u"; then
             seerr_sessions_timer_ensure
@@ -84,4 +77,7 @@ for u in $USERS; do
         fi
     fi
 done
+# Ménage des torrents Radarr / Sonarr (doublons, médias supprimés), toutes
+# les 5 minutes
+grep -q '^  qbittorrent-' "$DOCKER_COMPOSE_FILE" && "$SCRIPT_DIR/torrent_cleanup.sh" --install-timer
 exit $RC

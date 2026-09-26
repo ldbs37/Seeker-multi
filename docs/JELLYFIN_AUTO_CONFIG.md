@@ -122,31 +122,23 @@ médias existants et utilisé par Seerr) :
 
 - mises à niveau automatiques jusqu'à la 4K ; toujours en français.
 
-Partage (qBittorrent) : un film ou une série géré par Radarr / Sonarr et
-encore dans la bibliothèque est partagé sans limite ; un torrent ajouté à la
-main s'arrête après 14 jours ou un ratio de 3 (jamais supprimé). Sans
-qbit_manage, qBittorrent applique 14 jours ou ratio 3 à tous.
-
-**qbit_manage** (un par utilisateur, `qbitmanage-<user>`, passe toutes les
-30 min) complète : supprimer un film ou une série **dans Radarr / Sonarr,
-fichiers compris**, suffit, le reste suit.
-- Torrent `radarr` / `tv-sonarr` dont le fichier n'est plus dans la
-  bibliothèque (ancienne version remplacée, média supprimé) : étiquette
-  `noHL`, puis supprimé avec son fichier après 7 jours de partage
-  (autre délai : ligne `QBM_NOHL_DELAY=14d` dans `/opt/seedbox/.env`, puis
-  `sudo bash scripts/arr_setup.sh --all`).
-- Torrent retiré du tracker : supprimé.
-- Film ou série encore dans la bibliothèque : partagé sans limite.
-- Torrent ajouté à la main : 14 jours ou ratio 3, puis arrêt.
-- Fichiers supprimés : `downloads/.RecycleBin` pendant 7 jours
-  (récupérables). Les fichiers de `downloads/` sans torrent ne sont jamais
-  touchés.
-- Configuration : `/opt/seedbox/qbit_manage/<user>/config.yml`, régénérée
-  par `arr_setup.sh` ; pour la modifier à la main, retirer sa première
-  ligne (elle est alors conservée), puis `docker restart qbitmanage-<user>`.
-- Attention : un téléchargement terminé mais pas importé (import bloqué
-  dans Radarr / Sonarr → Activité) est supprimé après 7 jours ; à régler avant
-  (ou le récupérer dans la corbeille).
+Ménage de qBittorrent (`torrent_cleanup.sh`, toutes les 5 minutes) : on
+supprime un film ou une série **uniquement dans Radarr / Sonarr** (fichiers
+compris), le reste suit.
+- Film / série encore dans la bibliothèque : partagé sans limite.
+- Ancienne version remplacée par une meilleure (doublon) : étiquette
+  `doublon`, partagée 7 jours pour le tracker, puis supprimée de
+  qBittorrent avec son fichier.
+- Supprimé dans Radarr / Sonarr : supprimé de qBittorrent avec son fichier
+  tout de suite, ou dès 72 h de partage atteintes s'il est plus récent
+  (étiquette `supprimé` en attendant).
+- En attente d'import dans Radarr / Sonarr, ou ajouté à la main (même avec
+  la catégorie `radarr` / `tv-sonarr` s'il n'a jamais été importé) : jamais
+  touché, à gérer soi-même.
+- Pas de corbeille : suppression définitive.
+- Délais : `CLEANUP_DUPLICATE_HOURS=168` et `CLEANUP_DELETED_HOURS=72` dans
+  `/opt/seedbox/.env`. Simulation : `sudo bash scripts/torrent_cleanup.sh
+  --dry-run`. Journal : `journalctl -u seedbox-torrent-cleanup`.
 
 Un torrent ajouté à la main dans qBittorrent reste dans `downloads/` (hors
 bibliothèques). Pour qu'il arrive rangé dans Jellyfin : ajouter le film ou la
