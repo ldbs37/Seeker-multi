@@ -21,7 +21,7 @@ ENV_FILE="$INSTALL_DIR/.env"
 DOCKER_COMPOSE_FILE="$INSTALL_DIR/docker-compose.yml"
 SPOOL="$INSTALL_DIR/api/spool"
 API_UID=65534                 # utilisateur du conteneur de l'API
-ALLOWED="sonarr radarr readarr bazarr prowlarr seerr calibre"   # ajout / retrait
+ALLOWED="sonarr radarr readarr prowlarr seerr calibre"          # ajout / retrait
 BASE="qbittorrent filebrowser flaresolverr"                      # redémarrage seulement
 RESTARTABLE="$BASE $ALLOWED"
 # Services partagés (un seul conteneur pour tous) : état et lien pour chacun,

@@ -129,7 +129,7 @@ show_services_status() {
     echo ""
 
     echo -e "${CYAN}Services Utilisateurs:${NC}"
-    docker ps --format "{{.Names}}" | grep -E "(qbittorrent|homarr|sonarr|radarr|readarr|bazarr|prowlarr|seerr|calibre|filebrowser)-" | sort
+    docker ps --format "{{.Names}}" | grep -E "(qbittorrent|homarr|sonarr|radarr|readarr|prowlarr|seerr|calibre|filebrowser)-" | sort
     echo ""
 
     pause

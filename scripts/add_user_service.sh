@@ -4,7 +4,7 @@
 # Script d'ajout de service à un utilisateur existant
 # Usage: ./add_user_service.sh <username> <service>
 # Services: sonarr, radarr, prowlarr, seerr, calibre
-#           (readarr, abandonné par ses auteurs, et bazarr ne sont plus proposés)
+#           (readarr, abandonné par ses auteurs, n'est plus proposé)
 #           (ainsi que qbittorrent, homarr, filebrowser s'ils manquent)
 #######################
 
@@ -79,7 +79,7 @@ case "$SERVICE" in
     readarr)
         error "Readarr n'est plus maintenu par ses auteurs (projet archivé) : il n'est plus proposé" ;;
     bazarr)
-        error "Bazarr n'est plus proposé (sous-titres : plugin OpenSubtitles de Jellyfin)" ;;
+        error "Bazarr a été supprimé de la seedbox" ;;
     qbittorrent|filebrowser)
         # Services de base créés par add_user.sh avec les identifiants de
         # l'utilisateur (ici, le mot de passe n'est pas connu).

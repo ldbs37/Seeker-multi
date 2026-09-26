@@ -11,7 +11,7 @@
 # à la main : services système régénérés (labels, SSO, ports locaux), service
 # traefik conservé tel quel, services utilisateurs régénérés (routage par
 # chemin, sans ports publiés hormis le port torrent). Préconfigure les applis
-# (URL de base des *arr/Bazarr, reverse-proxy qBittorrent), sauvegarde la
+# (URL de base des *arr, reverse-proxy qBittorrent), sauvegarde la
 # configuration avant, valide avant d'appliquer, puis vérifie (healthcheck).
 #######################
 
@@ -54,7 +54,7 @@ log "Migration vers Traefik pour le domaine $DOMAIN..."
 #######################
 mapfile -t NAMES < <(compose_service_names "$DOCKER_COMPOSE_FILE")
 detect_system_services "$DOCKER_COMPOSE_FILE"
-USER_ENTRIES=(); CUSTOM=(); DROPPED=()
+USER_ENTRIES=(); CUSTOM=(); DROPPED=(); REMOVED_CFG=()
 for n in "${NAMES[@]}"; do
     [[ " $SYSTEM_SERVICES traefik " == *" $n "* ]] && continue
     # Service système obsolète (remplacé) : retiré, pas conservé
@@ -62,10 +62,12 @@ for n in "${NAMES[@]}"; do
     svc=${n%-*}; usr=${n##*-}
     # FlareSolverr d'un utilisateur : régénéré avec son Prowlarr
     [ "$svc" = flaresolverr ] && id "$usr" &>/dev/null && continue
-    if [[ "$n" == *-* ]] && [[ " $USER_SERVICES $USER_SERVICES_LEGACY " == *" $svc "* ]] && id "$usr" &>/dev/null; then
+    if [[ "$n" == *-* ]] && [[ " $USER_SERVICES $USER_SERVICES_LEGACY $USER_SERVICES_REMOVED " == *" $svc "* ]] && id "$usr" &>/dev/null; then
         # Mode Traefik : Homarr partagé ; les Homarr individuels sont retirés
         # (leurs fichiers restent dans data/users/<user>/config/homarr)
         [ "$svc" = homarr ] && { DROPPED+=("$n"); continue; }
+        # Service supprimé (Bazarr) : retiré avec sa configuration
+        [[ " $USER_SERVICES_REMOVED " == *" $svc "* ]] && { DROPPED+=("$n"); REMOVED_CFG+=("$INSTALL_DIR/$svc/$usr"); continue; }
         USER_ENTRIES+=("$svc:$usr")
     else
         CUSTOM+=("$n")
@@ -204,7 +206,11 @@ if grep -q "^  portainer:" "$DOCKER_COMPOSE_FILE" \
 fi
 # Applications prioritaires sur les téléchargements (disque, réseau)
 "$SCRIPT_DIR/priority.sh" || warn "Priorité des applications non appliquée (sudo $SCRIPT_DIR/priority.sh)"
-[ ${#DROPPED[@]} -gt 0 ] && info "Services remplacés, retirés (données conservées) : ${DROPPED[*]}"
+[ ${#DROPPED[@]} -gt 0 ] && info "Services remplacés ou supprimés, retirés : ${DROPPED[*]}"
+# Configuration des services supprimés (Bazarr ; sous-titres déjà
+# téléchargés, à côté des médias, conservés)
+for d in "${REMOVED_CFG[@]}"; do rm -rf -- "$d"; done
+for s in $USER_SERVICES_REMOVED; do rmdir "$INSTALL_DIR/$s" 2>/dev/null || true; done
 
 log "${GREEN}✓${NC} Migration terminée"
 info "Portail SSO : https://auth.$DOMAIN"

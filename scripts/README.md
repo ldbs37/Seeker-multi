@@ -188,7 +188,7 @@ Seul port publié par utilisateur : son port torrent entrant (TCP+UDP),
 ├── data/users/<user>/        # monté sur /data (qBittorrent + *arr)
 │   ├── downloads/ tv/ movies/ books/
 │   └── config/{qbittorrent,homarr,filebrowser}/
-├── sonarr/<user>/ radarr/<user>/ readarr/<user>/ bazarr/<user>/
+├── sonarr/<user>/ radarr/<user>/ readarr/<user>/
 ├── prowlarr/<user>/ seerr/<user>/ calibre/<user>/
 ├── authelia/  backups/  scripts/
 ├── docker-compose.yml

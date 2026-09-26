@@ -158,7 +158,7 @@ lui-même**, sans SSH ni intervention de l'admin, depuis la page
 son tableau de bord Homarr).
 
 Services proposés : Sonarr, Radarr, Prowlarr, Seerr, Calibre-Web
-(Readarr et Bazarr, plus proposés, restent retirables). qBittorrent, la
+(Readarr, plus proposé, reste retirable ; Bazarr, supprimé, est retiré à la mise à jour). qBittorrent, la
 gestion de fichiers et FlareSolverr (services de base) peuvent seulement être
 redémarrés. Retirer un service **conserve ses données**.
 

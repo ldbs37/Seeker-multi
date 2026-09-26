@@ -686,4 +686,5 @@ Pour toute question ou problème :
 - ✅ **Applis préconfigurées** : Sonarr, Radarr, Prowlarr, Seerr, Calibre-web reliés automatiquement
 - ✅ **Réseau privé par utilisateur** : les services des autres utilisateurs ne peuvent pas joindre les vôtres
 - ✅ **Jellyfin automatique** : comptes, bibliothèques privées, bouton « Se connecter avec Authelia »
-- ✅ **Retirés** : Readarr (abandonné), Bazarr, Plex, Tautulli
+- ✅ **Retirés** : Readarr (abandonné), Plex, Tautulli
+- ✅ **Supprimé** : Bazarr (conteneurs, configuration et tuile Homarr retirés à la mise à jour ; sous-titres déjà téléchargés conservés)
