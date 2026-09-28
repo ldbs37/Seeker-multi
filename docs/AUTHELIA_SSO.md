@@ -225,6 +225,10 @@ la session ou par leur bouton « Déconnexion ». Traefik redirige :
 - `…/<appli>/logout` → déconnexion d'Authelia, comme Homarr, Jellyfin,
   Seerr et FileBrowser.
 
+Adresse d'une appli sans le sous-domaine (`https://<domaine>/radarr`, vue
+après une reconnexion) : renvoyée vers l'accueil, donc le tableau de bord
+Homarr, au lieu d'une page 404.
+
 Reste un cas : le bouton « Déconnexion » de VueTorrent affiche sa page de
 connexion (géré dans le navigateur) ; recharger la page reconnecte.
 
