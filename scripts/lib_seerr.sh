@@ -36,7 +36,14 @@ SEERR_API_DEVICE_PREFIX="seedbox-seerr-api-"
 # contient « seerr », sinon celle de la seedbox. Affiche la clé.
 # $1=clé actuelle du Seerr
 seerr_jellyfin_api_key() {
-    jf_api GET /Auth/Keys | CUR="${1:-}" python3 -c '
+    local keys i
+    # Jellyfin peut redémarrer juste avant (plugins) : réponse vide un moment
+    for i in 1 2 3 4 5 6; do
+        keys=$(jf_api GET /Auth/Keys) && [ -n "$keys" ] && break
+        keys=""; [ "$i" = 6 ] || sleep 5
+    done
+    [ -n "$keys" ] || { echo "Jellyfin : clés d'API illisibles (redémarrage en cours ?)" >&2; return 1; }
+    printf '%s' "$keys" | CUR="${1:-}" python3 -c '
 import json, os, sys
 keys = json.loads(sys.stdin.read().lstrip("\ufeff")).get("Items", [])
 tok = {k["AccessToken"]: k.get("AppName", "") for k in keys}

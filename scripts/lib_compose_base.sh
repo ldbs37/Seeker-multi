@@ -154,6 +154,18 @@ EOF
     # bord créé par homarr_provision.sh) ; "$$" : docker-compose
     echo "      - \"traefik.http.middlewares.user-root-redirect.redirectregex.regex=^https?://([a-z][a-z0-9]{0,31})\\\\.[^/]+/?\$\$\""
     echo "      - \"traefik.http.middlewares.user-root-redirect.redirectregex.replacement=https://${DOMAIN}/boards/\$\${1}\""
+    # Appli d'un utilisateur demandée sur le domaine nu (https://<domaine>/radarr :
+    # retour de connexion qui a perdu le sous-domaine) : Homarr ne la connaît
+    # pas (page 404) → accueil, c'est-à-dire le tableau de bord de l'utilisateur
+    local paths="qbittorrent|drive|files|sonarr|radarr|readarr|prowlarr|calibre|seedbox-api"
+    echo "      - \"traefik.http.routers.user-apps-home.rule=Host(\`${DOMAIN}\`) && PathRegexp(\`^/(${paths})(/|\$\$)\`)\""
+    echo "      - \"traefik.http.routers.user-apps-home.priority=50\""
+    echo "      - \"traefik.http.routers.user-apps-home.entrypoints=websecure\""
+    echo "      - \"traefik.http.routers.user-apps-home.tls.certresolver=letsencrypt\""
+    echo "      - \"traefik.http.routers.user-apps-home.service=homarr\""
+    echo "      - \"traefik.http.routers.user-apps-home.middlewares=user-apps-home\""
+    echo "      - \"traefik.http.middlewares.user-apps-home.redirectregex.regex=^.*\$\$\""
+    echo "      - \"traefik.http.middlewares.user-apps-home.redirectregex.replacement=https://${DOMAIN}/\""
     # Déconnexion : Homarr recharge la page dès que sa session disparaît
     # (SessionQueryScopeGuard), avant d'avoir suivi AUTH_LOGOUT_REDIRECT_URL ;
     # sa connexion automatique repassait alors par Authelia, toujours ouvert.

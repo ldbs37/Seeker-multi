@@ -216,6 +216,22 @@ inutile, et il est vérifié avant.
 
 Liens de partage publics FileBrowser Quantum : `…/drive/public/`.
 
+**Pages de connexion propres aux applis** : Sonarr, Radarr, Prowlarr,
+(Readarr) et Calibre-web servent encore leur `/login` (formulaire au mot de
+passe inconnu), atteint depuis une page restée ouverte après expiration de
+la session ou par leur bouton « Déconnexion ». Traefik redirige :
+- `…/<appli>/login` → `…/<appli>/` (Authelia redemande la connexion si
+  besoin) ;
+- `…/<appli>/logout` → déconnexion d'Authelia, comme Homarr, Jellyfin,
+  Seerr et FileBrowser.
+
+Adresse d'une appli sans le sous-domaine (`https://<domaine>/radarr`, vue
+après une reconnexion) : renvoyée vers l'accueil, donc le tableau de bord
+Homarr, au lieu d'une page 404.
+
+Reste un cas : le bouton « Déconnexion » de VueTorrent affiche sa page de
+connexion (géré dans le navigateur) ; recharger la page reconnecte.
+
 ### 5. Outils d'administration (groupe `admins`)
 
 | Outil | Connexion après Authelia |

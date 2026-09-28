@@ -90,6 +90,18 @@ minuteur `seedbox-priority` chaque minute) :
   plus bas, le reste (Traefik, Jellyfin…) au-dessus.
 `--off` retire tout.
 
+### `torrent_cleanup.sh [--dry-run] [user...]`
+Ménage des torrents de Radarr / Sonarr dans qBittorrent, pour chaque
+utilisateur (minuteur `seedbox-torrent-cleanup` toutes les 5 minutes,
+installé par `arr_setup.sh`) :
+- encore dans la bibliothèque : partage sans limite ;
+- doublon (mise à niveau) : supprimé avec son fichier après 7 jours ;
+- supprimé dans Radarr / Sonarr : supprimé dès 72 h de partage atteintes ;
+- en attente d'import, ou ajouté à la main : jamais touché.
+Délais : `CLEANUP_DUPLICATE_HOURS` / `CLEANUP_DELETED_HOURS` dans `.env`.
+`--dry-run` : affiche sans rien supprimer. Journal :
+`journalctl -u seedbox-torrent-cleanup`.
+
 ### `portainer_sso.sh`
 Installation existante : connexion à Portainer via Authelia (client OIDC
 réservé au groupe `admins`, bouton « Login with OAuth », session de 7 jours).
