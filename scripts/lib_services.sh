@@ -23,11 +23,15 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib_lang.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/lib_filebrowser.sh"
 
 # shellcheck disable=SC2034  # lue par les bibliothèques sourcées
-USER_SERVICES="qbittorrent filebrowser sonarr radarr readarr bazarr prowlarr seerr calibre"
-# Plus proposés (installations existantes conservées) : Readarr (abandonné
-# par ses auteurs), Bazarr
+USER_SERVICES="qbittorrent filebrowser sonarr radarr readarr prowlarr seerr calibre"
+# Plus proposé (installations existantes conservées) : Readarr (abandonné
+# par ses auteurs)
 # shellcheck disable=SC2034  # lue par les scripts qui sourcent cette lib
-USER_SERVICES_RETIRED="readarr bazarr"
+USER_SERVICES_RETIRED="readarr"
+# Supprimé, y compris des installations existantes (generate_traefik_labels.sh :
+# conteneur, configuration, tuile Homarr) : Bazarr
+# shellcheck disable=SC2034  # lue par les scripts qui sourcent cette lib
+USER_SERVICES_REMOVED="bazarr"
 # Homarr 0.16 individuel (ancien mode port direct) : plus créé ; reconnu pour
 # être retiré (migration, suppression d'un utilisateur)
 # shellcheck disable=SC2034  # lue par les scripts qui sourcent cette lib
@@ -43,7 +47,6 @@ service_image() {
         sonarr)      echo "linuxserver/sonarr:4.0.20" ;;
         radarr)      echo "linuxserver/radarr:6.4.4" ;;
         readarr)     echo "lscr.io/linuxserver/readarr:develop" ;;
-        bazarr)      echo "linuxserver/bazarr:1.6.1" ;;
         prowlarr)    echo "linuxserver/prowlarr:2.6.5" ;;
         # Seerr : successeur d'Overseerr/Jellyseerr (fusion) ; connexion via
         # Jellyfin, Plex ou Emby (Overseerr n'acceptait que Plex)
@@ -125,7 +128,7 @@ service_block() {
     esac
     echo "    volumes:"
     case "$svc" in
-        qbittorrent|sonarr|radarr|readarr|bazarr)
+        qbittorrent|sonarr|radarr|readarr)
             echo "      - ${cfg}:/config"
             echo "      - ${USER_DIR}:/data"
             # Interface VueTorrent partagée (lib_qbittorrent.sh), lecture seule

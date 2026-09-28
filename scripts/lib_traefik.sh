@@ -10,7 +10,6 @@
 #   https://<user>.<domaine>/qbittorrent     -> qBittorrent (préfixe retiré)
 #   https://<user>.<domaine>/drive           -> FileBrowser Quantum (baseURL ; /files redirigé)
 #   https://<user>.<domaine>/sonarr …        -> *arr (UrlBase pré-configurée)
-#   https://<user>.<domaine>/bazarr          -> Bazarr (base_url pré-configurée)
 #   https://<user>.<domaine>/calibre         -> Calibre-Web (en-tête X-Script-Name)
 #   https://seerr-<user>.<domaine>/          -> Seerr (successeur d'Overseerr,
 #                                               pas de sous-chemins : sous-domaine dédié)
@@ -85,7 +84,7 @@ traefik_service_path() {
         homarr)      echo "" ;;
         qbittorrent) echo "/qbittorrent" ;;
         filebrowser) echo "/drive" ;;
-        sonarr|radarr|readarr|bazarr|prowlarr|calibre) echo "/$1" ;;
+        sonarr|radarr|readarr|prowlarr|calibre) echo "/$1" ;;
         seerr)       echo "SUBDOMAIN" ;;
         *) return 1 ;;
     esac
@@ -96,7 +95,7 @@ traefik_service_port() {
     case "$1" in
         homarr) echo 7575 ;;      qbittorrent) echo 8080 ;;  filebrowser) echo 8080 ;;
         sonarr) echo 8989 ;;      radarr) echo 7878 ;;       readarr) echo 8787 ;;
-        bazarr) echo 6767 ;;      prowlarr) echo 9696 ;;     seerr) echo 5055 ;;
+        prowlarr) echo 9696 ;;     seerr) echo 5055 ;;
         calibre) echo 8083 ;;
         *) return 1 ;;
     esac
@@ -143,7 +142,7 @@ PY
 #######################
 # Réseau privé de chaque utilisateur (mode Traefik) : « seedbox_u_<user> »
 #
-# Ses services (qBittorrent, FileBrowser, Sonarr, Radarr, Readarr et Bazarr existants,
+# Ses services (qBittorrent, FileBrowser, Sonarr, Radarr, Readarr existant,
 # Prowlarr + son FlareSolverr, Seerr, Calibre-web) n'y joignent que les siens ;
 # Traefik (après Authelia, règle par utilisateur) et Homarr y sont raccordés.
 # Les services d'un autre utilisateur ne peuvent donc pas les joindre : les
@@ -233,6 +232,19 @@ user_nets_prune() {
 # indentées pour un bloc de service docker-compose.
 # $1=service $2=utilisateur [$3=port interne, défaut selon le service]
 # NB : backticks littéraux (non échappés) et `$$` pour docker-compose.
+# Page de connexion propre à l'appli (*arr, Calibre-web), servie même quand
+# Authelia gère la connexion (mot de passe inconnu) : on y arrive depuis une
+# page restée ouverte après expiration de la session, ou par « Déconnexion ».
+# /login → l'appli (Authelia redemande la connexion si besoin) ; /logout →
+# déconnexion d'Authelia, comme les autres applis. $1=routeur $2=chemin
+_traefik_no_local_login() {
+    local r="$1" path="$2"
+    echo "      - \"traefik.http.middlewares.${r}-nologin.redirectregex.regex=^(https?://[^/]+${path})/login([?].*)?\$\$\""
+    echo "      - \"traefik.http.middlewares.${r}-nologin.redirectregex.replacement=\$\${1}/\""
+    echo "      - \"traefik.http.middlewares.${r}-nologout.redirectregex.regex=^https?://[^/]+${path}/logout([?].*)?\$\$\""
+    echo "      - \"traefik.http.middlewares.${r}-nologout.redirectregex.replacement=https://auth.${DOMAIN}/logout?rd=https://${DOMAIN}/logout-done\""
+}
+
 traefik_user_labels() {
     local svc="$1" user="$2" port="${3:-}" path r host rule mw
     path=$(traefik_service_path "$svc") || return 1
@@ -299,7 +311,13 @@ traefik_user_labels() {
             echo "      - \"traefik.http.routers.${r}-logout.middlewares=${r}-logout\""
             echo "      - \"traefik.http.routers.${r}.service=${r}\""
             ;;
+        sonarr|radarr|readarr|prowlarr)
+            _traefik_no_local_login "$r" "$path"
+            mw="${r}-nologin,${r}-nologout,${mw}"
+            ;;
         calibre)
+            _traefik_no_local_login "$r" "$path"
+            mw="${r}-nologin,${r}-nologout,${mw}"
             echo "      - \"traefik.http.middlewares.${r}-hdr.headers.customrequestheaders.X-Script-Name=/calibre\""
             # Connexion unique : utilisateur du routeur (contrôlé par Authelia)
             # dans l'en-tête secret (lib_calibre.sh) ; valeur du client remplacée
@@ -360,19 +378,6 @@ traefik_prepare_app() {
             _xml_set "$f" UrlBase "$path"
             _xml_set "$f" AuthenticationMethod External
             _xml_set "$f" AuthenticationRequired Enabled
-            ;;
-        bazarr)
-            f="$cfg/config/config.yaml"
-            mkdir -p "$cfg/config"
-            if [ ! -f "$f" ]; then
-                printf 'general:\n  base_url: %s\n' "$path" > "$f"
-            elif grep -qE '^  base_url:' "$f"; then
-                sed -i -E "s#^  base_url:.*#  base_url: ${path}#" "$f"
-            elif grep -q '^general:' "$f"; then
-                sed -i "s#^general:#general:\n  base_url: ${path}#" "$f"
-            else
-                printf 'general:\n  base_url: %s\n' "$path" >> "$f"
-            fi
             ;;
         *) return 0 ;;
     esac

@@ -6,7 +6,8 @@
 #     Prowlarr → *arr (+ son FlareSolverr) ;
 #   - lib_calibre.sh : Calibre-web (connexion unique, bibliothèque /books) ;
 #   - lib_seerr.sh : Seerr (Jellyfin au nom de l'utilisateur, ses
-#     bibliothèques, Sonarr/Radarr).
+#     bibliothèques, Sonarr/Radarr) ;
+#   - torrent_cleanup.sh : minuteur de ménage des torrents Radarr / Sonarr.
 # Idempotent : relançable sans risque (ne remplace rien de ce qui existe).
 #
 # Usage: arr_setup.sh <user>   # un utilisateur
@@ -76,4 +77,7 @@ for u in $USERS; do
         fi
     fi
 done
+# Ménage des torrents Radarr / Sonarr (doublons, médias supprimés), toutes
+# les 5 minutes
+grep -q '^  qbittorrent-' "$DOCKER_COMPOSE_FILE" && "$SCRIPT_DIR/torrent_cleanup.sh" --install-timer
 exit $RC

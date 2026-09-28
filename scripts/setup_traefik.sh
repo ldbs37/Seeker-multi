@@ -96,7 +96,7 @@ entryPoints:
       # explicitement, les futures versions de Traefik les refusant par défaut
       # Supprime les en-têtes imitant ceux gérés par Traefik/Authelia
       # (ex. Remote_User pour Remote-User, lus à l'identique par les backends
-      # Python/WSGI comme Bazarr ou Calibre-Web)
+      # Python/WSGI comme Calibre-Web)
       aliasHeadersStrategy: delete
       encodedCharacters:
         allowEncodedHash: true

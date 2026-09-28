@@ -153,7 +153,7 @@ svc_label() {
     case "$1" in
         qbittorrent) echo "qBittorrent" ;; filebrowser) echo "Fichiers" ;;
         sonarr) echo "Sonarr" ;;           radarr) echo "Radarr" ;;
-        readarr) echo "Readarr" ;;         bazarr) echo "Bazarr" ;;
+        readarr) echo "Readarr" ;;         bazarr) echo "Bazarr" ;;   # bazarr : supprimé (drop_removed_apps)
         prowlarr) echo "Prowlarr" ;;       seerr) echo "Seerr" ;;
         calibre) echo "Calibre-Web" ;;     *) echo "$1" ;;
     esac
@@ -410,6 +410,30 @@ user_integrations() {
 
 # Tableau personnel : horloge, météo, statistiques des demandes, tuiles,
 # téléchargements, prochaines sorties, demandes
+# Tuile, appli et intégration des services supprimés (USER_SERVICES_REMOVED,
+# lib_services.sh) sur le tableau de $1
+drop_removed_apps() {
+    local user="$1" s apps all id board save
+    apps=$(hapi GET /apps) || return 0
+    for s in $USER_SERVICES_REMOVED; do
+        id=$(json_find_id "$apps" "$(app_name "$s" "$user")")
+        [ -n "$id" ] || continue
+        if board=$(htrpc GET board.getBoardByName "{\"name\":$(json_str "$user")}"); then
+            save=$(J="$board" A="$id" python3 -c '
+import json, os
+b = json.loads(os.environ["J"])
+items = [i for i in b["items"] if not (i.get("kind") == "app" and (i.get("options") or {}).get("appId") == os.environ["A"])]
+print("null" if len(items) == len(b["items"]) else json.dumps({"id": b["id"], "sections": b["sections"], "items": items}))')
+            [ "$save" != null ] && htrpc POST board.saveBoard "$save" >/dev/null
+        fi
+        hapi DELETE "/apps/$id" >/dev/null && log "Homarr ($user) : $(svc_label "$s") retiré"
+        all=$(htrpc GET integration.all) || continue
+        id=$(json_find_id "$all" "$(svc_label "$s") ($user)")
+        [ -n "$id" ] && htrpc POST integration.delete "{\"id\":$(json_str "$id")}" >/dev/null
+    done
+    return 0
+}
+
 provision_user() {
     local user="$1" board_id gid s id
     id "$user" &>/dev/null || { warn "Utilisateur $user inconnu"; return 1; }
@@ -421,6 +445,7 @@ provision_user() {
 
     gid=$(ensure_group "u-$user") || return 1
     board_id=$(ensure_board "$user" "$gid") || return 1
+    drop_removed_apps "$user"
     # Page d'accueil du groupe = son tableau de bord
     htrpc POST group.savePartialSettings \
         "{\"id\":$(json_str "$gid"),\"settings\":{\"homeBoardId\":$(json_str "$board_id"),\"mobileHomeBoardId\":$(json_str "$board_id")}}" >/dev/null \

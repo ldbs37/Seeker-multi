@@ -33,6 +33,7 @@ Une solution **simple et efficace** de seedbox multi-utilisateurs avec authentif
 - 🇫🇷 Sonarr / Radarr / Prowlarr en français (dates au format français, titres des films en français) ; téléchargements en français par défaut ; fichiers nommés pour Jellyfin (identifiant TMDB/TVDB dans le dossier : reconnaissance sans erreur) ; profil optimisé (720p à 4K, 4 Go max par film, 2 Go/h par épisode, x265, AV1, 10 bits, HDR, Atmos, VFF préférés)
 - 📝 Seerr → Jellyfin (seulement vos bibliothèques) et Sonarr / Radarr ; demandes validées automatiquement
 - 📖 Calibre-web → bibliothèque `books/`
+- 🧹 qBittorrent fait son ménage : supprimer un film ou une série dans Radarr / Sonarr suffit (supprimé partout, après 72 h de partage minimum) ; anciennes versions remplacées supprimées après 7 jours de partage ; torrents ajoutés à la main jamais touchés
 - 🛡️ Chaque utilisateur a son réseau Docker privé : les autres ne peuvent pas joindre ses services
 - ⚡ Les applications passent avant les téléchargements (disque et réseau) : pages et streaming fluides même pendant un gros téléchargement
 
@@ -685,4 +686,5 @@ Pour toute question ou problème :
 - ✅ **Applis préconfigurées** : Sonarr, Radarr, Prowlarr, Seerr, Calibre-web reliés automatiquement
 - ✅ **Réseau privé par utilisateur** : les services des autres utilisateurs ne peuvent pas joindre les vôtres
 - ✅ **Jellyfin automatique** : comptes, bibliothèques privées, bouton « Se connecter avec Authelia »
-- ✅ **Retirés** : Readarr (abandonné), Bazarr, Plex, Tautulli
+- ✅ **Retirés** : Readarr (abandonné), Plex, Tautulli
+- ✅ **Supprimé** : Bazarr (conteneurs, configuration et tuile Homarr retirés à la mise à jour ; sous-titres déjà téléchargés conservés)

@@ -37,13 +37,12 @@ SERVICES = {
     "sonarr": "Séries TV",
     "radarr": "Films",
     "readarr": "Livres",
-    "bazarr": "Sous-titres",
     "prowlarr": "Indexeurs",
     "seerr": "Demandes de films/séries (connexion Jellyfin)",
     "calibre": "Bibliothèque e-books (Calibre-Web)",
 }
 # Plus proposés à l'ajout ; retirables s'ils sont installés
-RETIRED = {"readarr", "bazarr"}
+RETIRED = {"readarr"}
 # Services de base : redémarrage seulement (ni ajout ni retrait)
 BASE = {
     "qbittorrent": "Téléchargements (qBittorrent)",
