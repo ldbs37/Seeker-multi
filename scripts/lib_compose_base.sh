@@ -202,6 +202,23 @@ EOF
     local after="https://${DOMAIN}/"
     [ "${INSTALL_JELLYFIN:-false}" = true ] && after="https://jellyfin.${DOMAIN}/logout-done"
     echo "      - \"traefik.http.middlewares.logout-done-redirect.redirectregex.replacement=${after}\""
+    # Maillon suivant : session Jellyfin (stockage du navigateur sur
+    # jellyfin.<domaine>) effacée par l'en-tête standard Clear-Site-Data, puis
+    # accueil. Porté par Homarr et non par Jellyfin : Traefik retire les
+    # routes d'un conteneur arrêté ou « en mauvaise santé » (redémarrage,
+    # disque chargé) et servait alors son certificat par défaut
+    # (ERR_CERT_AUTHORITY_INVALID) ; la réponse est une redirection, Homarr
+    # n'est jamais appelé
+    if [ "${INSTALL_JELLYFIN:-false}" = true ]; then
+        echo "      - \"traefik.http.routers.jellyfin-logout-done.rule=Host(\`jellyfin.${DOMAIN}\`) && Path(\`/logout-done\`)\""
+        echo "      - \"traefik.http.routers.jellyfin-logout-done.entrypoints=websecure\""
+        echo "      - \"traefik.http.routers.jellyfin-logout-done.tls.certresolver=letsencrypt\""
+        echo "      - \"traefik.http.routers.jellyfin-logout-done.service=homarr\""
+        echo "      - \"traefik.http.routers.jellyfin-logout-done.middlewares=jellyfin-logout-clear,jellyfin-logout-redirect\""
+        echo "      - \"traefik.http.middlewares.jellyfin-logout-clear.headers.customresponseheaders.Clear-Site-Data=\\\"storage\\\"\""
+        echo "      - \"traefik.http.middlewares.jellyfin-logout-redirect.redirectregex.regex=^.*\$\$\""
+        echo "      - \"traefik.http.middlewares.jellyfin-logout-redirect.redirectregex.replacement=https://${DOMAIN}/\""
+    fi
     echo "    restart: unless-stopped"
 }
 
@@ -369,17 +386,8 @@ _block_jellyfin() {
       - TZ=${TZ}
 EOF
     _sys_labels jellyfin jellyfin 8096 false
-    # Maillon de la chaîne de déconnexion (voir _block_homarr) : session
-    # Jellyfin (stockage du navigateur sur jellyfin.<domaine>) effacée par
-    # l'en-tête standard Clear-Site-Data, puis retour à l'accueil
-    echo "      - \"traefik.http.routers.jellyfin-logout-done.rule=Host(\`jellyfin.${DOMAIN}\`) && Path(\`/logout-done\`)\""
-    echo "      - \"traefik.http.routers.jellyfin-logout-done.entrypoints=websecure\""
-    echo "      - \"traefik.http.routers.jellyfin-logout-done.tls.certresolver=letsencrypt\""
-    echo "      - \"traefik.http.routers.jellyfin-logout-done.service=jellyfin\""
-    echo "      - \"traefik.http.routers.jellyfin-logout-done.middlewares=jellyfin-logout-clear,jellyfin-logout-redirect\""
-    echo "      - \"traefik.http.middlewares.jellyfin-logout-clear.headers.customresponseheaders.Clear-Site-Data=\\\"storage\\\"\""
-    echo "      - \"traefik.http.middlewares.jellyfin-logout-redirect.redirectregex.regex=^.*\$\$\""
-    echo "      - \"traefik.http.middlewares.jellyfin-logout-redirect.redirectregex.replacement=https://${DOMAIN}/\""
+    # Maillon de la chaîne de déconnexion jellyfin.<domaine>/logout-done :
+    # porté par Homarr (voir _block_homarr)
     echo "      - \"traefik.http.routers.jellyfin.service=jellyfin\""
     echo "    restart: unless-stopped"
 }
