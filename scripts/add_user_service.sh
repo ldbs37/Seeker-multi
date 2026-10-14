@@ -30,7 +30,7 @@ DOCKER_COMPOSE_FILE="$INSTALL_DIR/docker-compose.yml"
 ENV_FILE="$INSTALL_DIR/.env"
 TZ="Europe/Paris"
 
-for lib in lib_ports lib_traefik lib_qbittorrent lib_services; do
+for lib in lib_ports lib_traefik lib_qbittorrent lib_services lib_compose_base; do
     [ -f "$SCRIPT_DIR/$lib.sh" ] || error "$lib.sh introuvable dans $SCRIPT_DIR"
     # shellcheck source=/dev/null
     source "$SCRIPT_DIR/$lib.sh"
@@ -99,6 +99,12 @@ cd "$INSTALL_DIR"
 START=("$CONTAINER_NAME" traefik homarr)
 [ "$SERVICE" = prowlarr ] && START+=("flaresolverr-$USERNAME")
 compose_cmd up -d "${START[@]}"
+
+# Changedetection (changes-<user>.<domaine>) : règle d'accès d'Authelia des
+# installations antérieures
+if [ "$SERVICE" = changedetection ] && authelia_ensure_home "$INSTALL_DIR/authelia/configuration.yml" "$DOMAIN"; then
+    docker restart authelia >/dev/null 2>&1 || warn "Redémarrez Authelia : docker restart authelia"
+fi
 
 # Configuration automatique (arr_setup.sh) : connexion unique, dossiers,
 # qBittorrent, liens Prowlarr, Calibre-web, Seerr

@@ -24,6 +24,7 @@ Une solution **simple et efficace** de seedbox multi-utilisateurs avec authentif
 - 🔍 **Prowlarr** - Gestion d'indexeurs
 - 📝 **Seerr** - Demandes de films/séries (successeur d'Overseerr)
 - 📖 **Calibre-web** - Bibliothèque ebooks
+- 🔔 **Changedetection** - Surveillance de pages web (prix, annonces, actualités…) : la sienne, privée, sur `https://changes-<utilisateur>.<domaine>`
 
 **Tout est préconfiguré** :
 - 🔐 Connexion unique via Authelia : aucune page de connexion, Seerr compris
@@ -48,9 +49,14 @@ Une solution **simple et efficace** de seedbox multi-utilisateurs avec authentif
 - 🎨 **Dashdot** - Dashboard de monitoring système
 - 🔄 **Watchtower** - Mises à jour automatiques
 - 💾 **Duplicati** - Système de backup
+- 🆕 **What's Up Docker** - Nouvelles versions des applis de la seedbox (signale sans rien mettre à jour), widget sur le tableau de bord admin — `https://wud.<domaine>`, connexion via Authelia
 
 ### 🧰 Services Optionnels (tous les utilisateurs)
 - 📄 **Stirling-PDF** - Outils PDF : fusionner, découper, compresser, signer, convertir, OCR (français compris) — `https://pdf.<domaine>`, après Authelia, aucun fichier conservé
+- 🔁 **ConvertX** - Conversion de fichiers (images, vidéos, audio, documents, ebooks…) — `https://convert.<domaine>`, après Authelia ; chacun ne voit que ses conversions, fichiers effacés après 24 h
+
+### 🔒 Système
+- Correctifs de sécurité d'Ubuntu installés automatiquement chaque nuit (unattended-upgrades, sans redémarrage automatique)
 
 ### 👥 Rôles Utilisateurs
 - **Administrateur** (premier utilisateur créé) : Accès aux services système + services utilisateur
@@ -381,6 +387,8 @@ sudo ./add_service.sh <service_name>
 | Dashdot | `sudo ./add_service.sh dashdot` | Dashboard de monitoring système | `dashdot.<domaine>` |
 | Watchtower | `sudo ./add_service.sh watchtower` | Mises à jour automatiques | - |
 | Duplicati | `sudo ./add_service.sh duplicati` | Système de backup | `duplicati.<domaine>` |
+| What's Up Docker | `sudo ./add_service.sh wud` | Nouvelles versions des applis | `wud.<domaine>` |
+| ConvertX (tous) | `sudo ./add_service.sh convertx` | Conversion de fichiers | `convert.<domaine>` |
 
 Les services d'administration sont réservés au groupe `admins` d'Authelia.
 
@@ -390,7 +398,7 @@ Pour retirer un service système : `sudo ./remove_service.sh <service>`.
 
 Chaque utilisateur peut **redémarrer** un de ses services qui ne répond plus
 (voyant d'état par service) et ajouter ou retirer lui-même ses services
-optionnels (Sonarr, Radarr, Prowlarr, Seerr, Calibre-Web) depuis
+optionnels (Sonarr, Radarr, Prowlarr, Seerr, Calibre-Web, Changedetection) depuis
 `https://<utilisateur>.votre-domaine.com/seedbox-api/` (tuile « Mes
 services » sur son tableau de bord Homarr). Activation (désactivée par défaut) :
 

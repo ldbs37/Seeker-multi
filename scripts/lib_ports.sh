@@ -24,7 +24,7 @@ service_port_offset() {
         qbittorrent) echo 0 ;;  homarr) echo 1 ;;     filebrowser) echo 2 ;;
         sonarr) echo 3 ;;       radarr) echo 4 ;;     readarr) echo 5 ;;
         prowlarr) echo 7 ;;     seerr) echo 8 ;;      # 6 : ancien Bazarr (réservé)
-        calibre) echo 9 ;;      torrent) echo 10 ;;
+        calibre) echo 9 ;;      torrent) echo 10 ;;   changedetection) echo 11 ;;
         *) return 1 ;;
     esac
 }

@@ -85,8 +85,16 @@ traefik_service_path() {
         qbittorrent) echo "/qbittorrent" ;;
         filebrowser) echo "/drive" ;;
         sonarr|radarr|readarr|prowlarr|calibre) echo "/$1" ;;
-        seerr)       echo "SUBDOMAIN" ;;
+        seerr|changedetection) echo "SUBDOMAIN" ;;
         *) return 1 ;;
+    esac
+}
+
+# Préfixe d'un service en sous-domaine : https://<préfixe>-<user>.<domaine>
+traefik_subdomain_prefix() {
+    case "$1" in
+        changedetection) echo "changes" ;;
+        *) echo "$1" ;;
     esac
 }
 
@@ -96,7 +104,7 @@ traefik_service_port() {
         homarr) echo 7575 ;;      qbittorrent) echo 8080 ;;  filebrowser) echo 8080 ;;
         sonarr) echo 8989 ;;      radarr) echo 7878 ;;       readarr) echo 8787 ;;
         prowlarr) echo 9696 ;;     seerr) echo 5055 ;;
-        calibre) echo 8083 ;;
+        calibre) echo 8083 ;;      changedetection) echo 5000 ;;
         *) return 1 ;;
     esac
 }
@@ -105,7 +113,7 @@ traefik_service_port() {
 traefik_service_url() {
     local path; path=$(traefik_service_path "$1") || return 1
     if [ "$path" = "SUBDOMAIN" ]; then
-        echo "https://$1-$2.${DOMAIN}"
+        echo "https://$(traefik_subdomain_prefix "$1")-$2.${DOMAIN}"
     else
         echo "https://$2.${DOMAIN}${path}"
     fi
@@ -251,7 +259,7 @@ traefik_user_labels() {
     [ -n "$port" ] || port=$(traefik_service_port "$svc")
     r="${svc}-${user}"                         # nom de routeur unique
     if [ "$path" = "SUBDOMAIN" ]; then
-        host="${svc}-${user}.${DOMAIN}"; rule="Host(\`${host}\`)"
+        host="$(traefik_subdomain_prefix "$svc")-${user}.${DOMAIN}"; rule="Host(\`${host}\`)"
     else
         host="${user}.${DOMAIN}"
         rule="Host(\`${host}\`)"

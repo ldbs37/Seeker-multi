@@ -69,6 +69,8 @@ INSTALL_PORTAINER=false
 INSTALL_WATCHTOWER=false
 INSTALL_DUPLICATI=false
 INSTALL_STIRLING_PDF=false
+INSTALL_WUD=false
+INSTALL_CONVERTX=false
 
 # Identifiants Portainer
 PORTAINER_USER=""
@@ -366,7 +368,7 @@ configure_authelia() {
     # "subject" ne correspond pas est ignorée : sans ce deny, un utilisateur
     # standard tomberait sur la règle "*.domaine" et accéderait à Portainer…).
     local admin_domains="" d
-    for d in traefik portainer scrutiny dashdot tautulli uptime duplicati; do
+    for d in traefik wud portainer scrutiny dashdot tautulli uptime duplicati; do
         admin_domains+="        - \"${d}.${DOMAIN}\""$'\n'
     done
     admin_domains=${admin_domains%$'\n'}
@@ -417,6 +419,10 @@ ${admin_domains}
     - domain: 'pdf.${DOMAIN}'
       policy: one_factor
 
+    # Conversion de fichiers (ConvertX), ouverte à tous les utilisateurs
+    - domain: 'convert.${DOMAIN}'
+      policy: one_factor
+
     # Racine du domaine : redirection vers le tableau de bord de l'utilisateur
     # connecté (conteneur "home") ; tout utilisateur authentifié
     - domain: '${DOMAIN}'
@@ -426,11 +432,12 @@ ${admin_domains}
     # sous-domaines. Le groupe nommé (?P<User>…) doit correspondre au nom de
     # l'utilisateur connecté, sinon la règle ne s'applique pas (→ deny).
     #   <user>.domaine            : Homarr, qBittorrent, Filebrowser, *arr…
-    #   <service>-<user>.domaine  : services en sous-domaine (ex. Seerr)
+    #   <service>-<user>.domaine  : services en sous-domaine (Seerr, Changedetection)
     # (noms d'utilisateur limités à [a-z0-9] : pas d'ambiguïté possible)
     - domain_regex:
         - '^(?P<User>[a-z0-9]+)\.${DOMAIN//./\\.}$'
         - '^seerr-(?P<User>[a-z0-9]+)\.${DOMAIN//./\\.}$'
+        - '^changes-(?P<User>[a-z0-9]+)\.${DOMAIN//./\\.}$'
       policy: one_factor
 
 session:
@@ -691,6 +698,12 @@ configure_installation() {
     read -r -p "Installer Stirling-PDF (outils PDF : fusion, signature, OCR… pour tous les utilisateurs) ? (o/N): " input
     [[ $input =~ ^[oO]$ ]] && INSTALL_STIRLING_PDF=true
 
+    read -r -p "Installer ConvertX (conversion de fichiers : images, vidéos, documents… pour tous les utilisateurs) ? (o/N): " input
+    [[ $input =~ ^[oO]$ ]] && INSTALL_CONVERTX=true
+
+    read -r -p "Installer What's Up Docker (nouvelles versions des applis, administrateurs) ? (o/N): " input
+    [[ $input =~ ^[oO]$ ]] && INSTALL_WUD=true
+
     echo -e "\n${BLUE}=== Gestion & Organisation ===${NC}"
     read -r -p "Installer Portainer (gestion Docker web) ? (o/N): " input
     if [[ $input =~ ^[oO]$ ]]; then
@@ -806,6 +819,8 @@ configure_installation() {
     [ "$INSTALL_WATCHTOWER" = true ] && echo "  ✓ Watchtower"
     [ "$INSTALL_DUPLICATI" = true ] && echo "  ✓ Duplicati"
     [ "$INSTALL_STIRLING_PDF" = true ] && echo "  ✓ Stirling-PDF"
+    [ "$INSTALL_CONVERTX" = true ] && echo "  ✓ ConvertX"
+    [ "$INSTALL_WUD" = true ] && echo "  ✓ What's Up Docker"
     echo "Utilisateurs: ${#INITIAL_USERS[@]}"
 
     read -r -p "Continuer l'installation ? (o/N): " confirm
@@ -844,6 +859,8 @@ deploy_services() {
     [ "$INSTALL_DUPLICATI" = true ] && { autoconfig_duplicati "$INSTALL_DIR" || true; }
     # Applications prioritaires sur les téléchargements (disque, réseau)
     "$INSTALL_DIR/scripts/priority.sh" || warn "Priorité des applications non appliquée"
+    # Correctifs de sécurité d'Ubuntu installés automatiquement chaque nuit
+    system_auto_updates_ensure || warn "Mises à jour de sécurité automatiques non activées (unattended-upgrades)"
     # Uptime Kuma : ouvert directement après Authelia
     [ "$INSTALL_UPTIME_KUMA" = true ] && { autoconfig_uptime_kuma "$INSTALL_DIR" "${INITIAL_USERS[0]}" || true; }
     # Jellyfin : administrateur = premier utilisateur (même mot de passe),
@@ -936,6 +953,10 @@ main() {
     if [ "$INSTALL_JELLYFIN" = true ]; then
         authelia_ensure_oidc_jellyfin "$INSTALL_DIR/authelia/configuration.yml" || true
     fi
+    # Client OIDC What's Up Docker (connexion via Authelia, administrateurs)
+    if [ "$INSTALL_WUD" = true ]; then
+        authelia_ensure_oidc_wud "$INSTALL_DIR/authelia/configuration.yml" || true
+    fi
     show_progress 8 10 "Installation"
 
     # Créer les utilisateurs avec add_user.sh (le premier = administrateur ;
@@ -961,12 +982,13 @@ main() {
 
     # Services système (administrateurs)
     local adm=() s sub
-    for s in dashdot scrutiny uptime-kuma portainer duplicati; do
+    for s in dashdot scrutiny uptime-kuma portainer duplicati wud; do
         grep -q "^  ${s}:" "$INSTALL_DIR/docker-compose.yml" && adm+=("$s")
     done
     info "🔐 Portail de connexion (SSO) : https://auth.$DOMAIN"
     [ "$INSTALL_JELLYFIN" = true ] && echo "  - Jellyfin : https://jellyfin.$DOMAIN"
     [ "$INSTALL_STIRLING_PDF" = true ] && echo "  - Stirling-PDF (tous les utilisateurs) : https://pdf.$DOMAIN"
+    [ "$INSTALL_CONVERTX" = true ] && echo "  - ConvertX (tous les utilisateurs) : https://convert.$DOMAIN"
     if [ ${#adm[@]} -gt 0 ]; then
         info "🛠️  Administration (groupe admins, via SSO) :"
         echo "  - Traefik : https://traefik.$DOMAIN"

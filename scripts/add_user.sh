@@ -135,6 +135,7 @@ select_services() {
         echo "  [3] 🔍 Prowlarr      - Gestion indexeurs"
         echo "  [4] 📝 Seerr         - Demandes de films/séries (connexion Jellyfin/Plex)"
         echo "  [5] 📖 Calibre-web   - Bibliothèque ebooks"
+        echo "  [6] 🔔 Changedetection - Surveillance de pages web (prix, annonces…)"
         echo ""
         echo "  Numéros séparés par des espaces (ex: 1 2 5), Entrée pour aucun"
     } >&2
@@ -147,6 +148,7 @@ select_services() {
             3) EXTRA_SERVICES+=("prowlarr") ;;
             4) EXTRA_SERVICES+=("seerr") ;;
             5) EXTRA_SERVICES+=("calibre") ;;
+            6) EXTRA_SERVICES+=("changedetection") ;;
             *) warn "Numéro invalide ignoré: $num" ;;
         esac
     done

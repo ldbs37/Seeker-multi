@@ -53,7 +53,7 @@ password_user_is_admin() {
 # aussi celui de l'utilisateur). Retour 0 si réservé.
 username_reserved() {
     case "$1" in
-        auth|traefik|portainer|scrutiny|dashdot|tautulli|uptime|duplicati|jellyfin|pdf|www|mail|api) return 0 ;;
+        auth|traefik|portainer|scrutiny|dashdot|tautulli|uptime|duplicati|jellyfin|pdf|convert|wud|www|mail|api) return 0 ;;
         *) return 1 ;;
     esac
 }

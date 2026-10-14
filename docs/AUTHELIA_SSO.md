@@ -213,6 +213,7 @@ inutile, et il est vérifié avant.
 | qBittorrent | Seule l'adresse fixe de Traefik, sur le réseau interne `seedbox_sso`, est dispensée de mot de passe |
 | FileBrowser Quantum, Calibre-web | En-tête au nom secret posé par Traefik après Authelia (nom de l'utilisateur) |
 | Seerr | Session du propriétaire présentée par Traefik (connexion automatique) |
+| Changedetection | Aucune connexion propre ; sous-domaine `changes-<user>` réservé à l'utilisateur (règle Authelia comme Seerr) |
 
 Liens de partage publics FileBrowser Quantum : `…/drive/public/`.
 
@@ -238,10 +239,11 @@ connexion (géré dans le navigateur) ; recharger la page reconnecte.
 |-------|--------------------------|
 | Duplicati | Aucune : Traefik présente un jeton (`webservice-pre-auth-tokens`, `DUPLICATI_PREAUTH_TOKEN` du `.env`) ; le mot de passe ne sert plus qu'en accès direct (tunnel SSH) |
 | Uptime Kuma | Aucune : réglage « disableAuth » (base SQLite ou MariaDB intégrée) |
+| What's Up Docker | Aucune : connexion via Authelia (client OIDC `wud`, groupe `admins`, PKCE), redirection automatique. Compte local `homarr` (`WUD_ADMIN_PASSWORD` du `.env`) pour le widget du tableau de bord admin |
 | Portainer | Bouton « Login with OAuth » : un clic, rien à saisir (client OIDC `portainer` d'Authelia, réservé au groupe `admins` ; session de 7 jours). Portainer CE ne permet ni de masquer le formulaire classique ni la redirection automatique |
 
 Automatique à l'installation et avec `add_service.sh`. Installation
-existante : `generate_traefik_labels.sh` (Duplicati, Uptime Kuma), puis une
+existante : `generate_traefik_labels.sh` (Duplicati, Uptime Kuma, What's Up Docker), puis une
 fois `sudo scripts/portainer_sso.sh` (demande le mot de passe Portainer).
 
 ## 🌐 Réseaux Docker
