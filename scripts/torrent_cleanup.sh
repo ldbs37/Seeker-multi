@@ -22,7 +22,7 @@
 # attendant la suppression. Pas de corbeille : suppression définitive.
 #
 # Réglages (.env) : CLEANUP_DUPLICATE_HOURS (168), CLEANUP_DELETED_HOURS (72).
-# Usage: torrent_cleanup.sh [--dry-run] [utilisateur...]
+# Usage: torrent_cleanup.sh [--dry-run | --explain] [utilisateur...]
 #        torrent_cleanup.sh --install-timer
 #######################
 
@@ -87,14 +87,20 @@ cleanup_user() {
         [ -n "$key" ] && arrs+="$svc $url $key"$'\n'
     done
     [ -n "$arrs" ] || return 0
+    [ "$EXPLAIN" = 1 ] && echo "== $user"
     QB="http://$qip:8080" QK="$qkey" ARRS="$arrs" USER_DIR="$INSTALL_DIR/data/users/$user" \
     DUP_H="$(_env_hours CLEANUP_DUPLICATE_HOURS 168)" DEL_H="$(_env_hours CLEANUP_DELETED_HOURS 72)" \
-    DRY="$DRY" U="$user" MEM="$INSTALL_DIR/torrent_cleanup/$user.json" python3 << 'PY'
+    DRY="$DRY" EXPLAIN="$EXPLAIN" U="$user" MEM="$INSTALL_DIR/torrent_cleanup/$user.json" python3 << 'PY'
 import json, os, sys, time, urllib.error, urllib.parse, urllib.request
 
 QB, QK, U = os.environ["QB"], os.environ["QK"], os.environ["U"]
 DUP, DEL = int(os.environ["DUP_H"]) * 3600, int(os.environ["DEL_H"]) * 3600
 DRY = os.environ["DRY"] == "1"
+EXPLAIN = os.environ.get("EXPLAIN") == "1"
+
+def why(t, msg):
+    if EXPLAIN:
+        print(f"  {t['name'][:70]:70}  {msg}")
 TAG_DUP, TAG_DEL = "doublon", "supprimé"
 
 def http(url, headers, data=None):
@@ -195,11 +201,14 @@ for a, cat, queued in arrs:
     for t in qb("torrents/info?" + urllib.parse.urlencode({"category": cat})) or []:
         present.add(t["hash"])
         if t["progress"] < 1 or t["hash"].upper() in queued:
+            why(t, "gardé : téléchargement en cours ou en attente d'import")
             settag(t, None); continue
         lk = linked(t)
         if lk:
             known.add(t["hash"])
         if lk is not False:
+            why(t, "gardé : encore dans la bibliothèque" if lk else
+                f"ignoré : fichiers introuvables (chemin qBittorrent {t['save_path']})")
             settag(t, None); continue
         try:
             st = a.state(t["hash"])
@@ -210,12 +219,15 @@ for a, cat, queued in arrs:
         elif t["hash"] in known:
             st = TAG_DEL
         else:
+            why(t, f"ignoré : hors bibliothèque, inconnu de {a.svc} (ajouté à la main ?)")
             settag(t, None); continue
         limit = DUP if st == TAG_DUP else DEL
         seeded = t.get("seeding_time", 0)
         # Arrêté : le temps de partage n'avance plus, on compte depuis la fin
         if t["state"].startswith(("stopped", "paused")) and t.get("completion_on", 0) > 0:
             seeded = max(seeded, now - t["completion_on"])
+        why(t, f"{st} : partagé {seeded / 3600:.0f} h sur {limit / 3600:.0f} h"
+            + (" → supprimé" if seeded >= limit else ""))
         if seeded >= limit:
             print(f"{U} : {t['name']} ({st}, {cat}) supprimé de qBittorrent avec ses fichiers"
                   + (" [simulation]" if DRY else ""))
@@ -233,7 +245,11 @@ PY
 
 [[ $EUID -eq 0 ]] || { echo "Ce script doit être exécuté en tant que root" >&2; exit 1; }
 [ "${1:-}" = --install-timer ] && { cleanup_timer_ensure; exit 0; }
-DRY=0; [ "${1:-}" = --dry-run ] && { DRY=1; shift; }
+DRY=0; EXPLAIN=0
+case "${1:-}" in
+    --dry-run) DRY=1; shift ;;
+    --explain) DRY=1; EXPLAIN=1; shift ;;   # simulation + raison pour chaque torrent
+esac
 [ -f "$DOCKER_COMPOSE_FILE" ] || exit 0
 USERS="$*"
 [ -n "$USERS" ] || USERS=$(sed -n 's/^  qbittorrent-\([a-z_][a-z0-9_-]*\):$/\1/p' "$DOCKER_COMPOSE_FILE")
