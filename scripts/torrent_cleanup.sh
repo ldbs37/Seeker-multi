@@ -7,10 +7,10 @@
 # Seuls les torrents des catégories de Radarr / Sonarr, terminés, dont plus
 # aucun fichier n'est dans la bibliothèque (lien dur disparu), sont touchés :
 # - « doublon » : le film / l'épisode est toujours dans Radarr / Sonarr avec
-#   un autre fichier (mise à niveau) → partagé 7 jours (pour le tracker),
+#   un autre fichier (mise à niveau) → 7 jours après la fin du téléchargement,
 #   puis supprimé avec ses fichiers ;
 # - « supprimé » : le film / la série / l'épisode a été supprimé dans Radarr /
-#   Sonarr → supprimé avec ses fichiers dès 72 h de partage atteintes
+#   Sonarr → supprimé avec ses fichiers 72 h après la fin du téléchargement
 #   (tout de suite si déjà atteintes).
 # Jamais touchés : torrents encore dans la bibliothèque (partage sans
 # limite), en attente d'import dans Radarr / Sonarr (file d'attente), et
@@ -222,11 +222,14 @@ for a, cat, queued in arrs:
             why(t, f"ignoré : hors bibliothèque, inconnu de {a.svc} (ajouté à la main ?)")
             settag(t, None); continue
         limit = DUP if st == TAG_DUP else DEL
+        # Durée de partage : depuis la fin du téléchargement. Le compteur de
+        # qBittorrent (seeding_time) reste figé tant qu'un torrent attend des
+        # pairs (stalledUP, cas le plus courant) ou est arrêté : seul, il
+        # n'atteignait jamais le délai.
         seeded = t.get("seeding_time", 0)
-        # Arrêté : le temps de partage n'avance plus, on compte depuis la fin
-        if t["state"].startswith(("stopped", "paused")) and t.get("completion_on", 0) > 0:
+        if t.get("completion_on", 0) > 0:
             seeded = max(seeded, now - t["completion_on"])
-        why(t, f"{st} : partagé {seeded / 3600:.0f} h sur {limit / 3600:.0f} h"
+        why(t, f"{st} : en partage depuis {seeded / 3600:.0f} h sur {limit / 3600:.0f} h"
             + (" → supprimé" if seeded >= limit else ""))
         if seeded >= limit:
             print(f"{U} : {t['name']} ({st}, {cat}) supprimé de qBittorrent avec ses fichiers"
