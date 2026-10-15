@@ -14,6 +14,12 @@
 # à ses propres adresses). Liens de partage publics sous …/drive/public/…,
 # seul chemin servi sans Authelia (routeur dédié, lib_traefik.sh).
 # Mode port direct : connexion par mot de passe (identifiants seedbox).
+#
+# Versions 1.x et 2.x : format de configuration et base différents (v2 :
+# section « http », base SQLite database.sqlite importée de l'ancienne
+# database.db, droits sur les fichiers par source). Le format suit la version
+# de l'image de l'utilisateur (fbq_image : celle de $INSTALL_DIR/image_overrides
+# pendant un essai test_update.sh, sinon FBQ_IMAGE).
 #######################
 
 # shellcheck disable=SC2034  # lue par les bibliothèques sourcées
@@ -23,6 +29,16 @@ FBQ_PORT=8080
 # Valeur hexadécimale d'une clé « clé: "valeur" » de la section auth d'un config.yaml
 # existant (secrets conservés d'une génération à l'autre). $1=fichier $2=clé
 _fbq_get() { sed -n "s/^  $2: \"\\([0-9a-f]*\\)\"$/\\1/p" "$1" 2>/dev/null | head -1; }
+
+# Image FileBrowser de l'utilisateur $1 (version imposée par un essai, sinon FBQ_IMAGE)
+fbq_image() {
+    local img
+    img=$(sed -n "s/^filebrowser-$1=//p" "${INSTALL_DIR:-/opt/seedbox}/image_overrides" 2>/dev/null | tail -1)
+    echo "${img:-$FBQ_IMAGE}"
+}
+
+# Version majeure de l'image $1 (« gtstef/filebrowser:2.0.1-stable » → 2)
+fbq_major() { local t="${1##*:}"; t="${t#v}"; echo "${t%%.*}"; }
 
 # Écrit la configuration d'une instance. Idempotent (secrets conservés).
 # $1=fichier config.yaml $2=utilisateur [$3=mot de passe seedbox]
@@ -35,7 +51,7 @@ _fbq_get() { sed -n "s/^  $2: \"\\([0-9a-f]*\\)\"$/\\1/p" "$1" 2>/dev/null | hea
 #    chaque démarrage ; c'est donc le mot de passe seedbox (fichier en 600),
 #    réécrit par update_password.sh. Sans $3, la valeur existante est gardée.
 fbq_write_config() {
-    local file="$1" user="$2" pass="${3:-}" key adminpw header="" base="/" ext="" auth lock=false
+    local file="$1" user="$2" pass="${3:-}" key adminpw header="" base="/" ext="" auth lock=false major
     mkdir -p "$(dirname "$file")"
     key=$(_fbq_get "$file" key); [ -n "$key" ] || key=$(openssl rand -hex 32)
     # externalUrl avec le chemin de base : sinon lien de partage en « //drive »
@@ -60,34 +76,18 @@ fbq_write_config() {
       minLength: ${PASSWORD_MIN_LEN:-12}
       signup: false"
     fi
-    cat > "$file" << EOF
-# Généré par lib_filebrowser.sh (seedbox) — régénéré par les scripts :
-# les modifications manuelles peuvent être écrasées.
-server:
-  port: ${FBQ_PORT}
-  baseURL: "${base}"
-  externalUrl: "${ext}"
-  database: "/home/filebrowser/data/database.db"
-  cacheDir: "/home/filebrowser/data/cache"
-  disableUpdateCheck: true
-  logging:
-    - levels: "info|warning|error"
-  sources:
-    - path: "/srv"
-      name: "${user}"
-      config:
-        defaultEnabled: true
-frontend:
-  name: "Fichiers de ${user}"
-  disableDefaultLinks: true
-auth:
-  tokenExpirationHours: 12
-  key: "${key}"
-  adminUsername: "${user}"
-  adminPassword: ${adminpw}
-  methods:
-${auth}
-userDefaults:
+    major=$(fbq_major "$(fbq_image "$user")")
+    if [ "${major:-1}" -ge 2 ] 2>/dev/null; then
+        _fbq_write_v2 "$file" "$user" "$base" "$ext" "$key" "$adminpw" "$auth" "$lock"
+    else
+        _fbq_write_v1 "$file" "$user" "$base" "$ext" "$key" "$adminpw" "$auth" "$lock"
+    fi
+    chmod 600 "$file"
+}
+
+# Préférences communes aux deux versions (section userDefaults)
+_fbq_user_defaults() {
+    cat << EOF
   preview:
     image: true
     video: true
@@ -102,8 +102,43 @@ userDefaults:
     locale: "$(seedbox_lang)"
   listing:
     viewMode: "normal"
+EOF
+}
+
+# Format 1.x. $1=fichier $2=utilisateur $3=chemin de base $4=adresse externe
+# $5=clé $6=adminPassword (YAML) $7=méthodes de connexion $8=lockPassword
+_fbq_write_v1() {
+    cat > "$1" << EOF
+# Généré par lib_filebrowser.sh (seedbox) — régénéré par les scripts :
+# les modifications manuelles peuvent être écrasées.
+server:
+  port: ${FBQ_PORT}
+  baseURL: "$3"
+  externalUrl: "$4"
+  database: "/home/filebrowser/data/database.db"
+  cacheDir: "/home/filebrowser/data/cache"
+  disableUpdateCheck: true
+  logging:
+    - levels: "info|warning|error"
+  sources:
+    - path: "/srv"
+      name: "$2"
+      config:
+        defaultEnabled: true
+frontend:
+  name: "Fichiers de $2"
+  disableDefaultLinks: true
+auth:
+  tokenExpirationHours: 12
+  key: "$5"
+  adminUsername: "$2"
+  adminPassword: $6
+  methods:
+$7
+userDefaults:
+$(_fbq_user_defaults)
   account:
-    lockPassword: ${lock}
+    lockPassword: $8
     permissions:
       api: false
       admin: false
@@ -114,5 +149,67 @@ userDefaults:
       create: true
       download: true
 EOF
-    chmod 600 "$file"
+}
+
+# Format 2.x (mêmes paramètres). Réglages HTTP dans « http », base SQLite ;
+# l'ancienne base (database.db, comptes et liens de partage) est importée au
+# premier démarrage : renommée database.db.old (nom exigé par la v2) et
+# indiquée dans migrateFrom tant que la nouvelle base n'existe pas.
+# Clé de signature des sessions ($5) non écrite : la v2 la garde dans sa base
+# (reprise de l'ancienne, sinon créée) et refuse de démarrer si celle de la
+# configuration diffère.
+_fbq_write_v2() {
+    local dir migrate=""
+    dir=$(dirname "$1")
+    if [ ! -s "$dir/database.sqlite" ]; then
+        [ -s "$dir/database.db" ] && [ ! -e "$dir/database.db.old" ] && mv "$dir/database.db" "$dir/database.db.old"
+        [ -s "$dir/database.db.old" ] && migrate='
+    migrateFrom: "/home/filebrowser/data/database.db.old"'
+    fi
+    cat > "$1" << EOF
+# Généré par lib_filebrowser.sh (seedbox) — régénéré par les scripts :
+# les modifications manuelles peuvent être écrasées.
+http:
+  port: ${FBQ_PORT}
+  baseURL: "$3"
+  externalUrl: "$4"
+  trustProxyHeaders: true
+server:
+  database:
+    path: "/home/filebrowser/data/database.sqlite"${migrate}
+  cacheDir: "/home/filebrowser/data/cache"
+  disableUpdateCheck: true
+  logging:
+    - levels: "info|warning|error"
+  sources:
+    - path: "/srv"
+      name: "$2"
+      config:
+        defaultEnabled: true
+        defaultPermissions:
+          view: true
+          download: true
+          modify: true
+          delete: true
+          create: true
+          configured: true
+frontend:
+  name: "Fichiers de $2"
+  disableDefaultLinks: true
+auth:
+  tokenExpirationHours: 12
+  adminUsername: "$2"
+  adminPassword: $6
+  methods:
+$7
+userDefaults:
+$(_fbq_user_defaults)
+  account:
+    lockPassword: $8
+    permissions:
+      api: false
+      admin: false
+      share: true
+      realtime: true
+EOF
 }

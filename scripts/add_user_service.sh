@@ -94,10 +94,11 @@ compose_append_services "$DOCKER_COMPOSE_FILE" "$SERVICE" \
 
 log "Démarrage du service..."
 cd "$INSTALL_DIR"
-# Son FlareSolverr (Prowlarr) ; Traefik et Homarr recréés seulement si leurs
+# Son FlareSolverr (Prowlarr), son Chrome (Changedetection) ; Traefik et Homarr recréés seulement si leurs
 # réseaux ont changé
 START=("$CONTAINER_NAME" traefik homarr)
 [ "$SERVICE" = prowlarr ] && START+=("flaresolverr-$USERNAME")
+[ "$SERVICE" = changedetection ] && START+=("chrome-$USERNAME")
 compose_cmd up -d "${START[@]}"
 
 # Changedetection (changes-<user>.<domaine>) : règle d'accès d'Authelia des

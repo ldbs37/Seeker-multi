@@ -64,8 +64,11 @@ if FLAG=$(system_service_flag "$NAME"); then
     compose_sync_user_nets "$TMP" || true
 else
     # Service d'un utilisateur ou bloc personnalisé : retrait du bloc exact
-    # (Prowlarr : avec le FlareSolverr de l'utilisateur)
-    EXTRA=""; [[ "$NAME" == prowlarr-* ]] && EXTRA="flaresolverr-${NAME#prowlarr-}:"
+    # (Prowlarr : avec le FlareSolverr de l'utilisateur ; Changedetection :
+    # avec son Chrome)
+    EXTRA=""
+    [[ "$NAME" == prowlarr-* ]] && EXTRA="flaresolverr-${NAME#prowlarr-}:"
+    [[ "$NAME" == changedetection-* ]] && EXTRA="chrome-${NAME#changedetection-}:"
     awk -v name="${NAME}:" -v extra="$EXTRA" '
         /^  [^ #]/ { skip = ($1 == name || (extra != "" && $1 == extra)) }
         /^[^ ]/    { skip = 0 }
@@ -82,6 +85,7 @@ fi
 mv "$TMP" "$DOCKER_COMPOSE_FILE"
 docker rm -f "$NAME" >/dev/null 2>&1 || true
 [[ "$NAME" == prowlarr-* ]] && { docker rm -f "flaresolverr-${NAME#prowlarr-}" >/dev/null 2>&1 || true; }
+[[ "$NAME" == changedetection-* ]] && { docker rm -f "chrome-${NAME#changedetection-}" >/dev/null 2>&1 || true; }
 
 # Tableaux de bord Homarr à jour (tuile du service retirée) : celui de
 # l'utilisateur, ou tous pour un service système

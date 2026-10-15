@@ -66,8 +66,9 @@ for n in "${NAMES[@]}"; do
     # Service système obsolète (remplacé) : retiré, pas conservé
     [[ " $SYSTEM_SERVICES_OBSOLETE " == *" $n "* ]] && { DROPPED+=("$n"); continue; }
     svc=${n%-*}; usr=${n##*-}
-    # FlareSolverr d'un utilisateur : régénéré avec son Prowlarr
-    [ "$svc" = flaresolverr ] && id "$usr" &>/dev/null && continue
+    # FlareSolverr / Chrome d'un utilisateur : régénéré avec son Prowlarr /
+    # son Changedetection
+    [[ "$svc" == flaresolverr || "$svc" == chrome ]] && id "$usr" &>/dev/null && continue
     if [[ "$n" == *-* ]] && [[ " $USER_SERVICES $USER_SERVICES_LEGACY $USER_SERVICES_REMOVED " == *" $svc "* ]] && id "$usr" &>/dev/null; then
         # Mode Traefik : Homarr partagé ; les Homarr individuels sont retirés
         # (leurs fichiers restent dans data/users/<user>/config/homarr)
@@ -238,6 +239,16 @@ system_auto_updates_ensure || warn "Mises à jour de sécurité automatiques non
 # téléchargés, à côté des médias, conservés)
 for d in "${REMOVED_CFG[@]}"; do rm -rf -- "$d"; done
 for s in $USER_SERVICES_REMOVED; do rmdir "$INSTALL_DIR/$s" 2>/dev/null || true; done
+
+# Anciennes versions des applis (images plus utilisées par aucun conteneur)
+# supprimées ; gardées pendant un essai de mise à jour (retour en arrière
+# instantané, test_update.sh)
+if grep -qs '^STATE="en cours"' "$INSTALL_DIR"/update_tests/*/state; then
+    info "Essai de mise à jour en cours : anciennes versions des applis conservées"
+else
+    freed=$(docker image prune -af 2>/dev/null | sed -n 's/^Total reclaimed space: //p')
+    [ -n "$freed" ] && log "✓ Anciennes versions des applis supprimées ($freed libérés)"
+fi
 
 log "${GREEN}✓${NC} Migration terminée"
 info "Portail SSO : https://auth.$DOMAIN"

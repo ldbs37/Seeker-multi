@@ -25,6 +25,7 @@ Une solution **simple et efficace** de seedbox multi-utilisateurs avec authentif
 - 📝 **Seerr** - Demandes de films/séries (successeur d'Overseerr)
 - 📖 **Calibre-web** - Bibliothèque ebooks
 - 🔔 **Changedetection** - Surveillance de pages web (prix, annonces, actualités…) : la sienne, privée, sur `https://changes-<utilisateur>.<domaine>`
+  - Avec son propre Chrome (`chrome-<utilisateur>`) : pages en JavaScript, clics avant lecture (« Browser Steps »), sélecteur visuel et captures d'écran. À choisir dans *Settings → Fetching* (méthode par défaut) ou par surveillance (*Edit → Request*) : **Playwright Chromium**. Chrome ne tourne que pendant les vérifications (2 à la fois, 1,5 Go max) ; image tenue à jour chaque nuit par Watchtower.
 
 **Tout est préconfiguré** :
 - 🔐 Connexion unique via Authelia : aucune page de connexion, Seerr compris

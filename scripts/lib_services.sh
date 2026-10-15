@@ -38,6 +38,11 @@ USER_SERVICES_REMOVED="bazarr"
 USER_SERVICES_LEGACY="homarr"
 
 FLARESOLVERR_IMAGE="ghcr.io/flaresolverr/flaresolverr:v3.5.2"
+# Chrome de Changedetection (sockpuppetbrowser, du même auteur). Pas de
+# version publiée récente : « latest », tenu à jour chaque nuit par
+# Watchtower (navigateur exposé à des pages web quelconques : correctifs de
+# Chrome indispensables)
+CHROME_IMAGE="dgtlmoon/sockpuppetbrowser:latest"
 
 service_image() {
     case "$1" in
@@ -50,10 +55,10 @@ service_image() {
         prowlarr)    echo "linuxserver/prowlarr:2.6.5" ;;
         # Seerr : successeur d'Overseerr/Jellyseerr (fusion) ; connexion via
         # Jellyfin, Plex ou Emby (Overseerr n'acceptait que Plex)
-        seerr)       echo "seerr/seerr:v3.4.1" ;;
+        seerr)       echo "seerr/seerr:v3.5.0" ;;
         calibre)     echo "linuxserver/calibre-web:0.6.27" ;;
-        # Surveillance de pages web (sans navigateur intégré : pages servies
-        # sans JavaScript)
+        # Surveillance de pages web ; pages en JavaScript, clics (Browser
+        # Steps), captures : par son Chrome (chrome-<user>)
         changedetection) echo "ghcr.io/dgtlmoon/changedetection.io:0.60.9" ;;
         *) return 1 ;;
     esac
@@ -134,6 +139,8 @@ service_block() {
             echo "      - BASE_URL=$(traefik_service_url changedetection "$USERNAME")"
             echo "      - USE_X_SETTINGS=1"
             echo "      - DISABLE_VERSION_CHECK=true"
+            # Méthode « Playwright Chromium » : Chrome de l'utilisateur
+            echo "      - PLAYWRIGHT_DRIVER_URL=ws://chrome-${USERNAME}:3000"
             ;;
     esac
     echo "    volumes:"
@@ -189,7 +196,36 @@ service_block() {
     # partagé, navigateur piloté par tous, pourrait joindre les services des
     # autres utilisateurs)
     [ "$svc" = prowlarr ] && user_flaresolverr_block
+    # Chrome de Changedetection, propre à l'utilisateur pour la même raison
+    [ "$svc" = changedetection ] && user_chrome_block
     return 0
+}
+
+# Bloc docker-compose du Chrome de Changedetection de l'utilisateur (stdout).
+# Un Chrome neuf par vérification (2 à la fois au plus), arrêté ensuite :
+# mémoire utilisée seulement pendant les vérifications. Chrome lancé sans son
+# bac à sable (--no-sandbox, image) : le conteneur l'isole, sans droit
+# supplémentaire (pas de SYS_ADMIN).
+user_chrome_block() {
+    echo ""
+    echo "  chrome-${USERNAME}:"
+    echo "    image: ${CHROME_IMAGE}"
+    echo "    container_name: chrome-${USERNAME}"
+    echo "    init: true"
+    echo "    environment:"
+    echo "      - SCREEN_WIDTH=1920"
+    echo "      - SCREEN_HEIGHT=1024"
+    echo "      - SCREEN_DEPTH=16"
+    echo "      - MAX_CONCURRENT_CHROME_PROCESSES=2"
+    echo "      - LOG_LEVEL=WARNING"
+    echo "      - TZ=${TZ}"
+    echo "    security_opt:"
+    echo "      - no-new-privileges:true"
+    echo "    shm_size: 512m"
+    echo "    mem_limit: 1536m"
+    echo "    networks:"
+    echo "      - $(user_net "$USERNAME")"
+    echo "    restart: unless-stopped"
 }
 
 # Bloc docker-compose du FlareSolverr de l'utilisateur (stdout)
