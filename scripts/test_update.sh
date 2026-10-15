@@ -135,13 +135,16 @@ case "$ARG" in
         override_set "$SVC"
         compose_cmd up -d "$SVC" || error "Redémarrage de $SVC impossible"
         sed -i 's/^STATE=.*/STATE="annulé"/' "$STATE_FILE"
-        log "${GREEN}✓${NC} $SVC revenu à $OLD_IMAGE avec ses données d'avant l'essai" ;;
+        log "${GREEN}✓${NC} $SVC revenu à $OLD_IMAGE avec ses données d'avant l'essai"
+        docker rmi "$NEW_IMAGE" >/dev/null 2>&1 && info "Version essayée $NEW_IMAGE supprimée" ;;
     --keep)
         [ -f "$STATE_FILE" ] || error "Aucun essai en cours pour $SVC"
         # shellcheck source=/dev/null
         . "$STATE_FILE"
         sed -i 's/^STATE=.*/STATE="gardé"/' "$STATE_FILE"
         log "${GREEN}✓${NC} $SVC garde $NEW_IMAGE"
+        # Ancienne version : supprimée si plus aucun conteneur ne l'utilise
+        docker rmi "$OLD_IMAGE" >/dev/null 2>&1 && info "Ancienne version $OLD_IMAGE supprimée"
         info "Version retenue dans $OVERRIDES jusqu'à ce que la seedbox fixe $NEW_IMAGE."
         info "Sauvegarde d'avant l'essai conservée : $DIR (à supprimer dans quelques jours)" ;;
     -*)
