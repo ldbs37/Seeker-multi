@@ -180,7 +180,7 @@ user_net_ensure() {
 
 # Utilisateurs ayant au moins un service dans le compose $1
 compose_users() {
-    local svcs; svcs=$(echo "$USER_SERVICES flaresolverr" | tr ' ' '|')
+    local svcs; svcs=$(echo "$USER_SERVICES flaresolverr chrome" | tr ' ' '|')
     sed -nE "s/^  (${svcs})-([a-z_][a-z0-9_-]*):\$/\\2/p" "$1" | sort -u
 }
 
