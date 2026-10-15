@@ -81,10 +81,13 @@ mv "$TMP" "$DOCKER_COMPOSE_FILE"
 docker rm -f "$NAME" >/dev/null 2>&1 || true
 [[ "$NAME" == prowlarr-* ]] && { docker rm -f "flaresolverr-${NAME#prowlarr-}" >/dev/null 2>&1 || true; }
 
-# Tableau de bord Homarr de l'utilisateur à jour
+# Tableaux de bord Homarr à jour (tuile du service retirée) : celui de
+# l'utilisateur, ou tous pour un service système
 usr=${NAME##*-}
 if [[ "$NAME" == *-* ]] && id "$usr" &>/dev/null; then
     "$SCRIPT_DIR/homarr_provision.sh" "$usr" >/dev/null 2>&1 || true
+else
+    "$SCRIPT_DIR/homarr_provision.sh" --all >/dev/null 2>&1 || true
 fi
 
 log "${GREEN}✓${NC} Service $NAME supprimé (données conservées sur le disque)"
