@@ -154,7 +154,7 @@ svc_label() {
     case "$1" in
         qbittorrent) echo "qBittorrent" ;; filebrowser) echo "Fichiers" ;;
         sonarr) echo "Sonarr" ;;           radarr) echo "Radarr" ;;
-        readarr) echo "Readarr" ;;         bazarr) echo "Bazarr" ;;   # bazarr : supprimé (drop_removed_apps)
+        readarr) echo "Readarr" ;;         bazarr) echo "Bazarr" ;;   # bazarr : supprimé (drop_absent_apps)
         prowlarr) echo "Prowlarr" ;;       seerr) echo "Seerr" ;;
         calibre) echo "Calibre-Web" ;;     changedetection) echo "Changedetection" ;;
         *) echo "$1" ;;
@@ -413,28 +413,47 @@ user_integrations() {
 
 # Tableau personnel : horloge, météo, statistiques des demandes, tuiles,
 # téléchargements, prochaines sorties, demandes
-# Tuile, appli et intégration des services supprimés (USER_SERVICES_REMOVED,
-# lib_services.sh) sur le tableau de $1
-drop_removed_apps() {
-    local user="$1" s apps all id board save
+# Appli Homarr $1 (nom) supprimée, avec l'intégration $2 (nom, facultatif) ;
+# ses tuiles disparaissent des tableaux (prune_board)
+drop_app() {
+    local name="$1" int="${2:-}" apps all id
     apps=$(hapi GET /apps) || return 0
-    for s in $USER_SERVICES_REMOVED; do
-        id=$(json_find_id "$apps" "$(app_name "$s" "$user")")
-        [ -n "$id" ] || continue
-        if board=$(htrpc GET board.getBoardByName "{\"name\":$(json_str "$user")}"); then
-            save=$(J="$board" A="$id" python3 -c '
-import json, os
-b = json.loads(os.environ["J"])
-items = [i for i in b["items"] if not (i.get("kind") == "app" and (i.get("options") or {}).get("appId") == os.environ["A"])]
-print("null" if len(items) == len(b["items"]) else json.dumps({"id": b["id"], "sections": b["sections"], "items": items}))')
-            [ "$save" != null ] && htrpc POST board.saveBoard "$save" >/dev/null
-        fi
-        hapi DELETE "/apps/$id" >/dev/null && log "Homarr ($user) : $(svc_label "$s") retiré"
-        all=$(htrpc GET integration.all) || continue
-        id=$(json_find_id "$all" "$(svc_label "$s") ($user)")
+    id=$(json_find_id "$apps" "$name")
+    [ -n "$id" ] && hapi DELETE "/apps/$id" >/dev/null && log "Homarr : tuile « $name » retirée"
+    if [ -n "$int" ] && all=$(htrpc GET integration.all); then
+        id=$(json_find_id "$all" "$int")
         [ -n "$id" ] && htrpc POST integration.delete "{\"id\":$(json_str "$id")}" >/dev/null
-    done
+    fi
     return 0
+}
+
+# Tableau $1 : tuiles dont l'appli n'existe plus retirées
+prune_board() {
+    local board apps save
+    board=$(htrpc GET board.getBoardByName "{\"name\":$(json_str "$1")}") || return 0
+    apps=$(hapi GET /apps) || return 0
+    save=$(J="$board" A="$apps" python3 -c '
+import json, os
+b = json.loads(os.environ["J"]); ids = {a["id"] for a in json.loads(os.environ["A"] or "[]")}
+items = [i for i in b["items"] if not (i.get("kind") == "app" and (i.get("options") or {}).get("appId") not in ids)]
+print("null" if len(items) == len(b["items"]) else json.dumps({"id": b["id"], "sections": b["sections"], "items": items}))')
+    [ "$save" != null ] && htrpc POST board.saveBoard "$save" >/dev/null
+    return 0
+}
+
+# Services retirés (de $1, ou partagés) : appli, intégration et tuile
+# supprimées du tableau de $1 (y compris Bazarr, USER_SERVICES_REMOVED)
+drop_absent_apps() {
+    local user="$1" s
+    # Compose illisible : rien n'est retiré (sinon toutes les tuiles)
+    [ -s "$DOCKER_COMPOSE_FILE" ] || return 0
+    for s in $USER_SERVICES $USER_SERVICES_REMOVED; do
+        has_service "$s-$user" || drop_app "$(app_name "$s" "$user")" "$(svc_label "$s") ($user)"
+    done
+    has_service jellyfin     || drop_app Jellyfin
+    has_service stirling-pdf || drop_app Stirling-PDF
+    has_service convertx     || drop_app ConvertX
+    prune_board "$user"
 }
 
 provision_user() {
@@ -448,7 +467,7 @@ provision_user() {
 
     gid=$(ensure_group "u-$user") || return 1
     board_id=$(ensure_board "$user" "$gid") || return 1
-    drop_removed_apps "$user"
+    drop_absent_apps "$user"
     # Page d'accueil du groupe = son tableau de bord
     htrpc POST group.savePartialSettings \
         "{\"id\":$(json_str "$gid"),\"settings\":{\"homeBoardId\":$(json_str "$board_id"),\"mobileHomeBoardId\":$(json_str "$board_id")}}" >/dev/null \
@@ -515,9 +534,10 @@ provision_admin_board() {
         spec sys-health healthMonitoring 4 3 '{"cpu":true,"memory":true,"fileSystem":true}' "$(ids_json "$int_dash")" "Santé"
     fi
     for s in authelia portainer jellyfin plex tautulli dashdot scrutiny uptime-kuma duplicati wud; do
-        has_service "$s" || continue
         def=$(sys_app "$s")
         IFS='|' read -r label icon sub port <<< "$def"
+        # Service retiré : sa tuile aussi
+        has_service "$s" || { [ -s "$DOCKER_COMPOSE_FILE" ] && drop_app "$label"; continue; }
         [ "$s" = jellyfin ] && port="8096/health"
         id=$(ensure_app "$label" "$icon" "https://$sub.$DOMAIN" "http://$s:$port") && app_spec "$id"
     done
@@ -535,6 +555,8 @@ provision_admin_board() {
                 "[{\"kind\":\"username\",\"value\":\"homarr\"},{\"kind\":\"password\",\"value\":$(json_str "$wpass")}]" "$app_wud")
     fi
     [ -n "$int_wud" ] && spec wud wud 4 3 '{"showUpdateList":true}' "$(ids_json "$int_wud")" "Mises à jour des applis"
+    [ -s "$DOCKER_COMPOSE_FILE" ] && ! has_service wud && drop_app "What's Up Docker" "What's Up Docker"
+    prune_board "$ADMIN_BOARD"
     apply_layout "$ADMIN_BOARD"
     specs_done
 }
