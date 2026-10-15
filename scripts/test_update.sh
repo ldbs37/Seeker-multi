@@ -68,6 +68,20 @@ config_mounts() {
         | awk -F'|' '$1 == "bind" && $4 == "true" && $3 !~ /^\/(data|srv|books|media|downloads)(\/|$)/ && $2 !~ /docker\.sock$/ { print $2 }'
 }
 
+# Préparation avant démarrage de la nouvelle version (version déjà retenue
+# dans image_overrides) : configuration au format de cette version
+before_start() {
+    local svc="$1" user="" cfg
+    [[ "$svc" == *-* ]] && user=${svc##*-}
+    case "$svc" in
+        filebrowser-*)
+            cfg="$INSTALL_DIR/data/users/$user/config/filebrowser"
+            log "Configuration de FileBrowser pour $(fbq_image "$user")…"
+            fbq_write_config "$cfg/config.yaml" "$user" || warn "Configuration de FileBrowser non réécrite"
+            chown -R "$(id -u "$user"):$(id -g "$user")" "$cfg" 2>/dev/null || true ;;
+    esac
+}
+
 # Vérifications et automatismes après démarrage de la nouvelle version
 after_start() {
     local svc="$1" user=""
@@ -86,7 +100,8 @@ after_start() {
             "$SCRIPT_DIR/arr_setup.sh" "$user" || warn "Configuration de Seerr en échec"
             info "À vérifier : $(USERNAME=$user service_url seerr) — connexion automatique (pas de page de connexion), demandes, liens vers Jellyfin" ;;
         filebrowser-*)
-            info "À vérifier : https://$user.$DOMAIN/drive — connexion automatique, fichiers, liens de partage (…/drive/public/…)" ;;
+            docker logs --tail 30 "$svc" 2>&1 | grep -iE 'error|fatal|migrat' | tail -5
+            info "À vérifier : https://$user.$DOMAIN/drive — connexion automatique, fichiers, liens de partage existants (…/drive/public/…)" ;;
         *)
             info "À vérifier : l'appli s'ouvre, la connexion (Authelia) passe, ses fonctions habituelles marchent" ;;
     esac
@@ -178,6 +193,7 @@ case "$ARG" in
         printf 'STATE="en cours"\nOLD_IMAGE=%s\nNEW_IMAGE=%s\nDATE="%s"\n' "$OLD_IMAGE" "$NEW_IMAGE" "$(date '+%Y-%m-%d %H:%M')" > "$STATE_FILE"
         compose_set_image "$DOCKER_COMPOSE_FILE" "$SVC" "$NEW_IMAGE" || error "Image de $SVC non changée dans le compose"
         override_set "$SVC" "$NEW_IMAGE"
+        before_start "$SVC"
         log "Démarrage de $SVC en $NEW_IMAGE…"
         if ! compose_cmd up -d "$SVC"; then
             warn "Démarrage impossible : sudo $0 $SVC --rollback"; exit 1

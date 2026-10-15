@@ -50,7 +50,7 @@ service_image() {
         prowlarr)    echo "linuxserver/prowlarr:2.6.5" ;;
         # Seerr : successeur d'Overseerr/Jellyseerr (fusion) ; connexion via
         # Jellyfin, Plex ou Emby (Overseerr n'acceptait que Plex)
-        seerr)       echo "seerr/seerr:v3.4.1" ;;
+        seerr)       echo "seerr/seerr:v3.5.0" ;;
         calibre)     echo "linuxserver/calibre-web:0.6.27" ;;
         # Surveillance de pages web (sans navigateur intégré : pages servies
         # sans JavaScript)
