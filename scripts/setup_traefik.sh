@@ -165,7 +165,7 @@ else
     cat >> "$DOCKER_COMPOSE_FILE" << EOF
 
   traefik:
-    image: traefik:v3.7.13
+    image: traefik:v3.7.14
     container_name: traefik
     restart: unless-stopped
     security_opt:

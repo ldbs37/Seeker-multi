@@ -33,13 +33,13 @@ ENV_FILE="$INSTALL_DIR/.env"
 API_DIR="$INSTALL_DIR/api"
 SPOOL="$API_DIR/spool"
 API_UID=65534
-API_IMAGE="python:3.13.15-alpine"
 UNIT_DIR="/etc/systemd/system"
 
 for lib in lib_ports lib_traefik lib_services; do
     # shellcheck source=/dev/null
     source "$SCRIPT_DIR/$lib.sh" || error "$lib.sh introuvable"
 done
+API_IMAGE="$SEEDBOX_API_IMAGE"   # version : lib_traefik.sh
 
 [[ $EUID -eq 0 ]] || error "Ce script doit être exécuté en tant que root"
 [ -f "$DOCKER_COMPOSE_FILE" ] && [ -f "$ENV_FILE" ] || error "Installation introuvable dans $INSTALL_DIR"

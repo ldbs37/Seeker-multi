@@ -41,7 +41,7 @@ FLARESOLVERR_IMAGE="ghcr.io/flaresolverr/flaresolverr:v3.5.2"
 
 service_image() {
     case "$1" in
-        qbittorrent) echo "linuxserver/qbittorrent:5.2.3" ;;
+        qbittorrent) echo "linuxserver/qbittorrent:5.2.4" ;;
         # FileBrowser Quantum (Filebrowser d'origine archivé le 2026-09-01)
         filebrowser) echo "$FBQ_IMAGE" ;;
         sonarr)      echo "linuxserver/sonarr:4.0.20" ;;

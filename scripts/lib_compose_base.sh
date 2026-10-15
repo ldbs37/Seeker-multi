@@ -314,7 +314,7 @@ _block_uptime_kuma() {
     cat << 'EOF'
 
   uptime-kuma:
-    image: louislam/uptime-kuma:2.5.5
+    image: louislam/uptime-kuma:2.5.6
     container_name: uptime-kuma
     volumes:
       - ./uptime-kuma:/app/data
@@ -331,7 +331,7 @@ _block_watchtower() {
     cat << 'EOF'
 
   watchtower:
-    image: nickfedor/watchtower:1.22.3
+    image: nickfedor/watchtower:1.23.1
     container_name: watchtower
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
@@ -389,7 +389,7 @@ _block_jellyfin() {
     cat << 'EOF'
 
   jellyfin:
-    image: jellyfin/jellyfin:12.1
+    image: jellyfin/jellyfin:12.2
     container_name: jellyfin
     user: "${ADMIN_UID}:${ADMIN_GID}"
     volumes:
@@ -418,7 +418,7 @@ _block_stirling_pdf() {
     cat << 'EOF'
 
   stirling-pdf:
-    image: stirlingtools/stirling-pdf:3.0.0
+    image: stirlingtools/stirling-pdf:3.1.0
     container_name: stirling-pdf
     environment:
       - TZ=${TZ}
@@ -531,7 +531,7 @@ _block_portainer() {
     cat << 'EOF'
 
   portainer:
-    image: portainer/portainer-ce:2.45.1
+    image: portainer/portainer-ce:2.45.2
     container_name: portainer
     ports:
       - "${ADMIN_BIND:-127.0.0.1}:9000:9000"
