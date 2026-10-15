@@ -119,7 +119,7 @@ show_services_status() {
     cd "$INSTALL_DIR" || return
 
     echo -e "${CYAN}Services Système:${NC}"
-    for service in authelia plex jellyfin scrutiny uptime-kuma dashdot portainer tautulli watchtower duplicati stirling-pdf; do
+    for service in authelia plex jellyfin scrutiny uptime-kuma dashdot portainer tautulli watchtower duplicati stirling-pdf convertx wud; do
         if docker ps --format "{{.Names}}" | grep -q "^${service}$"; then
             echo -e "  ${GREEN}●${NC} $service"
         elif docker ps -a --format "{{.Names}}" | grep -q "^${service}$"; then
@@ -434,13 +434,18 @@ add_service_menu() {
     echo ""
     echo -e "${BOLD}Outils:${NC}"
     echo "  8. stirling-pdf - Outils PDF (fusion, signature, OCR…), tous les utilisateurs"
+    echo "  9. convertx     - Conversion de fichiers (images, vidéos, documents…), tous les utilisateurs"
+    echo ""
+    echo -e "${BOLD}Mises à jour:${NC}"
+    echo "  10. wud - What's Up Docker : nouvelles versions des applis (administrateurs)"
     echo ""
 
     read -r -p "Service à installer (numéro ou nom): " service
     case "$service" in
         1) service=jellyfin ;;   2) service=scrutiny ;;   3) service=uptime-kuma ;;
         4) service=dashdot ;;    5) service=portainer ;;  6) service=watchtower ;;
-        7) service=duplicati ;;  8) service=stirling-pdf ;;
+        7) service=duplicati ;;  8) service=stirling-pdf ;; 9) service=convertx ;;
+        10) service=wud ;;
     esac
 
     if [ -z "$service" ]; then

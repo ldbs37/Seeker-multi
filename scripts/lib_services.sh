@@ -23,7 +23,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib_lang.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/lib_filebrowser.sh"
 
 # shellcheck disable=SC2034  # lue par les bibliothèques sourcées
-USER_SERVICES="qbittorrent filebrowser sonarr radarr readarr prowlarr seerr calibre"
+USER_SERVICES="qbittorrent filebrowser sonarr radarr readarr prowlarr seerr calibre changedetection"
 # Plus proposé (installations existantes conservées) : Readarr (abandonné
 # par ses auteurs)
 # shellcheck disable=SC2034  # lue par les scripts qui sourcent cette lib
@@ -52,6 +52,9 @@ service_image() {
         # Jellyfin, Plex ou Emby (Overseerr n'acceptait que Plex)
         seerr)       echo "seerr/seerr:v3.4.1" ;;
         calibre)     echo "linuxserver/calibre-web:0.6.27" ;;
+        # Surveillance de pages web (sans navigateur intégré : pages servies
+        # sans JavaScript)
+        changedetection) echo "ghcr.io/dgtlmoon/changedetection.io:0.60.9" ;;
         *) return 1 ;;
     esac
 }
@@ -107,9 +110,9 @@ service_block() {
     echo "    image: ${img}"
     echo "    container_name: ${name}"
     # Filebrowser (image officielle) ignore PUID/PGID ; Seerr tourne en
-    # utilisateur fixe (node, 1000) : UID imposé pour écrire sa configuration
+    # utilisateur fixe (node, 1000), Changedetection en root : UID imposé
     case "$svc" in
-        filebrowser|seerr) echo "    user: \"${USER_ID}:${USER_ID}\"" ;;
+        filebrowser|seerr|changedetection) echo "    user: \"${USER_ID}:${USER_ID}\"" ;;
     esac
     [ "$svc" = seerr ] && echo "    init: true"
     echo "    environment:"
@@ -124,6 +127,13 @@ service_block() {
         filebrowser)
             # Configuration (et base) : config.yaml généré par lib_filebrowser.sh
             echo "      - FILEBROWSER_CONFIG=/home/filebrowser/data/config.yaml"
+            ;;
+        changedetection)
+            # Liens des notifications ; en-têtes X-Forwarded de Traefik pris en
+            # compte (HTTPS, nom d'hôte)
+            echo "      - BASE_URL=$(traefik_service_url changedetection "$USERNAME")"
+            echo "      - USE_X_SETTINGS=1"
+            echo "      - DISABLE_VERSION_CHECK=true"
             ;;
     esac
     echo "    volumes:"
@@ -145,6 +155,8 @@ service_block() {
         calibre)
             echo "      - ${cfg}:/config"
             echo "      - ${USER_DIR}/books:/books" ;;
+        changedetection)
+            echo "      - ${cfg}:/datastore" ;;
     esac
     # Priorité disque la plus basse (poids 10 contre 100 par défaut, effectif
     # avec l'ordonnanceur BFQ : lib_priority.sh) : les applications passent

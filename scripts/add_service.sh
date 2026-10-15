@@ -36,8 +36,8 @@ usage() {
     echo "Streaming:   jellyfin"
     echo "Monitoring:  scrutiny, uptime-kuma, dashdot"
     echo "Gestion:     portainer"
-    echo "Outils:      stirling-pdf (outils PDF, tous les utilisateurs)"
-    echo "Maintenance: watchtower, duplicati"
+    echo "Outils:      stirling-pdf (outils PDF), convertx (conversion de fichiers), tous les utilisateurs"
+    echo "Maintenance: watchtower, duplicati, wud (nouvelles versions des applis)"
     exit 1
 }
 
@@ -110,7 +110,15 @@ case "$SERVICE" in
     scrutiny)  autoconfig_scrutiny "$INSTALL_DIR" || true ;;
     duplicati) autoconfig_duplicati "$INSTALL_DIR" || true ;;
     uptime-kuma) autoconfig_uptime_kuma "$INSTALL_DIR" "$(autoconfig_first_admin "$INSTALL_DIR")" || true ;;
-    stirling-pdf)
+    wud)
+        # Connexion via Authelia (client OIDC, administrateurs), lue par What's
+        # Up Docker à son démarrage ; règle d'accès réservée aux admins
+        authelia_ensure_home "$INSTALL_DIR/authelia/configuration.yml" "$DOMAIN" || true
+        authelia_ensure_oidc_wud "$INSTALL_DIR/authelia/configuration.yml" || true
+        docker restart authelia >/dev/null 2>&1 || warn "Redémarrez Authelia : docker restart authelia"
+        sleep 5; docker restart wud >/dev/null 2>&1 || true
+        "$SCRIPT_DIR/homarr_provision.sh" --all || warn "Tableau de bord admin non mis à jour (relancez homarr_provision.sh --all)" ;;
+    stirling-pdf|convertx)
         # Ouvert à tous les utilisateurs : règle Authelia (installations
         # antérieures), tuile sur chaque tableau de bord
         if authelia_ensure_home "$INSTALL_DIR/authelia/configuration.yml" "$DOMAIN"; then
@@ -144,6 +152,8 @@ fi
 case "$SERVICE" in
     jellyfin)   info "Accès : https://jellyfin.$DOMAIN" ;;
     stirling-pdf) info "Accès (tous les utilisateurs, SSO) : https://pdf.$DOMAIN" ;;
+    convertx)   info "Accès (tous les utilisateurs, SSO) : https://convert.$DOMAIN (fichiers effacés après 24 h)" ;;
+    wud)        info "Accès (administrateurs, SSO) : https://wud.$DOMAIN" ;;
     watchtower) info "Mises à jour automatiques chaque nuit à 4h" ;;
     duplicati)
         info "Accès (administrateurs, SSO) : https://duplicati.$DOMAIN"

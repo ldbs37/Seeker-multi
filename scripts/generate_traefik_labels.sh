@@ -190,10 +190,16 @@ authelia_ensure_home "$INSTALL_DIR/authelia/configuration.yml" "$DOMAIN" && AUTH
 if grep -q "^  jellyfin:" "$DOCKER_COMPOSE_FILE"; then
     authelia_ensure_oidc_jellyfin "$INSTALL_DIR/authelia/configuration.yml" && AUTHELIA_CHANGED=true
 fi
+# Client OIDC What's Up Docker (connexion via Authelia, administrateurs)
+if grep -q "^  wud:" "$DOCKER_COMPOSE_FILE"; then
+    authelia_ensure_oidc_wud "$INSTALL_DIR/authelia/configuration.yml" && AUTHELIA_CHANGED=true
+fi
 if [ "$AUTHELIA_CHANGED" = true ]; then
     docker restart authelia >/dev/null 2>&1 \
         && log "✓ Authelia : connexion unique Homarr + redirection vers le tableau de bord" \
         || warn "Redémarrez Authelia : docker restart authelia"
+    # What's Up Docker lit la configuration OIDC d'Authelia au démarrage
+    grep -q "^  wud:" "$DOCKER_COMPOSE_FILE" && { docker restart wud >/dev/null 2>&1 || true; }
 fi
 # Outils d'administration sans deuxième connexion (Duplicati : jeton
 # présenté par Traefik, déjà dans le compose)
@@ -206,6 +212,8 @@ if grep -q "^  portainer:" "$DOCKER_COMPOSE_FILE" \
 fi
 # Applications prioritaires sur les téléchargements (disque, réseau)
 "$SCRIPT_DIR/priority.sh" || warn "Priorité des applications non appliquée (sudo $SCRIPT_DIR/priority.sh)"
+# Correctifs de sécurité d'Ubuntu installés automatiquement chaque nuit
+system_auto_updates_ensure || warn "Mises à jour de sécurité automatiques non activées (unattended-upgrades)"
 [ ${#DROPPED[@]} -gt 0 ] && info "Services remplacés ou supprimés, retirés : ${DROPPED[*]}"
 # Configuration des services supprimés (Bazarr ; sous-titres déjà
 # téléchargés, à côté des médias, conservés)

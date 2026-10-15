@@ -134,7 +134,7 @@ Créé à l'ajout de l'utilisateur, supprimé avec lui (`remove_user.sh`).
 
 ### `add_service.sh`
 ```bash
-sudo ./add_service.sh <jellyfin|portainer|scrutiny|uptime-kuma|dashdot|watchtower|duplicati>
+sudo ./add_service.sh <jellyfin|portainer|scrutiny|uptime-kuma|dashdot|watchtower|duplicati|stirling-pdf|convertx|wud>
 ```
 Reconstruit la partie système du `docker-compose.yml` (validation avant
 application). Portainer et Jellyfin : compte admin créé automatiquement.

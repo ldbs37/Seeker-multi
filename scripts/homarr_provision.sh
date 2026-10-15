@@ -149,13 +149,15 @@ json_str() { S="$1" python3 -c 'import json,os; print(json.dumps(os.environ["S"]
 
 ICON_BASE="https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg"
 DASHDOT_ICON="https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/dashdot.png"
+CONVERTX_ICON="https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/convertx.png"
 svc_label() {
     case "$1" in
         qbittorrent) echo "qBittorrent" ;; filebrowser) echo "Fichiers" ;;
         sonarr) echo "Sonarr" ;;           radarr) echo "Radarr" ;;
         readarr) echo "Readarr" ;;         bazarr) echo "Bazarr" ;;   # bazarr : supprimé (drop_removed_apps)
         prowlarr) echo "Prowlarr" ;;       seerr) echo "Seerr" ;;
-        calibre) echo "Calibre-Web" ;;     *) echo "$1" ;;
+        calibre) echo "Calibre-Web" ;;     changedetection) echo "Changedetection" ;;
+        *) echo "$1" ;;
     esac
 }
 svc_icon() { case "$1" in calibre) echo "calibre-web" ;; filebrowser) echo "filebrowser-quantum" ;; *) echo "$1" ;; esac; }
@@ -171,6 +173,7 @@ sys_app() {
         tautulli)    echo "Tautulli|tautulli|tautulli|8181" ;;
         dashdot)     echo "Dash.|$DASHDOT_ICON|dashdot|3001" ;;
         scrutiny)    echo "Scrutiny|scrutiny|scrutiny|8080" ;;
+        wud)         echo "What's Up Docker|whats-up-docker|wud|3000" ;;
         uptime-kuma) echo "Uptime Kuma|uptime-kuma|uptime|3001" ;;
         duplicati)   echo "Duplicati|duplicati|duplicati|8200" ;;
         *) return 1 ;;
@@ -465,9 +468,12 @@ provision_user() {
     if has_service jellyfin; then
         id=$(ensure_app Jellyfin jellyfin "https://jellyfin.$DOMAIN" "http://jellyfin:8096/health") && app_spec "$id"
     fi
-    # Stirling-PDF : outils PDF, ouverts à tous les utilisateurs
+    # Stirling-PDF, ConvertX : outils ouverts à tous les utilisateurs
     if has_service stirling-pdf; then
         id=$(ensure_app Stirling-PDF stirling-pdf "https://pdf.$DOMAIN" "http://stirling-pdf:8080/") && app_spec "$id"
+    fi
+    if has_service convertx; then
+        id=$(ensure_app ConvertX "$CONVERTX_ICON" "https://convert.$DOMAIN" "http://convertx:3000/") && app_spec "$id"
     fi
     if password_user_is_admin "$user" "$USERS_DB"; then
         id=$(ensure_app "Serveur (admin)" homarr "https://$DOMAIN/boards/$ADMIN_BOARD" "") && app_spec "$id"
@@ -508,7 +514,7 @@ provision_admin_board() {
         spec sys-resources systemResources 6 3 '{"visibleCharts":["cpu","memory","network"]}' "$(ids_json "$int_dash")" "Serveur"
         spec sys-health healthMonitoring 4 3 '{"cpu":true,"memory":true,"fileSystem":true}' "$(ids_json "$int_dash")" "Santé"
     fi
-    for s in authelia portainer jellyfin plex tautulli dashdot scrutiny uptime-kuma duplicati; do
+    for s in authelia portainer jellyfin plex tautulli dashdot scrutiny uptime-kuma duplicati wud; do
         has_service "$s" || continue
         def=$(sys_app "$s")
         IFS='|' read -r label icon sub port <<< "$def"
@@ -520,6 +526,15 @@ provision_admin_board() {
         spec jf-releases mediaReleases 4 4 '{"layout":"poster"}' "$(ids_json "$int_jf")" "Derniers ajouts"
     fi
     [ -n "$int_dash" ] && spec sys-disks systemDisks 6 3 '{}' "$(ids_json "$int_dash")" "Disques"
+    # What's Up Docker : nouvelles versions des applis (compte local « homarr »,
+    # tools_env_ensure ; Homarr le joint sans passer par Authelia)
+    local int_wud="" wpass app_wud
+    if has_service wud && wpass=$(grep '^WUD_ADMIN_PASSWORD=' "$ENV_FILE" 2>/dev/null | cut -d= -f2-) && [ -n "$wpass" ]; then
+        app_wud=$(ensure_app "What's Up Docker" whats-up-docker "https://wud.$DOMAIN" "http://wud:3000") \
+            && int_wud=$(ensure_integration "What's Up Docker" wud "http://wud:3000" \
+                "[{\"kind\":\"username\",\"value\":\"homarr\"},{\"kind\":\"password\",\"value\":$(json_str "$wpass")}]" "$app_wud")
+    fi
+    [ -n "$int_wud" ] && spec wud wud 4 3 '{"showUpdateList":true}' "$(ids_json "$int_wud")" "Mises à jour des applis"
     apply_layout "$ADMIN_BOARD"
     specs_done
 }

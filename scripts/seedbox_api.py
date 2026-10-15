@@ -40,6 +40,7 @@ SERVICES = {
     "prowlarr": "Indexeurs",
     "seerr": "Demandes de films/séries (connexion Jellyfin)",
     "calibre": "Bibliothèque e-books (Calibre-Web)",
+    "changedetection": "Surveillance de pages web (Changedetection)",
 }
 # Plus proposés à l'ajout ; retirables s'ils sont installés
 RETIRED = {"readarr"}
@@ -53,6 +54,7 @@ BASE = {
 SHARED = {
     "jellyfin": "Films et séries (Jellyfin)",
     "stirling-pdf": "Outils PDF (Stirling-PDF)",
+    "convertx": "Conversion de fichiers (ConvertX)",
 }
 USER_RE = re.compile(r"^[a-z][a-z0-9]{0,31}$")
 JOB_RE = re.compile(r"^[a-f0-9]{32}$")

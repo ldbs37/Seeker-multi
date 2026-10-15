@@ -21,12 +21,12 @@ ENV_FILE="$INSTALL_DIR/.env"
 DOCKER_COMPOSE_FILE="$INSTALL_DIR/docker-compose.yml"
 SPOOL="$INSTALL_DIR/api/spool"
 API_UID=65534                 # utilisateur du conteneur de l'API
-ALLOWED="sonarr radarr readarr prowlarr seerr calibre"          # ajout / retrait
+ALLOWED="sonarr radarr readarr prowlarr seerr calibre changedetection"   # ajout / retrait
 BASE="qbittorrent filebrowser flaresolverr"                      # redémarrage seulement
 RESTARTABLE="$BASE $ALLOWED"
 # Services partagés (un seul conteneur pour tous) : état et lien pour chacun,
 # redémarrage réservé aux administrateurs (coupe le service pour tous)
-SHARED="jellyfin stirling-pdf"
+SHARED="jellyfin stirling-pdf convertx"
 USERS_DB="$INSTALL_DIR/authelia/users_database.yml"
 
 grep -q '^SEEDBOX_API=true' "$ENV_FILE" 2>/dev/null || exit 0
@@ -55,7 +55,7 @@ write_json() {
 }
 
 # Sous-domaine d'un service partagé
-shared_sub() { case "$1" in stirling-pdf) echo pdf ;; *) echo "$1" ;; esac; }
+shared_sub() { case "$1" in stirling-pdf) echo pdf ;; convertx) echo convert ;; *) echo "$1" ;; esac; }
 
 # État de tous les utilisateurs seedbox : services installés, URL, état des
 # conteneurs (running, unhealthy, restarting, exited…)

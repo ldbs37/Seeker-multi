@@ -22,7 +22,7 @@
 SYSTEM_SERVICES_OBSOLETE="home flaresolverr"
 # (Plex et Tautulli ne sont plus proposés : un bloc existant est conservé tel
 # quel, comme bloc personnalisé)
-SYSTEM_SERVICES="authelia homarr scrutiny uptime-kuma watchtower duplicati jellyfin dashdot portainer stirling-pdf"
+SYSTEM_SERVICES="authelia homarr scrutiny uptime-kuma watchtower duplicati jellyfin dashdot portainer stirling-pdf wud convertx"
 
 # Variable INSTALL_* correspondant à un service système optionnel
 system_service_flag() {
@@ -33,6 +33,7 @@ system_service_flag() {
         dashdot) echo INSTALL_DASHDOT ;;
         portainer) echo INSTALL_PORTAINER ;;
         stirling-pdf) echo INSTALL_STIRLING_PDF ;;
+        wud) echo INSTALL_WUD ;;             convertx) echo INSTALL_CONVERTX ;;
         *) return 1 ;;
     esac
 }
@@ -202,6 +203,23 @@ EOF
     local after="https://${DOMAIN}/"
     [ "${INSTALL_JELLYFIN:-false}" = true ] && after="https://jellyfin.${DOMAIN}/logout-done"
     echo "      - \"traefik.http.middlewares.logout-done-redirect.redirectregex.replacement=${after}\""
+    # Maillon suivant : session Jellyfin (stockage du navigateur sur
+    # jellyfin.<domaine>) effacée par l'en-tête standard Clear-Site-Data, puis
+    # accueil. Porté par Homarr et non par Jellyfin : Traefik retire les
+    # routes d'un conteneur arrêté ou « en mauvaise santé » (redémarrage,
+    # disque chargé) et servait alors son certificat par défaut
+    # (ERR_CERT_AUTHORITY_INVALID) ; la réponse est une redirection, Homarr
+    # n'est jamais appelé
+    if [ "${INSTALL_JELLYFIN:-false}" = true ]; then
+        echo "      - \"traefik.http.routers.jellyfin-logout-done.rule=Host(\`jellyfin.${DOMAIN}\`) && Path(\`/logout-done\`)\""
+        echo "      - \"traefik.http.routers.jellyfin-logout-done.entrypoints=websecure\""
+        echo "      - \"traefik.http.routers.jellyfin-logout-done.tls.certresolver=letsencrypt\""
+        echo "      - \"traefik.http.routers.jellyfin-logout-done.service=homarr\""
+        echo "      - \"traefik.http.routers.jellyfin-logout-done.middlewares=jellyfin-logout-clear,jellyfin-logout-redirect\""
+        echo "      - \"traefik.http.middlewares.jellyfin-logout-clear.headers.customresponseheaders.Clear-Site-Data=\\\"storage\\\"\""
+        echo "      - \"traefik.http.middlewares.jellyfin-logout-redirect.redirectregex.regex=^.*\$\$\""
+        echo "      - \"traefik.http.middlewares.jellyfin-logout-redirect.redirectregex.replacement=https://${DOMAIN}/\""
+    fi
     echo "    restart: unless-stopped"
 }
 
@@ -233,6 +251,23 @@ if ac and not re.search(r"^\s*- domain: 'pdf\." + re.escape(dom) + r"'\s*$", ac.
             f"    - domain: 'pdf.{dom}'\n      policy: one_factor\n\n")
     anchor = r"^    # Espaces utilisateurs ISOLÉS" if re.search(r"^    # Espaces utilisateurs ISOLÉS", s, re.M) else r"^    - domain_regex:"
     s = re.sub(anchor, lambda m: rule + m.group(0), s, count=1, flags=re.M)
+# ConvertX : ouvert à tous les utilisateurs, comme Stirling-PDF
+ac = re.search(r"^access_control:\n(.*?)(?=^\S)", s, re.M | re.S)
+if ac and not re.search(r"^\s*- domain: 'convert\." + re.escape(dom) + r"'\s*$", ac.group(1), re.M):
+    rule = (f"    # Conversion de fichiers (ConvertX), ouverte à tous les utilisateurs\n"
+            f"    - domain: 'convert.{dom}'\n      policy: one_factor\n\n")
+    anchor = r"^    # Espaces utilisateurs ISOLÉS" if re.search(r"^    # Espaces utilisateurs ISOLÉS", s, re.M) else r"^    - domain_regex:"
+    s = re.sub(anchor, lambda m: rule + m.group(0), s, count=1, flags=re.M)
+# What's Up Docker : réservé aux administrateurs (ajouté aux deux listes des
+# services système : autorisation des admins, puis refus des autres)
+if f'"wud.{dom}"' not in s:
+    s = s.replace(f'        - "traefik.{dom}"\n', f'        - "traefik.{dom}"\n        - "wud.{dom}"\n')
+# Changedetection de chaque utilisateur (changes-<user>.<domaine>) : même
+# isolement que Seerr (l'utilisateur connecté seulement)
+if "^changes-(?P<User>" not in s:
+    s = re.sub(r"^(        - '\^seerr-\(\?P<User>[^\n]*\n)",
+               lambda m: m.group(1) + m.group(1).replace("seerr-", "changes-"),
+               s, count=1, flags=re.M)
 # Contrôle d'accès par session uniquement (pas de défi HTTP Basic)
 if not re.search(r"^  endpoints:", s, re.M):
     s = re.sub(r"^(server:\n  address: [^\n]*\n)",
@@ -369,17 +404,8 @@ _block_jellyfin() {
       - TZ=${TZ}
 EOF
     _sys_labels jellyfin jellyfin 8096 false
-    # Maillon de la chaîne de déconnexion (voir _block_homarr) : session
-    # Jellyfin (stockage du navigateur sur jellyfin.<domaine>) effacée par
-    # l'en-tête standard Clear-Site-Data, puis retour à l'accueil
-    echo "      - \"traefik.http.routers.jellyfin-logout-done.rule=Host(\`jellyfin.${DOMAIN}\`) && Path(\`/logout-done\`)\""
-    echo "      - \"traefik.http.routers.jellyfin-logout-done.entrypoints=websecure\""
-    echo "      - \"traefik.http.routers.jellyfin-logout-done.tls.certresolver=letsencrypt\""
-    echo "      - \"traefik.http.routers.jellyfin-logout-done.service=jellyfin\""
-    echo "      - \"traefik.http.routers.jellyfin-logout-done.middlewares=jellyfin-logout-clear,jellyfin-logout-redirect\""
-    echo "      - \"traefik.http.middlewares.jellyfin-logout-clear.headers.customresponseheaders.Clear-Site-Data=\\\"storage\\\"\""
-    echo "      - \"traefik.http.middlewares.jellyfin-logout-redirect.redirectregex.regex=^.*\$\$\""
-    echo "      - \"traefik.http.middlewares.jellyfin-logout-redirect.redirectregex.replacement=https://${DOMAIN}/\""
+    # Maillon de la chaîne de déconnexion jellyfin.<domaine>/logout-done :
+    # porté par Homarr (voir _block_homarr)
     echo "      - \"traefik.http.routers.jellyfin.service=jellyfin\""
     echo "    restart: unless-stopped"
 }
@@ -411,6 +437,63 @@ _block_stirling_pdf() {
     mem_limit: 3g
 EOF
     _sys_labels stirling-pdf pdf 8080 true
+    echo "    restart: unless-stopped"
+}
+
+# What's Up Docker : nouvelles versions des applis (conteneurs),
+# administrateurs. Connexion via Authelia (OIDC, redirection automatique :
+# rien à saisir) ; compte local « homarr » pour le widget du tableau de bord
+# admin. Socket Docker en lecture seule : il signale, ne met rien à jour.
+_block_wud() {
+    cat << 'EOF'
+
+  wud:
+    image: getwud/wud:9.4.1
+    container_name: wud
+    environment:
+      - TZ=${TZ}
+      - WUD_PUBLIC_URL=https://wud.${DOMAIN}
+      - WUD_AUTH_OIDC_AUTHELIA_DISCOVERY=https://auth.${DOMAIN}/.well-known/openid-configuration
+      - WUD_AUTH_OIDC_AUTHELIA_CLIENTID=wud
+      - WUD_AUTH_OIDC_AUTHELIA_CLIENTSECRET=${WUD_OIDC_SECRET}
+      - WUD_AUTH_OIDC_AUTHELIA_REDIRECT=true
+      - WUD_AUTH_OIDC_AUTHELIA_SCOPE=openid profile email groups
+      - WUD_AUTH_OIDC_AUTHELIA_USERNAMECLAIM=preferred_username
+      - WUD_AUTH_OIDC_AUTHELIA_ADMINGROUP=admins
+      - WUD_AUTH_ADMIN_USER=homarr
+      - WUD_AUTH_ADMIN_PASSWORD=${WUD_ADMIN_PASSWORD}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./wud/store:/store
+EOF
+    _sys_labels wud wud 3000 true
+    echo "    restart: unless-stopped"
+}
+
+# ConvertX (conversion de fichiers : images, vidéos, documents…) : tous les
+# utilisateurs (après Authelia), sans compte propre ; chaque navigateur a son
+# historique (rien de partagé entre utilisateurs). Fichiers effacés après 24 h.
+_block_convertx() {
+    cat << 'EOF'
+
+  convertx:
+    image: ghcr.io/c4illin/convertx:v0.19.0
+    container_name: convertx
+    environment:
+      - TZ=${TZ}
+      - JWT_SECRET=${CONVERTX_JWT_SECRET}
+      - ACCOUNT_REGISTRATION=false
+      - ALLOW_UNAUTHENTICATED=true
+      - UNAUTHENTICATED_USER_SHARING=false
+      - AUTO_DELETE_EVERY_N_HOURS=24
+      - MAX_CONVERT_PROCESS=2
+      - LANGUAGE=fr
+    volumes:
+      - ./convertx:/app/data
+    # ffmpeg, LibreOffice… : mémoire bornée pour ne pas gêner le reste
+    mem_limit: 2g
+EOF
+    _sys_labels convertx convert 3000 true
     echo "    restart: unless-stopped"
 }
 
@@ -465,6 +548,19 @@ EOF
 # Secrets de Duplicati dans le .env (créés une fois, conservés ensuite par
 # write_env_file) : clé de chiffrement des réglages, mot de passe de
 # l'interface (en plus d'Authelia)
+# Secrets de What's Up Docker (client OIDC d'Authelia, compte du widget
+# Homarr) et de ConvertX (signature de ses sessions), dans le .env
+tools_env_ensure() {
+    local env="$INSTALL_DIR/.env"
+    grep -qE '^WUD_OIDC_SECRET=[0-9a-f]{64}$' "$env" 2>/dev/null \
+        || echo "WUD_OIDC_SECRET=$(openssl rand -hex 32)" >> "$env"
+    grep -q '^WUD_ADMIN_PASSWORD=.' "$env" 2>/dev/null \
+        || echo "WUD_ADMIN_PASSWORD=$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-24)" >> "$env"
+    grep -qE '^CONVERTX_JWT_SECRET=[0-9a-f]{64}$' "$env" 2>/dev/null \
+        || echo "CONVERTX_JWT_SECRET=$(openssl rand -hex 32)" >> "$env"
+    chmod 600 "$env"
+}
+
 duplicati_env_ensure() {
     local env="$INSTALL_DIR/.env"
     grep -q '^DUPLICATI_ENCRYPTION_KEY=.' "$env" 2>/dev/null \
@@ -500,6 +596,11 @@ _system_dirs() {
     [ "${INSTALL_DASHDOT:-false}" = true ]     && mkdir -p "$INSTALL_DIR/dashdot"
     [ "${INSTALL_PORTAINER:-false}" = true ]   && mkdir -p "$INSTALL_DIR/portainer"
     [ "${INSTALL_STIRLING_PDF:-false}" = true ] && mkdir -p "$INSTALL_DIR/stirling-pdf/configs" "$INSTALL_DIR/stirling-pdf/logs"
+    [ "${INSTALL_WUD:-false}" = true ]         && mkdir -p "$INSTALL_DIR/wud/store"
+    [ "${INSTALL_CONVERTX:-false}" = true ]    && mkdir -p "$INSTALL_DIR/convertx"
+    if [ "${INSTALL_WUD:-false}" = true ] || [ "${INSTALL_CONVERTX:-false}" = true ]; then
+        tools_env_ensure
+    fi
     if [ "${INSTALL_JELLYFIN:-false}" = true ]; then
         mkdir -p "$INSTALL_DIR/jellyfin/config" "$INSTALL_DIR/jellyfin/cache"
         chown -R "${ADMIN_UID}:${ADMIN_GID}" "$INSTALL_DIR/jellyfin" 2>/dev/null || true
@@ -525,6 +626,8 @@ compose_base_content() {
     [ "${INSTALL_DASHDOT:-false}" = true ]     && _block_dashdot
     [ "${INSTALL_PORTAINER:-false}" = true ]   && _block_portainer
     [ "${INSTALL_STIRLING_PDF:-false}" = true ] && _block_stirling_pdf
+    [ "${INSTALL_WUD:-false}" = true ]         && _block_wud
+    [ "${INSTALL_CONVERTX:-false}" = true ]    && _block_convertx
     return 0
 }
 
