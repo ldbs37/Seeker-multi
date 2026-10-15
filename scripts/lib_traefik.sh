@@ -78,6 +78,14 @@ sig = base64.b64encode(hmac.new(os.environ["CID"].encode(), sid.encode(), hashli
 print("connect.sid=s:%s.%s" % (sid, sig))'
 }
 
+# Versions des conteneurs dont le bloc n'est pas régénéré à la mise à jour
+# (Traefik : setup_traefik.sh ; API libre-service : setup_api.sh) :
+# imposées par generate_traefik_labels.sh
+# shellcheck disable=SC2034  # lues par les scripts qui sourcent cette lib
+TRAEFIK_IMAGE="traefik:v3.7.14"
+# shellcheck disable=SC2034
+SEEDBOX_API_IMAGE="python:3.13.16-alpine"
+
 # Chemin public d'un service ("" = racine, "SUBDOMAIN" = sous-domaine dédié)
 traefik_service_path() {
     case "$1" in

@@ -73,6 +73,8 @@ else
     ' "$DOCKER_COMPOSE_FILE" > "$TMP"
 fi
 
+# Versions en cours d'essai ou gardées (test_update.sh)
+compose_apply_image_overrides "$TMP"
 if ! compose_validate "$TMP"; then
     rm -f "$TMP"; [ -f "$ENV_FILE.bak" ] && cp "$ENV_FILE.bak" "$ENV_FILE"
     error "Le docker-compose.yml serait invalide — aucune modification appliquée"

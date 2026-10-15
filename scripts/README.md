@@ -90,6 +90,21 @@ minuteur `seedbox-priority` chaque minute) :
   plus bas, le reste (Traefik, Jellyfin…) au-dessus.
 `--off` retire tout.
 
+### `test_update.sh <service> <version> | --rollback | --keep | --status`
+Essayer une nouvelle version d'une appli avec retour en arrière rapide (versions
+signalées par What's Up Docker) :
+```bash
+sudo ./test_update.sh seerr-louis v3.5.0   # essai (un seul utilisateur pour une appli par utilisateur)
+sudo ./test_update.sh seerr-louis --rollback   # ancienne version + données d'avant l'essai (~1 min)
+sudo ./test_update.sh seerr-louis --keep       # nouvelle version gardée
+```
+L'essai arrête l'appli, sauvegarde ses données de configuration (jamais les
+fichiers des utilisateurs) dans `update_tests/<service>`, lance la nouvelle
+version et rejoue ses automatismes (Homarr : création des tableaux ; Seerr :
+configuration). La version essayée est retenue dans `image_overrides` et
+conservée par les régénérations du compose, jusqu'à ce que la seedbox fixe
+une version égale ou plus récente.
+
 ### `torrent_cleanup.sh [--dry-run] [user...]`
 Ménage des torrents de Radarr / Sonarr dans qBittorrent, pour chaque
 utilisateur (minuteur `seedbox-torrent-cleanup` toutes les 5 minutes,

@@ -314,7 +314,7 @@ _block_uptime_kuma() {
     cat << 'EOF'
 
   uptime-kuma:
-    image: louislam/uptime-kuma:2.5.5
+    image: louislam/uptime-kuma:2.5.6
     container_name: uptime-kuma
     volumes:
       - ./uptime-kuma:/app/data
@@ -331,7 +331,7 @@ _block_watchtower() {
     cat << 'EOF'
 
   watchtower:
-    image: nickfedor/watchtower:1.22.3
+    image: nickfedor/watchtower:1.23.1
     container_name: watchtower
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
@@ -389,7 +389,7 @@ _block_jellyfin() {
     cat << 'EOF'
 
   jellyfin:
-    image: jellyfin/jellyfin:12.1
+    image: jellyfin/jellyfin:12.2
     container_name: jellyfin
     user: "${ADMIN_UID}:${ADMIN_GID}"
     volumes:
@@ -418,7 +418,7 @@ _block_stirling_pdf() {
     cat << 'EOF'
 
   stirling-pdf:
-    image: stirlingtools/stirling-pdf:3.0.0
+    image: stirlingtools/stirling-pdf:3.1.0
     container_name: stirling-pdf
     environment:
       - TZ=${TZ}
@@ -531,7 +531,7 @@ _block_portainer() {
     cat << 'EOF'
 
   portainer:
-    image: portainer/portainer-ce:2.45.1
+    image: portainer/portainer-ce:2.45.2
     container_name: portainer
     ports:
       - "${ADMIN_BIND:-127.0.0.1}:9000:9000"
@@ -667,6 +667,45 @@ generate_docker_compose() {
     compose_base_content > "$out"
     write_env_file
     log "✓ Configuration Docker générée"
+}
+
+# Image du service $2 remplacée par $3 dans le compose $1 (ligne « image: » de
+# son bloc). Retour 1 si le service n'a pas de ligne image.
+compose_set_image() {
+    local file="$1" name="$2" img="$3" tmp
+    tmp="$file.img.tmp"
+    awk -v name="${name}:" -v img="$img" '
+        /^  [^ #]/ { inb = ($1 == name) }
+        /^[^ ]/    { inb = 0 }
+        inb && /^    image: / { print "    image: " img; found = 1; next }
+        { print }
+        END { exit !found }
+    ' "$file" > "$tmp" && mv "$tmp" "$file" || { rm -f "$tmp"; return 1; }
+}
+
+# Versions imposées par un essai de mise à jour (test_update.sh) : fichier
+# $INSTALL_DIR/image_overrides, « <service>=<image> » par ligne. Appliquées
+# à chaque régénération du compose, sinon l'ancienne version reviendrait sur
+# des données déjà converties par la nouvelle. $1 = compose
+compose_apply_image_overrides() {
+    local file="$1" f="$INSTALL_DIR/image_overrides" name img cur keep=""
+    [ -s "$f" ] || return 0
+    while IFS='=' read -r name img; do
+        [[ "$name" =~ ^[a-z0-9_-]+$ ]] && [ -n "$img" ] || continue
+        grep -q "^  ${name}:" "$file" || { keep+="$name=$img"$'\n'; continue; }
+        cur=$(awk -v n="${name}:" '/^  [^ #]/ { inb = ($1 == n) } /^[^ ]/ { inb = 0 }
+            inb && /^    image: / { print $2; exit }' "$file")
+        # Version fixée par la seedbox égale ou plus récente : rattrapée,
+        # l'imposer ferait revenir en arrière
+        if [ "${cur%:*}" = "${img%:*}" ] \
+            && [ "$(printf '%s\n%s\n' "${img##*:}" "${cur##*:}" | sort -V | tail -1)" = "${cur##*:}" ]; then
+            continue
+        fi
+        compose_set_image "$file" "$name" "$img"
+        keep+="$name=$img"$'\n'
+    done < "$f"
+    printf '%s' "$keep" > "$f"
+    return 0
 }
 
 # Extrait (stdout) les blocs verbatim des services nommés d'un compose,

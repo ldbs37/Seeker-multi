@@ -17,7 +17,7 @@
 #######################
 
 # shellcheck disable=SC2034  # lue par les bibliothèques sourcées
-FBQ_IMAGE="gtstef/filebrowser:1.5.6-stable"
+FBQ_IMAGE="gtstef/filebrowser:1.5.8-stable"
 FBQ_PORT=8080
 
 # Valeur hexadécimale d'une clé « clé: "valeur" » de la section auth d'un config.yaml

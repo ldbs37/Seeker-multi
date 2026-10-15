@@ -93,6 +93,8 @@ generate_docker_compose "$TMP"
 # Réseaux privés des utilisateurs (déclarations, Traefik et Homarr)
 compose_sync_user_nets "$TMP" || true
 
+# Versions en cours d'essai ou gardées (test_update.sh)
+compose_apply_image_overrides "$TMP"
 if ! compose_validate "$TMP"; then
     rm -f "$TMP"; cp "$ENV_FILE.bak" "$ENV_FILE"
     error "Le docker-compose.yml serait invalide — aucune modification appliquée"

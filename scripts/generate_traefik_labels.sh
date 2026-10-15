@@ -124,10 +124,14 @@ for e in "${USER_ENTRIES[@]}"; do
     service_block "$svc" >> "$TMP"
 done
 [ ${#CUSTOM[@]} -gt 0 ] && compose_extract_blocks "${DOCKER_COMPOSE_FILE}.pre-migration" "${CUSTOM[@]}" >> "$TMP"
+# Blocs recopiés tels quels (Traefik, API libre-service) : version à jour
+sed -i -E "s#^    image: traefik:v3\.[0-9.]+\$#    image: ${TRAEFIK_IMAGE}#; s#^    image: python:3\.[0-9.]+-alpine\$#    image: ${SEEDBOX_API_IMAGE}#" "$TMP"
 [ "$SSO_OK" = true ] && { compose_ensure_sso_net "$TMP" || true; }
 # Réseau privé de chaque utilisateur (Traefik et Homarr raccordés)
 compose_sync_user_nets "$TMP"; [ $? -eq 2 ] && { rm -f "$TMP"; error "Réseaux des utilisateurs non créés (docker network create)"; }
 
+# Versions en cours d'essai ou gardées (test_update.sh)
+compose_apply_image_overrides "$TMP"
 if ! compose_validate "$TMP"; then
     rm -f "$TMP"
     cp "${ENV_FILE}.pre-migration" "$ENV_FILE"
