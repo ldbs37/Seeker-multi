@@ -155,6 +155,9 @@ EOF
 # l'ancienne base (database.db, comptes et liens de partage) est importée au
 # premier démarrage : renommée database.db.old (nom exigé par la v2) et
 # indiquée dans migrateFrom tant que la nouvelle base n'existe pas.
+# Clé de signature des sessions ($5) non écrite : la v2 la garde dans sa base
+# (reprise de l'ancienne, sinon créée) et refuse de démarrer si celle de la
+# configuration diffère.
 _fbq_write_v2() {
     local dir migrate=""
     dir=$(dirname "$1")
@@ -195,7 +198,6 @@ frontend:
   disableDefaultLinks: true
 auth:
   tokenExpirationHours: 12
-  key: "$5"
   adminUsername: "$2"
   adminPassword: $6
   methods:
