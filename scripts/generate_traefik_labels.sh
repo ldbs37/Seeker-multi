@@ -47,6 +47,12 @@ TZ=${TZ:-Europe/Paris}; ADMIN_UID=${ADMIN_UID:-1000}; ADMIN_GID=${ADMIN_GID:-100
 # shellcheck disable=SC2034  # lue par les bibliothèques sourcées
 USE_TRAEFIK=true
 
+# Copie installée des scripts ($INSTALL_DIR/scripts, faite par install.sh et
+# utilisée par les minuteurs et l'API libre-service) à jour depuis ce dépôt
+if [ -d "$INSTALL_DIR/scripts" ] && [ "$(cd "$INSTALL_DIR/scripts" && pwd -P)" != "$(cd "$SCRIPT_DIR" && pwd -P)" ]; then
+    cp -r "$SCRIPT_DIR/"* "$INSTALL_DIR/scripts/" && log "✓ Scripts installés ($INSTALL_DIR/scripts) mis à jour"
+fi
+
 log "Migration vers Traefik pour le domaine $DOMAIN..."
 
 #######################
@@ -212,6 +218,15 @@ if grep -q "^  portainer:" "$DOCKER_COMPOSE_FILE" \
 fi
 # Applications prioritaires sur les téléchargements (disque, réseau)
 "$SCRIPT_DIR/priority.sh" || warn "Priorité des applications non appliquée (sudo $SCRIPT_DIR/priority.sh)"
+# API libre-service (« Mes services ») : son conteneur sert une copie du code,
+# faite par setup_api.sh ; remise à jour (nouveaux services), puis son état
+if grep -q '^SEEDBOX_API=true' "$ENV_FILE" && [ -d "$INSTALL_DIR/api/app" ]; then
+    if ! cmp -s "$SCRIPT_DIR/seedbox_api.py" "$INSTALL_DIR/api/app/seedbox_api.py"; then
+        install -m 644 "$SCRIPT_DIR/seedbox_api.py" "$INSTALL_DIR/api/app/seedbox_api.py"
+        docker restart seedbox-api >/dev/null 2>&1 && log "✓ « Mes services » mis à jour"
+    fi
+    "$SCRIPT_DIR/seedbox_api_worker.sh" --state >/dev/null 2>&1 || true
+fi
 # Correctifs de sécurité d'Ubuntu installés automatiquement chaque nuit
 system_auto_updates_ensure || warn "Mises à jour de sécurité automatiques non activées (unattended-upgrades)"
 [ ${#DROPPED[@]} -gt 0 ] && info "Services remplacés ou supprimés, retirés : ${DROPPED[*]}"
