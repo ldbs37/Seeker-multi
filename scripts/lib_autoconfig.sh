@@ -153,12 +153,29 @@ system_auto_updates_ensure() {
 
 # Client OIDC « wud » (What's Up Docker) dans la configuration Authelia (s'il
 # manque), réservé au groupe admins ; secret WUD_OIDC_SECRET du .env
-# (tools_env_ensure). PKCE exigé (WUD l'utilise), secret envoyé en Basic.
+# (tools_env_ensure). PKCE exigé ; secret envoyé dans le corps de la requête
+# (méthode par défaut d'openid-client 6, utilisé par WUD).
 # $1 = configuration.yml. Retour 0 si modifiée (redémarrage d'Authelia).
 authelia_ensure_oidc_wud() {
     local cfg="$1" env="$INSTALL_DIR/.env" secret hash
     [ -f "$cfg" ] && grep -q '^identity_providers:' "$cfg" || return 1
-    grep -q "client_id: 'wud'" "$cfg" && return 1
+    # Client déjà présent : réglages des premières versions corrigés (secret
+    # envoyé dans le corps par WUD, nom et groupes dans l'id_token)
+    if grep -q "client_id: 'wud'" "$cfg"; then
+        python3 - "$cfg" << 'EOF_PY' || return 1
+import re, sys
+path = sys.argv[1]; s = open(path).read()
+m = re.search(r"^      - client_id: 'wud'\n(?:        .*\n|\s*\n)*", s, re.M)
+blk = m.group(0)
+new = blk.replace("token_endpoint_auth_method: 'client_secret_basic'", "token_endpoint_auth_method: 'client_secret_post'")
+if "claims_policy:" not in new and re.search(r"^      homarr:\n        id_token:", s, re.M):
+    new = new.replace("        public: false\n", "        claims_policy: 'homarr'\n        public: false\n", 1)
+if new == blk:
+    sys.exit(1)
+open(path, "w").write(s[:m.start()] + new + s[m.end():])
+EOF_PY
+        chmod 600 "$cfg"; return 0
+    fi
     secret=$(grep -E '^WUD_OIDC_SECRET=[0-9a-f]{64}$' "$env" 2>/dev/null | cut -d= -f2)
     [ -n "$secret" ] || { echo "WUD_OIDC_SECRET absent du .env" >&2; return 2; }
     hash=$(${AUTHELIA_BIN:-docker run --rm authelia/authelia:4.39.28 authelia} crypto hash generate pbkdf2 \
@@ -179,6 +196,8 @@ client = (
     "      - client_id: 'wud'\n"
     "        client_name: \"What's Up Docker\"\n"
     "        client_secret: '%s'\n"
+    # Nom et groupes dans l'id_token (lus par WUD) : politique de Homarr
+    "        claims_policy: 'homarr'\n"
     "        public: false\n"
     "        authorization_policy: 'admins'\n"
     "        consent_mode: 'implicit'\n"
@@ -192,7 +211,7 @@ client = (
     "          - 'email'\n"
     "          - 'groups'\n"
     "        userinfo_signed_response_alg: 'none'\n"
-    "        token_endpoint_auth_method: 'client_secret_basic'\n"
+    "        token_endpoint_auth_method: 'client_secret_post'\n"
 ) % (os.environ["AE_HASH"], os.environ["AE_DOMAIN"])
 s2 = re.sub(r"^(    clients:\n)", lambda m: m.group(1) + client, s, count=1, flags=re.M)
 if s2 == s:
