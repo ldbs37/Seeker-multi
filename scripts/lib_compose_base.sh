@@ -669,6 +669,45 @@ generate_docker_compose() {
     log "✓ Configuration Docker générée"
 }
 
+# Image du service $2 remplacée par $3 dans le compose $1 (ligne « image: » de
+# son bloc). Retour 1 si le service n'a pas de ligne image.
+compose_set_image() {
+    local file="$1" name="$2" img="$3" tmp
+    tmp="$file.img.tmp"
+    awk -v name="${name}:" -v img="$img" '
+        /^  [^ #]/ { inb = ($1 == name) }
+        /^[^ ]/    { inb = 0 }
+        inb && /^    image: / { print "    image: " img; found = 1; next }
+        { print }
+        END { exit !found }
+    ' "$file" > "$tmp" && mv "$tmp" "$file" || { rm -f "$tmp"; return 1; }
+}
+
+# Versions imposées par un essai de mise à jour (test_update.sh) : fichier
+# $INSTALL_DIR/image_overrides, « <service>=<image> » par ligne. Appliquées
+# à chaque régénération du compose, sinon l'ancienne version reviendrait sur
+# des données déjà converties par la nouvelle. $1 = compose
+compose_apply_image_overrides() {
+    local file="$1" f="$INSTALL_DIR/image_overrides" name img cur keep=""
+    [ -s "$f" ] || return 0
+    while IFS='=' read -r name img; do
+        [[ "$name" =~ ^[a-z0-9_-]+$ ]] && [ -n "$img" ] || continue
+        grep -q "^  ${name}:" "$file" || { keep+="$name=$img"$'\n'; continue; }
+        cur=$(awk -v n="${name}:" '/^  [^ #]/ { inb = ($1 == n) } /^[^ ]/ { inb = 0 }
+            inb && /^    image: / { print $2; exit }' "$file")
+        # Version fixée par la seedbox égale ou plus récente : rattrapée,
+        # l'imposer ferait revenir en arrière
+        if [ "${cur%:*}" = "${img%:*}" ] \
+            && [ "$(printf '%s\n%s\n' "${img##*:}" "${cur##*:}" | sort -V | tail -1)" = "${cur##*:}" ]; then
+            continue
+        fi
+        compose_set_image "$file" "$name" "$img"
+        keep+="$name=$img"$'\n'
+    done < "$f"
+    printf '%s' "$keep" > "$f"
+    return 0
+}
+
 # Extrait (stdout) les blocs verbatim des services nommés d'un compose,
 # dans l'ordre du fichier. $1=fichier, $2..=noms de services
 compose_extract_blocks() {

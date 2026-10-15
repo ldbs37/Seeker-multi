@@ -130,6 +130,8 @@ sed -i -E "s#^    image: traefik:v3\.[0-9.]+\$#    image: ${TRAEFIK_IMAGE}#; s#^
 # Réseau privé de chaque utilisateur (Traefik et Homarr raccordés)
 compose_sync_user_nets "$TMP"; [ $? -eq 2 ] && { rm -f "$TMP"; error "Réseaux des utilisateurs non créés (docker network create)"; }
 
+# Versions en cours d'essai ou gardées (test_update.sh)
+compose_apply_image_overrides "$TMP"
 if ! compose_validate "$TMP"; then
     rm -f "$TMP"
     cp "${ENV_FILE}.pre-migration" "$ENV_FILE"
