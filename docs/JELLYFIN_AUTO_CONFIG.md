@@ -156,6 +156,19 @@ Un Seerr déjà configuré à la main n'est pas modifié (seuls un Sonarr ou un
 Radarr manquants sont ajoutés). Quick Connect doit rester activé dans
 Jellyfin (réglage par défaut).
 
+## Thème
+
+Interface web au thème [Abyss](https://github.com/AumGupta/abyss-jellyfin)
+(CSS personnalisé de Jellyfin : Tableau de bord → Général/Branding), pour
+tous les comptes. Version figée, chargée depuis jsDelivr par le navigateur.
+Le CSS ajouté à la main dans Jellyfin est conservé (le thème occupe un bloc
+`/* seedbox-theme */` en tête).
+
+- Interface d'origine : `JELLYFIN_THEME=none` dans `/opt/seedbox/.env`, puis
+  `sudo bash scripts/generate_traefik_labels.sh`.
+- Prévu pour le thème sombre de Jellyfin (par défaut) et le navigateur ; les
+  applis TV et mobile gardent leur apparence.
+
 ## Réparer un compte
 
 ```bash

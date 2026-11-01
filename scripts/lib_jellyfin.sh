@@ -192,8 +192,35 @@ jellyfin_sync_all() {
         jellyfin_user_sync "$u" || echo "Jellyfin : compte de $u incomplet" >&2
     done
     jellyfin_sso_ensure || return 1
+    jellyfin_theme_ensure || echo "Jellyfin : thème non appliqué (relancez generate_traefik_labels.sh)" >&2
     jellyfin_plugins_ensure || echo "Jellyfin : plugins de confort non installés (relancez generate_traefik_labels.sh)" >&2
     return 0
+}
+
+# Thème de l'interface web (CSS personnalisé de Jellyfin, pour tous) :
+# JELLYFIN_THEME du .env, « abyss » par défaut, « none » pour l'interface
+# d'origine. Abyss (github.com/AumGupta/abyss-jellyfin, MIT) : version figée
+# (commit), servie par jsDelivr ; prévu pour le thème sombre de Jellyfin (par
+# défaut). Bloc entre marqueurs, en tête (règle CSS @import) ; le reste du
+# CSS personnalisé est conservé.
+JF_THEME_ABYSS_URL="https://cdn.jsdelivr.net/gh/AumGupta/abyss-jellyfin@2f809171ed7f3a34b5e78297608b5f2b63dd3f0f/abyss.css"
+jellyfin_theme_ensure() {
+    local theme url="" f
+    theme=$(grep '^JELLYFIN_THEME=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2)
+    case "${theme:-abyss}" in
+        abyss) url="$JF_THEME_ABYSS_URL" ;;
+        none) ;;
+        *) echo "JELLYFIN_THEME inconnu : ${theme} (abyss ou none)" >&2; return 1 ;;
+    esac
+    f=$(jf_api GET /System/Configuration/branding | URL="$url" python3 -c '
+import json, os, re, sys
+b = json.loads(sys.stdin.read().lstrip("\ufeff"))
+css = re.sub(r"/\* seedbox-theme \*/.*?/\* /seedbox-theme \*/\n?", "", b.get("CustomCss") or "", flags=re.S)
+if os.environ["URL"]:
+    css = "/* seedbox-theme */ @import url(\"%s\"); /* /seedbox-theme */\n" % os.environ["URL"] + css
+b["CustomCss"] = css
+print(json.dumps(b))') || return 1
+    jf_api POST /System/Configuration/branding "$f" >/dev/null
 }
 
 # Plugins de confort (JF_EXTRA_PLUGINS) : dépôts ajoutés, plugins manquants
